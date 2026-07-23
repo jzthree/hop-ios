@@ -22,13 +22,16 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 - Toolchain verified: Xcode 26.6, iOS 26.5 SDK, xcodegen, Apple Development
   identity for team 7U9ZU5QLGQ present, iPhone 17 Pro known to devicectl.
 
-## Needs from Jian
-1. **Plug in / unlock the iPhone** when we're ready to install (devicectl shows it
+## Needs from Jian  ⚠ BLOCKER first item
+1. **Sign in to your Apple ID in Xcode** (Xcode → Settings → Accounts): the
+   development certificate for team 7U9ZU5QLGQ is in the keychain, but there is
+   no account session, so automatic provisioning can't mint a profile for
+   `io.zhoulab.hop.spike`. One sign-in unblocks the device build.
+2. **Plug in / unlock the iPhone** when we're ready to install (devicectl shows it
    "unavailable" until connected + trusted; Developer Mode must be on:
    Settings → Privacy & Security → Developer Mode).
-2. First install will ask to trust the developer cert on-device
+3. First install will ask to trust the developer cert on-device
    (Settings → General → VPN & Device Management).
-3. Nothing else — signing identity + team already on this Mac.
 
 ## Spike test script (once installed)
 1. On Mac: `node ~/Code/hop-ios/tools/lan-bridge.mjs` → note the ws:// URL.
