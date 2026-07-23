@@ -15,7 +15,9 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
   ~250 lines Swift: ConnectView (bridge URL + session form) → TerminalScreen
   (SwiftTerm `TerminalView` + `HayClient` speaking the hay WS protocol:
   snapshot/output → feed, input → send, active_size → resize, bell → native haptic).
-- **Device build**: first `xcodebuild` for generic/iOS running now (SPM fetch + signing check).
+- **Compile: GREEN.** Full simulator build succeeds — SwiftTerm integration,
+  HayClient, and the delegate wiring are all valid; Metal toolchain installed.
+  Only signing separates us from the device build.
 - **LAN bridge**: `tools/lan-bridge.mjs` — spike-only TCP proxy exposing the
   hay-host WS to the LAN (no hop2 changes needed). Security caveat printed at start;
   run only while testing.
@@ -40,8 +42,11 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
    scroll physics, latency vs the web client. That verdict gates v1.
 
 ## Next (Orion)
-- [ ] Fix whatever the first device build throws (SwiftTerm delegate API drift likely)
-- [ ] Install to device via `xcrun devicectl device install app` once iPhone connected
+- [x] Code compiles clean (simulator build green, no API drift)
+- [ ] After Jian's Xcode sign-in: `xcodebuild -allowProvisioningUpdates
+  -destination 'generic/platform=iOS' build`, then `xcrun devicectl device
+  install app --device FA720813-48B6-5E57-984D-C76733368A9D <HopSpike.app>`
+  with the iPhone connected + unlocked
 - [ ] PWA push prototype branch plan (daemon: VAPID + subscribe endpoint + push on
   bellSeq increment; web: manifest + SW). Will be a small separate hop2 commit — 
   coordinating with Solstice before touching shared files.
