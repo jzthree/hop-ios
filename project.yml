@@ -1,0 +1,26 @@
+name: HopSpike
+options:
+  bundleIdPrefix: io.zhoulab.hop
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.2.0
+targets:
+  HopSpike:
+    type: application
+    platform: iOS
+    sources: [Sources/HopSpike]
+    dependencies:
+      - package: SwiftTerm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike
+        DEVELOPMENT_TEAM: 7U9ZU5QLGQ
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "HopSpike connects to your hop daemon on the local network."
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
