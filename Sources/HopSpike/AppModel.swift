@@ -288,6 +288,16 @@ final class AppModel: ObservableObject {
     func setAgentAccess(_ s: HopSession, allowed: Bool) async -> Bool {
         await post("api/sessions/agent-permission", ["internalName": s.internalName, "allowed": allowed])
     }
+    /// Opening a parked session IS unparking it — the same rule hop's own
+    /// switcher follows. You went looking for it and opened it, so it is back
+    /// in the working set, on every client rather than just this one.
+    /// Best-effort: a failure leaves it parked, which is what it already was.
+    func unpark(_ s: HopSession) async {
+        guard s.parked else { return }
+        _ = await post("api/sessions/park", ["internalName": s.internalName, "parked": false])
+        await refreshSessions(silent: true)
+    }
+
     func killSession(_ s: HopSession) async -> Bool {
         await post("api/sessions/delete", ["internalName": s.internalName])
     }
@@ -473,6 +483,14 @@ struct HopSession: Identifiable {
     let createdBy: String
     let tagline: String
     let agentPermitted: Bool
+    /// Hidden from the browsing list while still running. hop's word for "not
+    /// part of my working set right now", and the phone honouring it is the
+    /// whole point — a session parked from the desk that keeps appearing in
+    /// your pocket has not been parked.
+    let parked: Bool
+    /// Parked AND stopped, but the daemon pre-wrote a restore plan, so opening
+    /// it resumes the conversation rather than starting a new one.
+    let archived: Bool
     var id: String { internalName }
 
     init?(json: [String: Any], seenBellSeq: [String: Int]) {
@@ -487,6 +505,10 @@ struct HopSession: Identifiable {
         isPort = (json["type"] as? String) == "port"
         attention = bellSeq > (seenBellSeq[internalName] ?? bellSeq)
         agentPermitted = (json["agentPermitted"] as? Bool) ?? false
+        // Both are `true` or absent — the daemon omits them rather than
+        // sending false, so a missing key means "no".
+        parked = (json["parked"] as? Bool) ?? false
+        archived = (json["archived"] as? Bool) ?? false
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
 

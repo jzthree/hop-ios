@@ -176,6 +176,7 @@ be the scriptable route but needs admin, so Console is the practical one.
 | **hop's exact terminal palette** | ✓ | ✓ (#54) |
 | **Touch scrolling** | ✓ (browser) | ✓ (#54) — SwiftTerm had none |
 | **Chrome-free landscape** | ✗ | ✓ (#54) |
+| **Parked / archived sessions** | ✓ | ✓ (#102) — hidden, searchable, unpark on open, no bells |
 | Split/secondary pane, wall zoom | ✓ | ✗ deliberately (desktop-shaped) |
 | Passkey / share link | ✓ | ✗ (low value on a phone) |
 
@@ -256,6 +257,36 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 (zero when it's down, since the bar goes with it). Now **fit 51x23 in 358pt**,
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
+
+## Parked sessions (iteration 102)
+
+hop2 gained park and archive yesterday — "hide without closing; sometimes kill
+but keep resumable" — and this app knew nothing about either. A session parked
+from the desk kept appearing in your pocket, which means it was not parked.
+
+Took hop's own rules rather than inventing parallel ones, by reading
+SessionSwitcher.tsx:
+
+- The browsing list excludes parked; the FILTER still searches them. Parking
+  is "not part of my working set right now", not "gone", and hiding a session
+  whose name you just typed looks broken.
+- Opening a parked session unparks it, best-effort, on every client rather
+  than just this one.
+
+One rule this app needs and the web has no equivalent for: **parked sessions
+don't ring the phone.** Parking exists to cut noise, and a notification from
+something deliberately hidden — which then isn't in the list you open to find
+it — is the worst of both. The fleet summary carries a "N parked" count so
+they are hidden but never silent.
+
+Verified end to end against the daemon with a scratch session, the third part
+from OUTSIDE the app: parked and absent from the list, found by typing its
+name, and after opening it the daemon reported it unparked. Scratch session
+deleted; fleet back to 19.
+
+Not made a permanent UI test: it would have to park something on every run,
+and mutating the fleet to test a filter is a bad trade. The rules themselves
+are unit-tested.
 
 ## Bells could arrive twice, and two stores grew forever (iteration 101)
 

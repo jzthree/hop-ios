@@ -69,19 +69,31 @@ struct SessionsView: View {
         return target.tagline
     }
 
-    private var wanting: Int { model.sessions.filter { $0.attention && !$0.isPort }.count }
+    /// Parked sessions are left out on purpose: they don't ring the phone (see
+    /// `alertable`), so counting them here would promise a bell that never
+    /// comes, for a row that isn't in the list either.
+    private var wanting: Int {
+        model.sessions.filter { $0.attention && !$0.isPort && !$0.parked }.count
+    }
+
+    private var parkedCount: Int { model.sessions.filter { !$0.isPort && $0.parked }.count }
 
     private var fleetSummary: String {
         let shown = visible.count
-        let total = model.sessions.filter { !$0.isPort }.count
+        // The denominator is what you could BROWSE to, so parking something
+        // doesn't leave the list permanently reading "19 of 24" as though a
+        // filter were stuck on. Parked sessions get their own count instead —
+        // hidden, but never silently.
+        let total = model.sessions.filter { !$0.isPort && !$0.parked }.count
         let scope = shown == total
             ? "\(shown) session\(shown == 1 ? "" : "s")"
             : "\(shown) of \(total)"
-        guard wanting > 0 else { return "\(scope) · nothing waiting on you" }
+        let parkedNote = parkedCount > 0 ? " · \(parkedCount) parked" : ""
+        guard wanting > 0 else { return "\(scope) · nothing waiting on you\(parkedNote)" }
         // And say so when the thing waiting isn't one of the rows you can see.
         let hidden = wanting - visible.filter(\.attention).count
         let note = hidden > 0 ? " (\(hidden) not shown here)" : ""
-        return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)"
+        return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)\(parkedNote)"
     }
 
     /// One unlabelled section normally; project buckets when grouping is on.
@@ -262,6 +274,7 @@ struct SessionsView: View {
                     if let session = model.sessions.first(where: { $0.internalName == name })
                         ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
+                            .task { await model.unpark(session) }
                     } else {
                         ContentUnavailableView("Session not found", systemImage: "questionmark.folder")
                     }

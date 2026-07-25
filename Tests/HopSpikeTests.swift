@@ -559,4 +559,42 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(shouldNotify(bellSeq: 1, lastNotified: 50))
         XCTAssertTrue(shouldNotify(bellSeq: 0, lastNotified: 50))
     }
+
+    // MARK: - Parked sessions
+
+    func testParkedSessionsAreHiddenFromBrowsingButStillSearchable() {
+        let list = [session(["name": "Orion"]),
+                    session(["name": "Umbra", "parked": true])]
+        // Browsing: parking is what the user did to stop seeing it. A session
+        // parked from the desk that still fills your pocket is not parked.
+        XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["Orion"])
+        // Searching: parked is "not my working set", not "gone" — and hiding a
+        // session you explicitly typed the name of just looks broken. Same rule
+        // as hop's own switcher.
+        XCTAssertEqual(filterSessions(list, scope: .all, query: "umb").map(\.name), ["Umbra"])
+    }
+
+    func testParkedSessionsDoNotRingThePhone() {
+        let ringing = session(["name": "Umbra", "bellSeq": 5, "parked": true])
+        let alsoRinging = session(["name": "Orion", "bellSeq": 5])
+        let seen = ["Umbra": 0, "Orion": 0]
+        let list = [HopSession(json: ["name": "Umbra", "bellSeq": 5, "parked": true],
+                               seenBellSeq: seen)!,
+                    HopSession(json: ["name": "Orion", "bellSeq": 5], seenBellSeq: seen)!]
+        XCTAssertTrue(list[0].attention, "the parked one IS ringing")
+        // ...but a notification from something deliberately hidden, which then
+        // isn't in the list you open to find it, is the worst of both.
+        XCTAssertEqual(alertable(list, openSession: nil).map(\.name), ["Orion"])
+        _ = (ringing, alsoRinging)
+    }
+
+    func testArchivedIsParkedAndStopped() {
+        // Archived sessions are parked too (the daemon sets both), so they
+        // follow the same hiding rule; `archived` only says that opening one
+        // resumes a stopped process rather than attaching to a running one.
+        let s = session(["name": "Titan", "parked": true, "archived": true])
+        XCTAssertTrue(s.parked)
+        XCTAssertTrue(s.archived)
+        XCTAssertFalse(session(["name": "Titan"]).archived)
+    }
 }

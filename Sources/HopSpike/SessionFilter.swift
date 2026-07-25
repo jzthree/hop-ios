@@ -49,7 +49,12 @@ func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String
         case .agent: if s.createdBy != "agent" { return false }
         case .all: break
         }
-        guard !q.isEmpty else { return true }
+        // Parked sessions are hidden from BROWSING but still SEARCHABLE, which
+        // is exactly how hop's own switcher treats them: parking is "not part
+        // of my working set right now", not "gone". A query means you are
+        // looking for something specific, and hiding it then would just look
+        // broken.
+        guard !q.isEmpty else { return !s.parked }
         return s.name.lowercased().contains(q)
             || s.shortCwd.lowercased().contains(q)
             || s.runningApp.lowercased().contains(q)
@@ -64,7 +69,12 @@ func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String
 func alertable(_ sessions: [HopSession], openSession: String?) -> [HopSession] {
     // Ports are excluded: a forwarded port has no terminal to open and cannot
     // ring, so counting one would inflate a badge nobody could clear.
-    sessions.filter { $0.attention && !$0.isPort && $0.internalName != openSession }
+    // Parked sessions don't ring the phone. Parking exists to cut noise, and a
+    // notification from something deliberately hidden — which then isn't in the
+    // list you open to find it — is the worst of both.
+    sessions.filter {
+        $0.attention && !$0.isPort && !$0.parked && $0.internalName != openSession
+    }
 }
 
 /// A 6-digit authenticator code, cleaned. Authenticator apps and password
