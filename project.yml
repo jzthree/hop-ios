@@ -44,15 +44,22 @@ targets:
       # Info.plist. Same trap, second time.
       path: HopSpike.entitlements
       properties:
-        aps-environment: development
+        # Per-configuration: a TestFlight/App Store build MUST say production,
+        # or the app registers against sandbox APNs and real pushes never
+        # arrive. Debug keeps development so a cabled build still works.
+        aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike
         DEVELOPMENT_TEAM: 5AD7QB9795
+        APS_ENVIRONMENT: development
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          APS_ENVIRONMENT: production
   HopSpikeTests:
     type: bundle.unit-test
     platform: iOS

@@ -225,6 +225,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Push environment per configuration (iteration 67)
+
+`aps-environment` was hardcoded to `development`. A TestFlight build carrying
+that registers against SANDBOX APNs, so production pushes never arrive — a
+failure that looks exactly like "push doesn't work" with nothing in the logs.
+It is now `$(APS_ENVIRONMENT)`: development in Debug, **production in Release**,
+verified via `-showBuildSettings` for both configurations.
+
+Honest limit: the archive itself still shows `development`, because Xcode
+archives with development signing and re-signs at export — where it is expected
+to rewrite the value. That last step needs the App Store Connect app record, so
+it is NOT yet verified end to end. Worth checking on the first TestFlight build
+(`codesign -d --entitlements -` on the exported .ipa) before concluding push
+works or doesn't.
+
 ## One reshape per open, and saying when it happens (iteration 66)
 
 Answering Jian's question about independent terminal sizes turned up a real
