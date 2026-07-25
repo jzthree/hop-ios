@@ -7,7 +7,7 @@ struct SessionsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [String] = []
     @State private var filter = ""
-    @State private var scope: Scope = {
+    @State private var scope: SessionScope = {
         switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
         case "all": return .all
         case "agent": return .agent
@@ -21,31 +21,23 @@ struct SessionsView: View {
     @State private var killTarget: HopSession?
     @StateObject private var notifier = HopNotifier.shared
 
-    enum Scope: String, CaseIterable { case user = "You", agent = "Agents", all = "All" }
-
     private var visible: [HopSession] {
-        model.sessions.filter { s in
-            guard !s.isPort else { return false }
-            switch scope {
-            case .user: if s.createdBy == "agent" { return false }
-            case .agent: if s.createdBy != "agent" { return false }
-            case .all: break
-            }
-            guard !filter.isEmpty else { return true }
-            let q = filter.lowercased()
-            return s.name.lowercased().contains(q)
-                || s.shortCwd.lowercased().contains(q)
-                || s.runningApp.lowercased().contains(q)
-                || s.tagline.lowercased().contains(q)
-        }
+        filterSessions(model.sessions, scope: scope, query: filter)
     }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                if let err = model.lastError {
+                    Section {
+                        Label(err, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                }
                 Section {
                     Picker("Scope", selection: $scope) {
-                        ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        ForEach(SessionScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))

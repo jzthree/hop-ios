@@ -27,3 +27,22 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  HopSpikeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: HopSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike.tests
+        DEVELOPMENT_TEAM: 5AD7QB9795
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  HopSpike:
+    build:
+      targets:
+        HopSpike: all
+        HopSpikeTests: [test]
+    test:
+      targets: [HopSpikeTests]

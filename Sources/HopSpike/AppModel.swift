@@ -191,7 +191,7 @@ final class AppModel: ObservableObject {
     /// its own chrome — Claude's composer box, rule lines, the "bypass
     /// permissions" hint — so a naive tail shows every session as identical
     /// box-drawing. Skip chrome and keep real content.
-    static func meaningfulTail(of screen: String, lines wanted: Int) -> String {
+    nonisolated static func meaningfulTail(of screen: String, lines wanted: Int) -> String {
         let boxChars = CharacterSet(charactersIn: "─│╭╮╰╯┌┐└┘├┤┬┴┼━┃▏▕▁▔█▀▄· ")
         let noise = ["bypass permissions", "esc to interrupt", "shift+tab to cycle",
                      "? for shortcuts", "ctrl+c to"]

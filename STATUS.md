@@ -169,6 +169,17 @@ LESSON: test against a REAL session with history, not a fresh probe.
    never the TOTP secret — both factors on one device would defeat 2FA), so a
    7-day cookie expiry costs one 6-digit code instead of a full re-entry.
 
+7. **Tests + error visibility** — six features had shipped with zero
+   regression cover, and the one real logic bug (attention baseline) was caught
+   only by luck in live testing. Added a unit-test target (8 tests) over the
+   pure logic: attention/seen-marker semantics (the shipped bug, now pinned),
+   preview chrome-stripping, version→"claude" badge, ~cwd shortening,
+   scope/filter matching, port exclusion. List filtering moved out of the view
+   into a testable `filterSessions`. A failed refresh now shows an orange
+   banner in the list — `lastError` was being set and never displayed.
+   Run: `xcodebuild test -scheme HopSpike -destination 'platform=iOS
+   Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO`
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
