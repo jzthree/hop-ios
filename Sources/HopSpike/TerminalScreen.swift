@@ -579,7 +579,7 @@ struct TerminalScreen: UIViewRepresentable {
                         var depth = 0
                         while depth < 6000, t.getLine(row: depth) != nil { depth += 1 }
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
-                            .info("scrollback reachable \(depth) lines, altScreen=\(self.lastAltScreen)")
+                            .info("scrollback reachable \(depth) lines, altScreen=\(self.view?.remoteAltScreen == true)")
                     }
                 case .output(let data):
                     tv.noteRemoteModes(in: data)
@@ -587,7 +587,6 @@ struct TerminalScreen: UIViewRepresentable {
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
-                    self.lastAltScreen = alternateScreen
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
                     // one duplicated history for shell sessions and let stale
@@ -929,7 +928,7 @@ struct TerminalScreen: UIViewRepresentable {
         /// session that you're typing when you're only reading.
         func scrollInput(_ text: String) {
             guard !text.isEmpty else { return }
-            let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+            let log = HopTermView.log
             guard isLive else { return log.info("scroll dropped, socket down") }
             // Someone else is driving. The server rejects every input from a
             // non-controller and answers each one with "Control is locked", so
@@ -1002,7 +1001,6 @@ struct TerminalScreen: UIViewRepresentable {
         /// tell "I fit this to the phone" from "I just reshaped the terminal
         /// someone is using at their desk".
         private var sizeAtJoin: (cols: Int, rows: Int)?
-        private(set) var lastAltScreen = false
 
         /// Resizes are held until this is true. Opening a session used to send
         /// TWO: the claim at the pre-keyboard height, then another when the
@@ -1159,6 +1157,11 @@ extension AccessoryKeyHandler {
 }
 
 final class HopTermView: TerminalView {
+    /// Built once. The scroll path below runs on every frame of a coast — up
+    /// to 120 a second on a ProMotion phone — and constructing a Logger per
+    /// call is work done for a line that is usually disabled.
+    static let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
@@ -1247,7 +1250,7 @@ final class HopTermView: TerminalView {
         let terminal = getTerminal()
         let cell = drawnCellHeight(viewHeight: bounds.height,
                                    drawnRows: drawnRows, terminalRows: terminal.rows)
-        let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+        let log = Self.log
 
         switch sink {
         case .wheel:
@@ -1281,6 +1284,9 @@ final class HopTermView: TerminalView {
     var drawnRows = 0
 
     private var remote = RemoteModes()
+    /// The live value, for diagnostics: the snapshot's flag goes stale the
+    /// moment the app switches screens.
+    var remoteAltScreen: Bool { remote.altScreen }
     private var sink: ScrollSink {
         scrollSink(altScreen: remote.altScreen, takesWheel: remote.takesWheel)
     }

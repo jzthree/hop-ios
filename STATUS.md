@@ -258,6 +258,20 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Tidying what a day of edits left behind (iteration 105)
+
+Two things today's work introduced and didn't clean up:
+
+**Alt-screen was tracked twice.** `lastAltScreen` was set once from the
+snapshot and read by a single diagnostic, while `RemoteModes.altScreen`
+follows the stream live. The moment an app switched screens the diagnostic
+would report the old value — a log that lies is worse than no log, because it
+is trusted. One source of truth now, the live one.
+
+**The scroll path built a Logger per call.** It runs on every frame of a coast
+— up to 120 a second on a ProMotion phone — to emit a line that is usually
+disabled. Built once now.
+
 ## Hardware keyboard: half verified, and why only half (iteration 104)
 
 The interaction audit has listed hardware-keyboard support as "supported by
