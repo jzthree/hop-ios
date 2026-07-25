@@ -147,6 +147,24 @@ Parity is complete except the two deliberate omissions. Everything in **bold**
 was added after the first matrix was written, most of it found by reading hop's
 server and web client rather than by inspecting our own UI.
 
+## shift+tab, and two negative results (iteration 53)
+
+**⇧tab added to the key bar** (CSI Z, back-tab). An iOS software keyboard
+cannot produce shift+tab at all, and claude's own footer advertises it —
+"bypass permissions on (shift+tab to cycle)" is visible in the terminal while
+using the app. So on a phone, claude's permission mode was simply unreachable.
+Placed next to `tab`, sequence pinned by a test.
+
+Two things checked and found fine, recorded so they aren't re-checked:
+- **Escape leakage into previews**: fetched all 19 previews and scanned for
+  ESC bytes and `[?…h/l` fragments. Zero. `/api/sessions/preview` reliably
+  returns plain text, so the corrupted-preview symptom is only #47's dropped
+  characters, not raw escapes rendering as junk.
+- **Row text bounds**: tagline and cwd are one line each, cwd truncated at the
+  HEAD so the tail of a path stays readable, preview three lines. Longest
+  values in the live fleet are 15/40/45 characters, so nothing is near the
+  limits anyway.
+
 ## Copy diagnostics (iteration 52)
 
 `⋯ → Server & account → Copy diagnostics` puts the app's state on the

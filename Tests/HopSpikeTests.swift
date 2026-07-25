@@ -264,6 +264,7 @@ final class HopSpikeTests: XCTestCase {
     func testAccessoryKeysCarryTheRightEscapeSequences() {
         XCTAssertEqual(AccessoryKey.esc.sequence, "\u{1b}")
         XCTAssertEqual(AccessoryKey.tab.sequence, "\t")
+        XCTAssertEqual(AccessoryKey.shiftTab.sequence, "\u{1b}[Z", "CSI Z is back-tab")
         XCTAssertEqual(AccessoryKey.ctrlC.sequence, "\u{03}")
         XCTAssertEqual(AccessoryKey.up.sequence, "\u{1b}[A")
         XCTAssertEqual(AccessoryKey.down.sequence, "\u{1b}[B")

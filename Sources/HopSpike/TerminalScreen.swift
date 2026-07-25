@@ -855,7 +855,7 @@ struct TerminalScreen: UIViewRepresentable {
 
 // ── Accessory key bar ──
 enum AccessoryKey {
-    case esc, tab, ctrl, alt, ctrlC, up, down, left, right
+    case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
 
     /// What this key puts on the wire; nil for keys that only arm a modifier
@@ -865,6 +865,10 @@ enum AccessoryKey {
         switch self {
         case .esc: return "\u{1b}"
         case .tab: return "\t"
+        // CSI Z (back-tab). An iOS software keyboard cannot produce shift+tab
+        // at all, and claude's own footer advertises it as the way to cycle
+        // permission modes — so on a phone that mode was simply unreachable.
+        case .shiftTab: return "\u{1b}[Z"
         case .ctrlC: return "\u{03}"
         case .pipe: return "|"
         case .slash: return "/"
@@ -1014,6 +1018,7 @@ final class HopTermView: TerminalView {
         // VoiceOver and unsayable to Voice Control ("tap page up" should work).
         let keys: [(String, AccessoryKey, CGFloat, String)] = [
             ("esc", .esc, 50, "escape"), ("tab", .tab, 50, "tab"),
+            ("⇧tab", .shiftTab, 58, "shift tab"),
             ("ctrl", .ctrl, 52, "control"), ("alt", .alt, 48, "alt"),
             ("^C", .ctrlC, 46, "control C"),
             ("←", .left, 42, "left arrow"), ("↓", .down, 42, "down arrow"),
