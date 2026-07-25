@@ -571,6 +571,7 @@ struct TerminalScreen: UIViewRepresentable {
                             .info("scrollback reachable \(depth) lines, altScreen=\(self.lastAltScreen)")
                     }
                 case .output(let data):
+                    tv.noteRemoteModes(in: data)
                     tv.feed(text: data)
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
@@ -595,15 +596,15 @@ struct TerminalScreen: UIViewRepresentable {
                     // deciding on a device, not guessing at here.
                     if alternateScreen { tv.feed(text: "\u{1b}[?1049h") }
                     if cursorHidden { tv.feed(text: "\u{1b}[?25l") }
-                    // Mouse reporting IS restored now, for one reason: it is
-                    // how the terminal knows a drag should become wheel events
-                    // rather than arrow keys — and arrows sent to claude recall
-                    // previous prompts instead of scrolling. This does NOT
-                    // bring back taps-as-clicks: SwiftTerm's own tap and pan
-                    // handlers stay disabled via allowMouseReporting, and only
-                    // our scroll code reads the mode.
-                    if mouseReporting { tv.feed(text: "\u{1b}[?1000h") }
-                    if mouseSgr { tv.feed(text: "\u{1b}[?1006h") }
+                    // Mouse reporting is NOT fed into the terminal — it is
+                    // recorded beside it. The scroll code needs to know whether
+                    // the REMOTE app takes wheel events, and feeding ?1000h
+                    // would answer that by changing what our own terminal does,
+                    // which is a side effect to buy a fact. hop's web client
+                    // keeps the same two flags in refs for the same reason, and
+                    // it needs SGR specifically: without it the app expects the
+                    // legacy encoding, which caps coordinates at 223.
+                    tv.setRemoteMouse(reporting: mouseReporting, sgr: mouseSgr)
                     tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
@@ -1100,37 +1101,41 @@ final class HopTermView: TerminalView {
     /// This mirrors what SwiftTerm's macOS view does for a scroll wheel, which
     /// the iOS view has no equivalent of:
     ///
-    /// 1. App has mouse reporting on (claude does) — send WHEEL events, so the
-    ///    app scrolls its own transcript. Wheel is not a click: this doesn't
-    ///    reintroduce the phantom taps that #55 removed.
-    /// 2. No local scrollback and no mouse reporting (a pager on the alt
-    ///    screen) — send arrow keys, the conventional fallback.
+    /// 1. App takes wheel events (claude does) — send them, so the app scrolls
+    ///    its own transcript, one notch per row of finger travel. Wheel is not
+    ///    a click: this doesn't reintroduce the phantom taps that #55 removed.
+    /// 2. No local scrollback and no wheel (a pager on the alt screen) — send
+    ///    PAGE keys, three rows to the page.
     /// 3. Otherwise — move our own viewport, with momentum.
     ///
     /// Only case 3 was implemented, which is why dragging did nothing at all on
     /// an agent session: the alternate screen has NO scrollback by design, so
     /// there was never anything local to move.
+    ///
+    /// Case 2 sends Page and not arrows, learned the hard way from the desktop
+    /// client: arrows at a claude prompt recall previous PROMPTS. A fallback
+    /// that rewrites what you were typing is worse than one that does nothing.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
         let terminal = getTerminal()
         let cellHeight = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
         // Anything beyond the visible rows means real history to move.
         let hasScrollback = terminal.getLine(row: terminal.rows) != nil
-        let appWantsMouse = terminal.mouseMode != .off
 
         switch g.state {
         case .began:
             stopMomentum()
             scrollAnchorRow = terminal.buffer.yDisp
             dragRowsSent = 0
+            pageRowsPending = 0
         case .changed:
             // Drag DOWN reveals older output, like every scroll view on iOS.
             let rows = Int(g.translation(in: self).y / cellHeight)
-            if appWantsMouse || !hasScrollback {
+            if appTakesWheel || !hasScrollback {
                 // Incremental: these are events, not a position.
                 let delta = rows - dragRowsSent
                 guard delta != 0 else { return }
                 dragRowsSent = rows
-                sendScroll(lines: delta, mouse: appWantsMouse, terminal: terminal)
+                sendScroll(rows: delta, terminal: terminal)
             } else {
                 let target = max(0, scrollAnchorRow - rows)
                 if target != terminal.buffer.yDisp { scrollTo(row: target) }
@@ -1138,7 +1143,7 @@ final class HopTermView: TerminalView {
         case .ended:
             // Momentum only where we own the viewport. Flinging a burst of
             // wheel events at an app it can't cancel is not inertia, it's spam.
-            if !appWantsMouse && hasScrollback {
+            if !appTakesWheel && hasScrollback {
                 startMomentum(rowsPerSecond: -g.velocity(in: self).y / cellHeight)
             }
         default:
@@ -1147,22 +1152,37 @@ final class HopTermView: TerminalView {
     }
 
     private var dragRowsSent = 0
+    /// Page keys are coarse, so finger travel accumulates until it's worth one.
+    private var pageRowsPending = 0
+    private static let rowsPerPageKey = 3
 
-    private func sendScroll(lines: Int, mouse: Bool, terminal: Terminal) {
-        let up = lines > 0                     // dragging down looks backwards
-        Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
-            .info("scroll \(up ? "back" : "forward") \(abs(lines)) via \(mouse ? "wheel" : "arrows")")
-        for _ in 0..<min(abs(lines), 12) {     // cap: one drag isn't a hundred notches
-            if mouse {
-                let flags = terminal.encodeButton(button: up ? 4 : 5, release: false,
-                                                  shift: false, meta: false, control: false)
-                terminal.sendEvent(buttonFlags: flags,
-                                   x: 0, y: max(0, terminal.rows / 2))
-            } else {
-                keyHandler?.accessoryKey(up ? .up : .down, isRepeat: true)
+    private func sendScroll(rows: Int, terminal: Terminal) {
+        let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+        let up = rows > 0                      // dragging down looks backwards
+        guard appTakesWheel else {
+            pageRowsPending += rows
+            let pages = pageRowsPending / Self.rowsPerPageKey
+            guard pages != 0 else { return }
+            pageRowsPending -= pages * Self.rowsPerPageKey
+            log.info("scroll \(pages > 0 ? "back" : "forward") \(abs(pages)) pages")
+            for _ in 0..<min(abs(pages), 8) {
+                keyHandler?.accessoryKey(pages > 0 ? .pageUp : .pageDown, isRepeat: true)
             }
+            return
         }
+        let seq = wheelSequence(rows: rows, cols: terminal.cols, screenRows: terminal.rows)
+        log.info("scroll \(up ? "back" : "forward") \(min(abs(rows), 40)) via wheel")
+        terminal.sendResponse(text: seq)
     }
+
+    private var remoteMouse = RemoteMouseState()
+    private var appTakesWheel: Bool { remoteMouse.takesWheel }
+
+    func setRemoteMouse(reporting: Bool, sgr: Bool) {
+        remoteMouse.seed(reporting: reporting, sgr: sgr)
+    }
+
+    func noteRemoteModes(in chunk: String) { remoteMouse.note(chunk) }
 
     /// Rows still to travel, carried as a Double so slow tails don't round to
     /// zero and stall the glide a few rows early.

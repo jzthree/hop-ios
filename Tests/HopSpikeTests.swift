@@ -370,4 +370,70 @@ final class HopSpikeTests: XCTestCase {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
     }
+
+    // MARK: - Whether the remote app takes wheel events
+
+    func testWheelNeedsBothTrackingAndSgr() {
+        var m = RemoteMouseState()
+        XCTAssertFalse(m.takesWheel)                 // a plain shell: neither
+        m.seed(reporting: true, sgr: false)
+        // Tracking without SGR means the app expects the legacy encoding,
+        // which caps coordinates at 223 and is not what we send.
+        XCTAssertFalse(m.takesWheel)
+        m.seed(reporting: true, sgr: true)
+        XCTAssertTrue(m.takesWheel)                  // claude, as measured
+    }
+
+    func testModesFollowTheAppMidSession() {
+        var m = RemoteMouseState()
+        // claude starting inside a shell session we're already watching.
+        m.note("\u{1b}[?1003h\u{1b}[?1006h")
+        XCTAssertTrue(m.takesWheel)
+        // ...and exiting, handing the screen back. A stale "on" here would
+        // send wheel events at a bash prompt, which arrive as junk input.
+        m.note("\u{1b}[?1003l\u{1b}[?1006l")
+        XCTAssertFalse(m.takesWheel)
+    }
+
+    func testCombinedAndSplitModeSequences() {
+        var m = RemoteMouseState()
+        m.note("\u{1b}[?1000;1006h")                  // one sequence, both params
+        XCTAssertTrue(m.takesWheel)
+
+        // A mode set can arrive split across two WebSocket messages; without
+        // the carry-over the app looks like it never asked for anything.
+        var split = RemoteMouseState()
+        split.note("output\u{1b}[?10")
+        split.note("03h\u{1b}[?1006h")
+        XCTAssertTrue(split.takesWheel)
+    }
+
+    func testUnrelatedModesAreIgnored() {
+        var m = RemoteMouseState()
+        m.seed(reporting: true, sgr: true)
+        m.note("\u{1b}[?1049h\u{1b}[?25l\u{1b}[?2004h")  // alt screen, cursor, paste
+        XCTAssertTrue(m.takesWheel)
+    }
+
+    // MARK: - The wheel events themselves
+
+    func testWheelDirectionAndAim() {
+        // Dragging DOWN reveals older output, which is wheel UP (64).
+        XCTAssertEqual(wheelSequence(rows: 1, cols: 80, screenRows: 24),
+                       "\u{1b}[<64;40;12M")
+        XCTAssertEqual(wheelSequence(rows: -1, cols: 80, screenRows: 24),
+                       "\u{1b}[<65;40;12M")
+        // One notch per row of travel, and no events for no travel.
+        XCTAssertEqual(wheelSequence(rows: 3, cols: 80, screenRows: 24).count,
+                       "\u{1b}[<64;40;12M".count * 3)
+        XCTAssertEqual(wheelSequence(rows: 0, cols: 80, screenRows: 24), "")
+    }
+
+    func testWheelIsCappedAndNeverAimsAtRowZero() {
+        // A fling isn't a thousand notches the app has to chew through.
+        let seq = wheelSequence(rows: 500, cols: 80, screenRows: 24, cap: 40)
+        XCTAssertEqual(seq.components(separatedBy: "M").count - 1, 40)
+        // Coordinates are 1-based: a tiny terminal must not report row 0.
+        XCTAssertEqual(wheelSequence(rows: 1, cols: 1, screenRows: 1), "\u{1b}[<64;1;1M")
+    }
 }
