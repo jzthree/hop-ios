@@ -809,10 +809,29 @@ struct TerminalScreen: UIViewRepresentable {
             onScroll(position < 0.999)
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
-            if let u = URL(string: link) { UIApplication.shared.open(u) }
+            // OSC 8 hyperlinks come from session output, which for an agent
+            // session is arbitrary command output. Web links only: a `tel:`,
+            // `facetime:` or app-scheme URL would turn a tap on what looks
+            // like a link into an action nobody asked for.
+            guard let u = URL(string: link), let scheme = u.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                onToast("Only web links can be opened")
+                return
+            }
+            UIApplication.shared.open(u)
         }
         func clipboardCopy(source: TerminalView, content: Data) {
-            if let s = String(data: content, encoding: .utf8) { UIPasteboard.general.string = s }
+            // OSC 52: the session asking to WRITE the clipboard. Honoured,
+            // because `yy` in vim or a tmux copy reaching the iOS clipboard is
+            // a real workflow — but never silently. On iOS the clipboard is
+            // shared with every app and mirrored to the Mac by Universal
+            // Clipboard, so an unannounced replacement of what you had copied
+            // is the part that's unacceptable, not the write itself.
+            // (hop's web client swallows OSC 52, but a browser has little
+            // choice: clipboard writes without a user gesture are restricted.)
+            guard let text = String(data: content, encoding: .utf8), !text.isEmpty else { return }
+            UIPasteboard.general.string = text
+            onToast("Clipboard set by session")
         }
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {

@@ -778,6 +778,28 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Added HOP_DEV_OFFLINE=1 (`make sim OFFLINE=1`) because a simulator borrows
    the host's network and can't otherwise reach this state.
 
+44. **Dead-code sweep (clean) + two things session output could do unannounced.**
+   Swept every declaration for references, after #38 found `sendsInput` shipped
+   unreachable WITH a test asserting it. All 11 candidates turned out to be
+   framework-called protocol conformances (UIViewRepresentable, SwiftTerm's
+   delegate) — no dead code. A clean result, and cheap to re-run.
+   Reading those delegates found two places where session output — which for an
+   agent session is arbitrary command output — acted on the phone unannounced:
+   - **OSC 8 hyperlinks** opened ANY scheme. A `tel:`, `facetime:` or
+     app-scheme URL would turn a tap on what looks like a link into an action
+     nobody asked for. Now http/https only, and it says so when it refuses.
+   - **OSC 52** let a session WRITE the clipboard silently. On iOS that
+     clipboard is shared with every app and mirrored to the Mac by Universal
+     Clipboard, so an unannounced replacement of what you had copied is the
+     unacceptable part — not the write itself. Deliberately NOT blocked (hop's
+     web client swallows it, but a browser has little choice: clipboard writes
+     without a user gesture are restricted; and `yy` in vim reaching the iOS
+     clipboard is a real workflow). It now toasts "Clipboard set by session",
+     so it can never be silent.
+   Worth noting I reversed my own first implementation here: refusing OSC 52
+   outright would have quietly removed a working feature to fix a problem that
+   was really about silence.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
