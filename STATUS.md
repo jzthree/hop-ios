@@ -738,6 +738,29 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Found by continuing the endpoint audit from #40 — `/screen` returns
    `{data, cols, rows}` WITH escape sequences, unlike `/preview`'s plain text.
 
+42. **Field-level API audit: mostly a negative result, plus one thing you
+   should know.** Dumped a live session object and compared against what the
+   client parses. Ignored fields: `attached`, `cols/rows`, `createdAt`,
+   `folderId`, `hasLocalCli`, `localCliCount`, `hostPort`, `lastBellAt`,
+   `taglineAt`, `windows`.
+   - `folderId` is null on all 19 sessions and `/api/folders` isn't live, so
+     hop's folders aren't in use — the cwd grouping from #13 stands rather than
+     being replaced by folder grouping.
+   - `hasLocalCli` is false everywhere, `attached` is true on 17/19. Real but
+     low-value; noted, not built on.
+   - **Your running daemon is behind its source.** `park`, `archive`,
+     `restore`, `tagline` and `/api/folders` all exist in ~/Code/hop2 but
+     answer "Unknown API endpoint (daemon may need a restart to pick up new
+     endpoints)". Only `screen` is live, which is why #41 works. So the recent
+     park/stop-resumable work isn't running, and any mobile feature built on
+     those endpoints would fail until a restart — deliberately not built.
+     Same applies to the `replayBytes` wiring from #37.
+   Closed a test gap found along the way: `relativeTime` was untested and
+   encodes the assumption that `lastActivityAt` is epoch MILLISECONDS. If hop
+   ever sent seconds every row would read "56y" and nothing would fail loudly.
+   Now pinned, including clock skew — a host clock slightly ahead of the phone
+   gives a negative age and must read "now", never "-4s". 30 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

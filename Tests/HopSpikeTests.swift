@@ -64,6 +64,21 @@ final class HopSpikeTests: XCTestCase {
                        "a plain shell is not worth a badge")
     }
 
+    func testRelativeTimeAssumesMillisecondsAndSurvivesClockSkew() {
+        // lastActivityAt is epoch MILLISECONDS. If hop ever sent seconds, every
+        // row would read "56y" and nothing would fail loudly — so pin it.
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs]).relativeTime, "now")
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs - 30_000]).relativeTime, "30s")
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs - 5 * 60_000]).relativeTime, "5m")
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs - 3 * 3_600_000]).relativeTime, "3h")
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs - 2 * 86_400_000]).relativeTime, "2d")
+        // A host clock slightly ahead of the phone gives a negative age; it
+        // must read "now", never "-4s".
+        XCTAssertEqual(session(["name": "s", "lastActivityAt": nowMs + 4_000]).relativeTime, "now")
+        XCTAssertEqual(session(["name": "s"]).relativeTime, "", "never seen: no time at all")
+    }
+
     func testHomeDirectoryShortensToTilde() {
         XCTAssertEqual(session(["name": "s", "cwd": "/Users/jianzhou/Code/hop2"]).shortCwd, "~/Code/hop2")
         XCTAssertEqual(session(["name": "s", "cwd": "/etc"]).shortCwd, "/etc")
