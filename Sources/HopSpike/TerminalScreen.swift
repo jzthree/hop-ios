@@ -297,19 +297,56 @@ struct TerminalScreen: UIViewRepresentable {
         private var isLive = false
         private var lastDeadToast = Date.distantPast
 
-        /// Keystrokes only reach a live socket. Dropping them silently reads
-        /// as a frozen terminal (nothing echoes back, because the echo comes
-        /// from the server), so say so — throttled, since a burst of typing
-        /// would otherwise be a burst of toasts. Deliberately NOT queued for
-        /// replay: a command landing 30s late, mid-something-else, is worse
-        /// than a command that plainly didn't happen.
-        private func canSend() -> Bool {
-            if isLive { return true }
-            if Date().timeIntervalSince(lastDeadToast) > 3 {
-                lastDeadToast = Date()
-                onToast("Not connected — reconnecting…")
+        private var pending = PendingInput()
+
+        /// Every keystroke goes through here: straight out on a live socket,
+        /// buffered otherwise. A terminal's echo comes from the SERVER, so
+        /// silence during an outage reads as a frozen app — hence the toast,
+        /// throttled, since a burst of typing would be a burst of toasts.
+        private func deliver(_ text: String) {
+            guard !text.isEmpty else { return }
+            if isLive {
+                client.sendInput(text)
+                markTyping()
+                return
             }
-            return false
+            pending.append(text, at: Date())
+            if Date().timeIntervalSince(lastDeadToast) > 2 {
+                lastDeadToast = Date()
+                onToast("Reconnecting — input buffered")
+            }
+        }
+
+        /// Replay on reconnect: in order, as one message, and only what is
+        /// still fresh. Stale input is discarded and SAID so — silently
+        /// dropping keystrokes someone watched themselves type is worse than
+        /// admitting it.
+        private func replayPending() {
+            guard !pending.isEmpty else { return }
+            let (replay, dropped) = pending.drain(now: Date())
+            if !replay.isEmpty {
+                client.sendInput(replay)
+                onToast("Reconnected — buffered input sent")
+            }
+            if dropped > 0 { onToast("Reconnected — stale buffered input discarded") }
+        }
+
+        // Presence: other viewers see "typing" only if we say so. Transitions
+        // only, with the web client's 1.2s idle window.
+        private var typingActive = false
+        private var typingTimer: Timer?
+
+        private func markTyping() {
+            if !typingActive {
+                typingActive = true
+                client.sendTyping(true)
+            }
+            typingTimer?.invalidate()
+            typingTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.typingActive = false
+                self.client.sendTyping(false)
+            }
         }
 
         private func setStatus(_ state: TerminalHostView.ConnState) {
@@ -357,6 +394,7 @@ struct TerminalScreen: UIViewRepresentable {
                     self.retryAttempt = 0      // healthy again: reset backoff
                     self.setStatus(.live)
                     self.claimSizeOnAttach()
+                    self.replayPending()
                 case .output(let data):
                     tv.feed(text: data)
                 case .presence(let list):
@@ -435,6 +473,8 @@ struct TerminalScreen: UIViewRepresentable {
 
         func detach() {
             alive = false
+            typingTimer?.invalidate()
+            if typingActive { client.sendTyping(false) }
             retryTask?.cancel()
             NotificationCenter.default.removeObserver(self)
             client.close()
@@ -503,33 +543,17 @@ struct TerminalScreen: UIViewRepresentable {
 
         // ── AccessoryKeyHandler ──
         func accessoryKey(_ key: AccessoryKey, isRepeat: Bool) {
-            // ctrl/alt arm locally and dismiss is pure UI; the rest are bytes
-            // on the wire and need a live socket.
-            if key.sendsInput, !canSend() { return }
             switch key {
-            case .esc: client.sendInput("\u{1b}")
-            case .tab: client.sendInput("\t")
             case .ctrl:
                 ctrlArmed.toggle()
                 view?.setCtrlArmed(ctrlArmed)
             case .alt:
                 altArmed.toggle()
                 view?.setAltArmed(altArmed)
-            case .ctrlC: client.sendInput("\u{03}")
-            case .pipe: client.sendInput("|")
-            case .slash: client.sendInput("/")
-            case .dash: client.sendInput("-")
-            case .tilde: client.sendInput("~")
-            case .pageUp: client.sendInput("\u{1b}[5~")
-            case .pageDown: client.sendInput("\u{1b}[6~")
-            case .up: client.sendInput("\u{1b}[A")
-            case .down: client.sendInput("\u{1b}[B")
-            case .left: client.sendInput("\u{1b}[D")
-            case .right: client.sendInput("\u{1b}[C")
-            case .paste:
-                if let s = UIPasteboard.general.string { client.sendInput(s) }
             case .dismiss:
                 view?.resignFirstResponder()
+            default:
+                if let seq = key.sequence { deliver(seq) }
             }
             // Only the press buzzes. A held key repeats ~18x a second, and
             // haptics on every tick is a drill, not feedback.
@@ -550,8 +574,7 @@ struct TerminalScreen: UIViewRepresentable {
                 altArmed = false
                 view?.setAltArmed(false)
             }
-            guard canSend() else { return }
-            client.sendInput(text)
+            deliver(text)
         }
 
         /// The size this phone's view actually fits, recorded from layout —
@@ -601,8 +624,32 @@ enum AccessoryKey {
     case esc, tab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
 
+    /// What this key puts on the wire; nil for keys that only arm a modifier
+    /// or dismiss the keyboard. Data rather than a switch full of send calls,
+    /// so the escape sequences are testable.
+    var sequence: String? {
+        switch self {
+        case .esc: return "\u{1b}"
+        case .tab: return "\t"
+        case .ctrlC: return "\u{03}"
+        case .pipe: return "|"
+        case .slash: return "/"
+        case .dash: return "-"
+        case .tilde: return "~"
+        case .pageUp: return "\u{1b}[5~"
+        case .pageDown: return "\u{1b}[6~"
+        case .up: return "\u{1b}[A"
+        case .down: return "\u{1b}[B"
+        case .left: return "\u{1b}[D"
+        case .right: return "\u{1b}[C"
+        case .paste: return UIPasteboard.general.string
+        case .ctrl, .alt, .dismiss: return nil
+        }
+    }
+
     /// Keys that put bytes on the wire, as opposed to arming a modifier or
-    /// dismissing the keyboard.
+    /// dismissing the keyboard. (`paste` counts even when the pasteboard is
+    /// empty — it is an input key that happened to have nothing to say.)
     var sendsInput: Bool {
         switch self {
         case .ctrl, .alt, .dismiss: return false

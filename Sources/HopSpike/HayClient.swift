@@ -88,6 +88,10 @@ final class HayClient: NSObject {
     /// claim only needs 2.5s, because opening a session somewhere is a
     /// deliberate act. Without it the phone loses to any desktop that typed in
     /// the last minute and renders at ITS width — mis-wrapped until you type.
+    /// Presence only: the size election runs off real input, not this flag.
+    /// Without it a desktop peer never sees that the phone is mid-command.
+    func sendTyping(_ active: Bool) { sendJSON(["type": "typing", "active": active]) }
+
     func sendResize(cols: Int, rows: Int, claim: String? = nil) {
         var msg: [String: Any] = ["type": "resize", "cols": cols, "rows": rows]
         if let claim { msg["claim"] = claim }

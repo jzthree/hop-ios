@@ -355,6 +355,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    1.5 MB — so that was ~4.5 MB on someone's cellular to open one terminal. Now
    gated on `status == .closed`: one connect, re-measured.
 
+22. **Buffered input (reversing #16) + the typing signal.** Reading the web
+   client's input path showed it does the opposite of what I chose in #16: it
+   BUFFERS keystrokes through an outage and replays them, capped at 15s and 200
+   entries. That cap answers the objection I'd raised — a command from a minute
+   ago never lands mid-something-else — while a two-second tunnel hiccup no
+   longer costs you a whole retyped command, which on a phone is the common
+   case. Adopted: buffer, toast "Reconnecting — input buffered", replay in
+   order as one message on reconnect, and SAY when stale input was discarded.
+   The buffer is pure (`PendingInput`) and tested — order, the age cap, and the
+   bound all break silently otherwise.
+   Also: we parsed peers' `typing` state but never sent our own, so a desktop
+   never saw the phone mid-command. Now sent on transitions with the web's 1.2s
+   idle window.
+   Key sequences moved from a switch full of send calls to `AccessoryKey
+   .sequence`, so ESC[A/B/C/D and friends are pinned by a test rather than
+   trusted. 22 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

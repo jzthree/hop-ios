@@ -212,6 +212,53 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(extractLinks(from: screenText(rows: rows)), ["https://example.com/x"])
     }
 
+    // MARK: input buffered through an outage
+
+    func testBufferedInputReplaysInOrderWithinTheAgeWindow() {
+        let t0 = Date()
+        var buf = PendingInput()
+        buf.append("ls ", at: t0)
+        buf.append("-la\n", at: t0.addingTimeInterval(1))
+        let (replay, dropped) = buf.drain(now: t0.addingTimeInterval(2))
+        XCTAssertEqual(replay, "ls -la\n", "order matters: it's a command line")
+        XCTAssertEqual(dropped, 0)
+        XCTAssertTrue(buf.isEmpty, "draining must not leave a double-send behind")
+    }
+
+    func testStaleBufferedInputIsDiscardedNotReplayed() {
+        // The whole point of the age cap: a command typed a minute before the
+        // reconnect must never land mid-something-else.
+        let t0 = Date()
+        var buf = PendingInput()
+        buf.append("rm -rf old\n", at: t0)
+        buf.append("echo hi\n", at: t0.addingTimeInterval(PendingInput.maxAge + 10))
+        let (replay, dropped) = buf.drain(now: t0.addingTimeInterval(PendingInput.maxAge + 11))
+        XCTAssertEqual(replay, "echo hi\n")
+        XCTAssertEqual(dropped, 1)
+    }
+
+    func testBufferIsBoundedAndKeepsTheNewest() {
+        let t0 = Date()
+        var buf = PendingInput()
+        for i in 0..<(PendingInput.maxEntries + 5) { buf.append("\(i % 10)", at: t0) }
+        let (replay, _) = buf.drain(now: t0)
+        XCTAssertEqual(replay.count, PendingInput.maxEntries, "a long outage must not grow without bound")
+    }
+
+    func testAccessoryKeysCarryTheRightEscapeSequences() {
+        XCTAssertEqual(AccessoryKey.esc.sequence, "\u{1b}")
+        XCTAssertEqual(AccessoryKey.tab.sequence, "\t")
+        XCTAssertEqual(AccessoryKey.ctrlC.sequence, "\u{03}")
+        XCTAssertEqual(AccessoryKey.up.sequence, "\u{1b}[A")
+        XCTAssertEqual(AccessoryKey.down.sequence, "\u{1b}[B")
+        XCTAssertEqual(AccessoryKey.right.sequence, "\u{1b}[C")
+        XCTAssertEqual(AccessoryKey.left.sequence, "\u{1b}[D")
+        XCTAssertEqual(AccessoryKey.pageUp.sequence, "\u{1b}[5~")
+        XCTAssertEqual(AccessoryKey.pageDown.sequence, "\u{1b}[6~")
+        XCTAssertNil(AccessoryKey.ctrl.sequence, "modifiers arm locally")
+        XCTAssertNil(AccessoryKey.dismiss.sequence)
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
