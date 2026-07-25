@@ -49,6 +49,16 @@ struct SessionsView: View {
     /// Counting only what's on screen meant filtering to one project could
     /// report "nothing waiting on you" while a session in another project was
     /// waiting — the summary quietly agreeing with whatever you'd narrowed to.
+    /// What the session last said, falling back to what it's for.
+    private var replyPrompt: String {
+        guard let target = replyTarget else { return "" }
+        let lastLine = model.previews[target.internalName]?
+            .split(separator: "\n").last.map(String.init)?
+            .trimmingCharacters(in: .whitespaces)
+        if let lastLine, lastLine.count > 2 { return lastLine }
+        return target.tagline
+    }
+
     private var wanting: Int { model.sessions.filter { $0.attention && !$0.isPort }.count }
 
     private var fleetSummary: String {
@@ -267,7 +277,11 @@ struct SessionsView: View {
                         }
                     }
                 } message: {
-                    Text(replyTarget?.tagline ?? "")
+                    // The question, not the job title. Answering blind is how
+                    // you send "y" to something that asked which of three
+                    // options you wanted — the preview's last line is already
+                    // on screen in the row, and it's what you're replying to.
+                    Text(replyPrompt)
                 }
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,
