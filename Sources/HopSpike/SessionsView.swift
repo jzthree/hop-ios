@@ -28,6 +28,8 @@ struct SessionsView: View {
     @State private var renaming: HopSession?
     @State private var renameText = ""
     @State private var killTarget: HopSession?
+    @State private var replyTarget: HopSession?
+    @State private var replyText = ""
     @AppStorage("groupByProject") private var groupByProject = false
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var contentMatches: [ContentMatch] = []
@@ -98,6 +100,16 @@ struct SessionsView: View {
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                 .tint(.hopPurple)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            // Triage without opening anything. Three agents each waiting on a
+            // one-word answer used to mean three round trips through a
+            // terminal; this is the in-app twin of replying from the lock
+            // screen, and shares its send path.
+            Button { replyTarget = session; replyText = "" } label: {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+            .tint(.hopAttention)
         }
     }
 
@@ -234,6 +246,28 @@ struct SessionsView: View {
                     // .medium clipped the last row once diagnostics arrived;
                     // sized to the content instead of a fixed half-sheet.
                     AccountView().presentationDetents([.fraction(0.75), .large])
+                }
+                .alert("Reply to \(replyTarget?.name ?? "")",
+                       isPresented: Binding(get: { replyTarget != nil },
+                                            set: { if !$0 { replyTarget = nil } })) {
+                    TextField("Answer", text: $replyText)
+                        .textInputAutocapitalization(.never)
+                    Button("Cancel", role: .cancel) { replyTarget = nil }
+                    Button("Send") {
+                        guard let target = replyTarget else { return }
+                        let text = replyText
+                        replyTarget = nil
+                        Task {
+                            let ok = await QuickReply.send(text, to: target.internalName,
+                                                           model: model)
+                            // Say when it didn't land — a reply that silently
+                            // vanished is worse than no reply button.
+                            model.lastError = ok ? nil : "Couldn't send to \(target.name)"
+                            if ok { model.markSeen(target) }
+                        }
+                    }
+                } message: {
+                    Text(replyTarget?.tagline ?? "")
                 }
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,

@@ -25,6 +25,10 @@ enum QuickReply {
             func finish(_ ok: Bool) {
                 guard !settled else { return }
                 settled = true
+                // Break the cycle before letting go: `client` owns onEvent and
+                // onEvent captures `client`, so without this the HayClient and
+                // its socket task outlive every reply.
+                client.onEvent = nil
                 client.close()
                 continuation.resume(returning: ok)
             }
