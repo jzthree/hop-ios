@@ -1180,7 +1180,7 @@ final class HopTermView: TerminalView {
         altButton?.accessibilityValue = armed ? "armed" : nil
         altButton?.configuration?.baseForegroundColor = armed ? .black : .white
         altButton?.configuration?.background.backgroundColor =
-            armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey
+            armed ? .hopKeyArmed : .hopKey
     }
 
     // SwiftTerm exposes inputAccessoryView as a settable var — assign, don't override.
@@ -1192,7 +1192,7 @@ final class HopTermView: TerminalView {
         ctrlButton?.accessibilityValue = armed ? "armed" : nil
         ctrlButton?.configuration?.baseForegroundColor = armed ? .black : .white
         ctrlButton?.configuration?.background.backgroundColor =
-            armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey
+            armed ? .hopKeyArmed : .hopKey
     }
 
     private var holdKeys: [ObjectIdentifier: AccessoryKey] = [:]
