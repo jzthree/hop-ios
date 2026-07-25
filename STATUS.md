@@ -147,6 +147,24 @@ Parity is complete except the two deliberate omissions. Everything in **bold**
 was added after the first matrix was written, most of it found by reading hop's
 server and web client rather than by inspecting our own UI.
 
+## Copy diagnostics (iteration 52)
+
+`⋯ → Server & account → Copy diagnostics` puts the app's state on the
+clipboard: version and git describe, server, authenticated flag, session and
+attention counts, network state (wifi / cellular / low-data / offline),
+notification setting, last error. Built for the device checklist — when
+something looks wrong on a phone I can't attach a debugger to, that's the
+context worth having, and asking someone to read numbers off a screen is worse
+than a paste.
+
+Deliberately **no session names, no cwds, no output**: this gets pasted into a
+chat, and a fleet's session names say more about someone's work than they'd
+expect. The Console.app route (README) remains the deep option; this is the
+one-tap one.
+
+The sheet's `.medium` detent clipped the new row, so it's sized to the content
+now — caught by screenshot, not by the compiler.
+
 ## Cold-launch navigation was broken (iteration 51)
 
 Applying #50's lesson — *the thing new code hooks into may have several entry

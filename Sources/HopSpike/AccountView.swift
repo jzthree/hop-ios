@@ -6,6 +6,27 @@ struct AccountView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmSignOut = false
+    @State private var copied = false
+    @StateObject private var network = NetworkConditions.shared
+    @StateObject private var notifier = HopNotifier.shared
+
+    /// The state worth knowing when something is wrong on a phone I can't
+    /// attach a debugger to. Deliberately no session names, no cwds and no
+    /// output: this gets pasted into a chat, and a fleet's session names say
+    /// more about someone's work than they'd expect.
+    private var diagnostics: String {
+        let net = !network.isOnline ? "offline"
+            : network.isConstrained ? "low-data"
+            : network.isExpensive ? "cellular" : "wifi"
+        return """
+        hop-ios \(version)
+        server: \(model.normalizedServerURL)
+        authenticated: \(model.authenticated), sessions: \(model.sessions.count),         attention: \(model.sessions.filter(\.attention).count)
+        network: \(net)
+        notifications: \(notifier.enabled ? "on" : "off")
+        lastError: \(model.lastError ?? "none")
+        """
+    }
 
     /// Shows the git description too, so "is the fix on my phone?" is a
     /// question the Account sheet can answer.
@@ -41,6 +62,15 @@ struct AccountView: View {
                 }
                 Section {
                     LabeledContent("Version") { Text(version).foregroundStyle(.secondary) }
+                    Button {
+                        UIPasteboard.general.string = diagnostics
+                        copied = true
+                    } label: {
+                        Label(copied ? "Copied" : "Copy diagnostics",
+                              systemImage: copied ? "checkmark" : "doc.on.doc")
+                    }
+                } footer: {
+                    Text("Version, server, network state and counts — paste it into a session when something looks wrong on the phone.")
                 }
             }
             .navigationTitle("Account")

@@ -190,7 +190,9 @@ struct SessionsView: View {
                 }
                 .refreshable { await model.refreshSessions() }
                 .sheet(isPresented: $showAccount) {
-                    AccountView().presentationDetents([.medium, .large])
+                    // .medium clipped the last row once diagnostics arrived;
+                    // sized to the content instead of a fixed half-sheet.
+                    AccountView().presentationDetents([.fraction(0.75), .large])
                 }
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,
