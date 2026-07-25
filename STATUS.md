@@ -43,10 +43,10 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)
-- [ ] After Jian's Xcode sign-in: `xcodebuild -allowProvisioningUpdates
-  -destination 'generic/platform=iOS' build`, then `xcrun devicectl device
-  install app --device FA720813-48B6-5E57-984D-C76733368A9D <HopSpike.app>`
-  with the iPhone connected + unlocked
+- [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle
+  io.zhoulab.hop.spike. (Wi-Fi install flaky: took ~12 retries through
+  DeviceLocked/disconnect; USB cable makes it one-shot.)
+- [ ] **AWAITING JAIN'S KEYBOARD VERDICT** — the gate for v1
 - [ ] PWA push prototype branch plan (daemon: VAPID + subscribe endpoint + push on
   bellSeq increment; web: manifest + SW). Will be a small separate hop2 commit — 
   coordinating with Solstice before touching shared files.
