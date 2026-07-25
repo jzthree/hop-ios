@@ -74,3 +74,16 @@ func alertable(_ sessions: [HopSession], openSession: String?) -> [HopSession] {
 func sanitizedCode(_ raw: String) -> String {
     String(raw.filter(\.isNumber).prefix(6))
 }
+
+/// The seen-bell baseline for one session, or nil to leave it alone.
+///
+/// Two cases, and the second was missing: a session this device has never seen
+/// gets a silent baseline so its history doesn't arrive as a pile of unread
+/// bells. And a session whose bellSeq went BACKWARDS has been killed and
+/// recreated under the same name — which hop encourages — so the old marker is
+/// meaningless. Left alone, a rebuilt session would stay silent until it rang
+/// more times than its predecessor ever did.
+func rebaselinedMarker(existing: Int?, bellSeq: Int) -> Int? {
+    guard let existing else { return bellSeq }
+    return bellSeq < existing ? bellSeq : nil
+}

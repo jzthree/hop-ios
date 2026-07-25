@@ -353,6 +353,19 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(sanitizedCode("abc"), "", "a number pad can still receive a paste")
     }
 
+    func testMarkerRebaselinesWhenASessionIsRecreated() {
+        // Never seen: silent baseline, so history isn't a pile of unread bells.
+        XCTAssertEqual(rebaselinedMarker(existing: nil, bellSeq: 7), 7)
+        // Normal progress: leave the marker alone so the bell still counts.
+        XCTAssertNil(rebaselinedMarker(existing: 7, bellSeq: 9))
+        XCTAssertNil(rebaselinedMarker(existing: 7, bellSeq: 7))
+        // Counter went backwards — killed and recreated under the same name.
+        // Without this, the new session stays silent until it out-rings the
+        // one it replaced.
+        XCTAssertEqual(rebaselinedMarker(existing: 50, bellSeq: 0), 0)
+        XCTAssertEqual(rebaselinedMarker(existing: 50, bellSeq: 1), 1)
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

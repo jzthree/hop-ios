@@ -226,6 +226,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A recreated session could never ring (iteration 77)
+
+Reviewing the collab flow (which turned out sound — hop's `removeClient`
+releases control on disconnect, so leaving while holding it can't strand your
+desktop locked) led to a real bug next door.
+
+Seen-bell markers were seeded only for sessions this device had **never** seen.
+Kill a session and recreate it under the same name — which hop encourages —
+and its `bellSeq` restarts at 0 while the stored marker holds the old value.
+`attention` is `bellSeq > marker`, so the new session would stay **silent until
+it rang more times than its predecessor ever did**. A session named `Orion`
+that had rung 50 times would need 51 bells before the phone said anything.
+
+A bellSeq that goes backwards can only mean a new session wearing an old name,
+so the marker is now rebaselined when that happens — in the list AND in the
+notification dedupe, which had the identical flaw. Pure function, four cases
+pinned by a test. 31 tests.
+
 ## Two more counts that disagreed with the list (iteration 76)
 
 Audited every place the app shows a number, using the lesson from #75 —

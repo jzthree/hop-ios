@@ -191,8 +191,9 @@ final class AppModel: ObservableObject {
             var seeded = false
             for s in raw {
                 guard let key = (s["internalName"] as? String) ?? (s["name"] as? String) else { continue }
-                if seen[key] == nil {
-                    seen[key] = jsonInt(s["bellSeq"]) ?? 0
+                if let fresh = rebaselinedMarker(existing: seen[key],
+                                                 bellSeq: jsonInt(s["bellSeq"]) ?? 0) {
+                    seen[key] = fresh
                     seeded = true
                 }
             }

@@ -63,6 +63,12 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         UNUserNotificationCenter.current().setBadgeCount(sessions.count)
         guard enabled else { return }
         for s in sessions {
+            // Same restart case as the seen markers: a bellSeq that went
+            // backwards means a new session wearing an old name, so the
+            // dedupe record for the old one must not silence it.
+            if let last = notified[s.internalName], s.bellSeq < last {
+                notified[s.internalName] = nil
+            }
             guard s.attention, (notified[s.internalName] ?? -1) < s.bellSeq else { continue }
             notified[s.internalName] = s.bellSeq
             let content = UNMutableNotificationContent()
