@@ -59,3 +59,29 @@ private func trimTrailingPunctuation(_ s: String) -> String {
     }
     return out
 }
+
+/// Walks rows looking for `needle`, in either direction, and returns the
+/// matching row. Takes a line accessor rather than an array so it can search
+/// thousands of scrollback rows without materialising them — and so the
+/// stepping logic, which is what actually breaks, is testable.
+///
+/// `direction` is -1 for older (up the scrollback) and +1 for newer.
+func findMatchRow(from start: Int, direction: Int, needle: String,
+                  limit: Int = 5000, line: (Int) -> String?) -> Int? {
+    let q = needle.lowercased()
+    guard !q.isEmpty, direction != 0 else { return nil }
+    var row = start
+    var probed = 0
+    while probed < limit {
+        row += direction
+        probed += 1
+        if row < 0 { return nil }
+        guard let text = line(row) else {
+            // Past the live edge going forward; a gap going back.
+            if direction > 0 { return nil }
+            continue
+        }
+        if text.lowercased().contains(q) { return row }
+    }
+    return nil
+}

@@ -12,6 +12,17 @@ struct TerminalHostView: View {
     @State private var fontSize: Double = UserDefaults.standard.double(forKey: "termFontSize") == 0 ? 12 : UserDefaults.standard.double(forKey: "termFontSize")
     @State private var lightTheme = UserDefaults.standard.bool(forKey: "termLight")
     @State private var findText = ""
+    @State private var findSeq = 0
+    @State private var findDirection = -1
+    @State private var findMisses = 0
+
+    /// A find is a REQUEST, identified by a sequence number: the terminal runs
+    /// it once. Typing restarts from the live edge; the arrows step from
+    /// wherever the last match landed.
+    private var findRequest: FindRequest? {
+        guard findOpen, !findText.isEmpty else { return nil }
+        return FindRequest(query: findText, seq: findSeq, direction: findDirection)
+    }
     @State private var findOpen = false
     @State private var reconnectToken = 0
     @State private var controlAction: ControlAction?
@@ -42,7 +53,7 @@ struct TerminalHostView: View {
     var body: some View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
-                       findText: findOpen ? findText : nil, reconnectToken: reconnectToken,
+                       find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
                        onLinks: { found in
                            links = found
@@ -100,6 +111,21 @@ struct TerminalHostView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.system(.body, design: .monospaced))
+                            .onChange(of: findText) { _, _ in
+                                findDirection = -1      // new query: newest match first
+                                findMisses = 0
+                                findSeq += 1
+                            }
+                        Button {
+                            findDirection = -1          // older
+                            findSeq += 1
+                        } label: { Image(systemName: "chevron.up") }
+                            .accessibilityLabel("Previous match")
+                        Button {
+                            findDirection = 1           // newer
+                            findSeq += 1
+                        } label: { Image(systemName: "chevron.down") }
+                            .accessibilityLabel("Next match")
                         Button("Done") { findOpen = false; findText = "" }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -225,6 +251,13 @@ struct TerminalHostView: View {
     }
 }
 
+/// One find, identified by `seq` so the terminal runs it exactly once.
+struct FindRequest: Equatable {
+    let query: String
+    let seq: Int
+    let direction: Int
+}
+
 enum ControlAction { case take, release, lock, unlock, links }
 
 extension Notification.Name {
@@ -239,7 +272,7 @@ struct TerminalScreen: UIViewRepresentable {
     @Binding var status: TerminalHostView.ConnState
     var fontSize: Double = 12
     var lightTheme = false
-    var findText: String?
+    var find: FindRequest?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
     var onLinks: ([String]) -> Void = { _ in }
@@ -273,7 +306,10 @@ struct TerminalScreen: UIViewRepresentable {
     func updateUIView(_ uiView: HopTermView, context: Context) {
         uiView.font = UIFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         uiView.applyTheme(light: lightTheme)
-        if let findText, !findText.isEmpty { uiView.scrollToMatch(findText) }
+        // Only on a new request. Re-running whenever anything else updated
+        // meant the list's background refresh yanked the view back to the
+        // match every few seconds while you were trying to read around it.
+        if let find { context.coordinator.runFind(find, view: uiView) }
         context.coordinator.reconnectIfNeeded(token: reconnectToken, view: uiView)
         if let action = control {
             context.coordinator.apply(action)
@@ -451,6 +487,31 @@ struct TerminalScreen: UIViewRepresentable {
             case .lock: client.setCollab(false)
             case .unlock: client.setCollab(true)
             case .links: onLinks(visibleLinks())
+            }
+        }
+
+        private var lastFindSeq = 0
+        private var lastFindQuery = ""
+        private var findCursor: Int?
+
+        /// A new query starts at the live edge and walks back — the newest
+        /// match is nearly always the one you want. The arrows continue from
+        /// the last match, which is what makes hunting an EARLIER occurrence
+        /// possible at all; before this, every search returned the same row.
+        func runFind(_ request: FindRequest, view: HopTermView) {
+            guard request.seq != lastFindSeq else { return }
+            lastFindSeq = request.seq
+            let restarted = request.query != lastFindQuery
+            lastFindQuery = request.query
+            if restarted { findCursor = nil }
+            let start = findCursor ?? view.liveEdgeRow
+            if let row = view.scrollToMatch(request.query, from: start, direction: request.direction) {
+                findCursor = row
+            } else if !restarted {
+                // Ran off the end rather than "no such text": say which.
+                onToast(request.direction < 0 ? "No earlier match" : "No later match")
+            } else {
+                onToast("Not found")
             }
         }
 
@@ -694,23 +755,18 @@ final class HopTermView: TerminalView {
     }
 
     /// Scroll to the most recent line containing `needle` (find-in-scrollback).
-    func scrollToMatch(_ needle: String) {
+    /// Finds the next match from `start` and scrolls it into view, returning
+    /// the row it landed on so the caller can continue from there.
+    func scrollToMatch(_ needle: String, from start: Int, direction: Int) -> Int? {
         let t = getTerminal()
-        let q = needle.lowercased()
-        // Search backwards from the bottom of the scrollback; getLine returns
-        // nil past the end, which bounds the walk without touching internals.
-        var row = t.buffer.yDisp + t.rows
-        var probed = 0
-        while row > 0 && probed < 5000 {
-            row -= 1
-            probed += 1
-            guard let line = t.getLine(row: row) else { continue }
-            if line.translateToString(trimRight: true).lowercased().contains(q) {
-                scrollTo(row: max(0, row - t.rows / 2))
-                return
-            }
-        }
+        guard let row = findMatchRow(from: start, direction: direction, needle: needle, line: { r in
+            t.getLine(row: r)?.translateToString(trimRight: true)
+        }) else { return nil }
+        scrollTo(row: max(0, row - t.rows / 2))
+        return row
     }
+
+    var liveEdgeRow: Int { getTerminal().buffer.yDisp + getTerminal().rows }
 
     func setAltArmed(_ armed: Bool) {
         altButton?.configuration?.baseForegroundColor = armed ? .black : .white

@@ -281,6 +281,36 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(spoken.contains("╭"), "scrollback is a glance aid, not something to listen to")
     }
 
+    // MARK: find in scrollback
+
+    func testFindStepsToEarlierMatchesInsteadOfRepeatingTheNewest() {
+        // The bug: search always restarted at the live edge, so "find again"
+        // returned the same row forever and an earlier occurrence — the one
+        // you're usually hunting — was unreachable.
+        let rows = ["error: first", "ok", "error: second", "ok", "tail"]
+        let line: (Int) -> String? = { $0 >= 0 && $0 < rows.count ? rows[$0] : nil }
+        let newest = findMatchRow(from: rows.count, direction: -1, needle: "error", line: line)
+        XCTAssertEqual(newest, 2)
+        let earlier = findMatchRow(from: newest!, direction: -1, needle: "error", line: line)
+        XCTAssertEqual(earlier, 0, "stepping up must reach the older match")
+        XCTAssertNil(findMatchRow(from: earlier!, direction: -1, needle: "error", line: line),
+                     "and then honestly run out")
+    }
+
+    func testFindWalksForwardAndStopsAtTheLiveEdge() {
+        let rows = ["error: first", "ok", "error: second"]
+        let line: (Int) -> String? = { $0 >= 0 && $0 < rows.count ? rows[$0] : nil }
+        XCTAssertEqual(findMatchRow(from: 0, direction: 1, needle: "error", line: line), 2)
+        XCTAssertNil(findMatchRow(from: 2, direction: 1, needle: "error", line: line),
+                     "past the live edge is the end, not a wrap")
+    }
+
+    func testFindIsCaseInsensitiveAndIgnoresEmptyQueries() {
+        let line: (Int) -> String? = { $0 == 3 ? "Fatal: BOOM" : "quiet" }
+        XCTAssertEqual(findMatchRow(from: 9, direction: -1, needle: "fatal", line: line), 3)
+        XCTAssertNil(findMatchRow(from: 9, direction: -1, needle: "", line: line))
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

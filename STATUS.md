@@ -455,6 +455,29 @@ LESSON: test against a REAL session with history, not a fresh probe.
    something built and instrumented here but impossible to exercise without a
    phone in hand.
 
+26. **Find in scrollback was one-shot; and APNs is blocked on more than a
+   greenlight.**
+   - Find only ever returned the NEWEST match: every "search again" restarted
+     at the live edge, so an earlier occurrence — the one you're usually
+     hunting when you search a terminal for "error" — was unreachable. It also
+     re-ran on every view update, so the list's 5s background refresh yanked
+     you back to the match while you were reading around it. Find is now a
+     REQUEST with a sequence number (runs exactly once) plus ↑/↓ stepping from
+     the last match, and it distinguishes "no earlier match" from "not found".
+     The stepping logic is a pure function over a line accessor — testable
+     without materialising thousands of scrollback rows. 27 tests.
+   - **APNs finding, verified not assumed**: the signed app carries only
+     application-identifier, team-identifier and get-task-allow. Adding
+     `aps-environment` and rebuilding with `-allowProvisioningUpdates` changes
+     nothing — Xcode keeps using the wildcard "iOS Team Provisioning Profile:
+     *" and strips it silently, exactly as it did for time-sensitive (#16).
+     Apple does not allow Push on a wildcard App ID. So APNs needs THREE
+     things, not one: (1) `io.zhoulab.hop.spike` registered as an EXPLICIT App
+     ID with Push enabled — Xcode UI or the portal, not the command line;
+     (2) an APNs auth key (.p8) for the daemon; (3) the daemon endpoint. Step 1
+     is a couple of minutes and is a prerequisite for any client work, so it's
+     worth doing before the greenlight rather than after.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
