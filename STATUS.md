@@ -209,6 +209,14 @@ LESSON: test against a REAL session with history, not a fresh probe.
    the value. (Simulator note: `simctl spawn defaults delete` doesn't reliably
    clear an app's defaults; uninstall the app instead.)
 
+11. **Repo is now self-sufficient** — added a README (what it is, quick start,
+   layout, hop API contract, the two iOS traps that cost real debugging, dev
+   env vars) and a Makefile so nobody has to remember flags:
+   `make test` / `make install` / `make sim [OPEN=Session]` / `make shot`.
+   Both verified end-to-end (tests green, signed install to the phone on the
+   first attempt). This is what makes the project genuinely droppable — and
+   picked back up — rather than dependent on one session's memory.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

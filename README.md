@@ -1,0 +1,86 @@
+# hop-ios
+
+A native iOS client for [hop](https://github.com/jzthree/hop) — your terminals
+and agent sessions, on the phone, over your existing Cloudflare tunnel.
+
+It exists because the web client hit iOS's ceiling: Safari can't give a real
+keyboard (dictation, autocorrect, key repeat), can't do haptics since iOS 17.4,
+and can't notify you when an agent wants attention. This app can.
+
+Standalone by design: it consumes hop's public HTTP + WebSocket API and needs
+**no changes to hop** to run. If it stops earning its keep, delete the repo.
+
+## Quick start
+
+```bash
+brew install xcodegen          # once
+make test                      # unit suite in the simulator
+make install                   # signed build -> connected iPhone
+```
+
+Then in the app: enter your hop URL (e.g. `hop.zhoulab.io` — the scheme is
+optional), your hop password and a 6-digit authenticator code. The session
+cookie lasts 7 days; the password can be remembered in the keychain so
+re-login is one code.
+
+Requirements: Xcode 26+, an Apple ID signed in to Xcode (Settings → Accounts),
+Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
+
+## What it does
+
+- **Session list** — attention-first, with taglines, working directory, running
+  app, relative time, and a 3-line live preview of each session's screen.
+  Filter, and scope to You / Agents / All. Create, rename, kill, and toggle
+  agent (MCP) access.
+- **Terminal** — SwiftTerm over hop's WebSocket, with the native keyboard plus
+  a key bar (esc, tab, sticky ctrl, alt/meta, ^C, arrows, `| / - ~`, PgUp/PgDn,
+  paste). Find in scrollback, copy screen/all, font size (menu or pinch),
+  light/dark, jump-to-live, and session switching from the title.
+- **Attention** — a session that rings the terminal bell raises a dot, a
+  haptic, and (opt-in) a local notification that opens straight to it.
+- **Resilience** — auto-reconnect on foreground and after drops with backoff;
+  a network blip never logs you out; unreachable servers fail fast with a
+  readable error instead of hanging.
+
+## Layout
+
+| File | Role |
+|------|------|
+| `HopSpikeApp.swift` | app entry, theme, login screen |
+| `AppModel.swift` | server URL/auth, session list + previews, session CRUD |
+| `HayClient.swift` | hop's room WebSocket protocol (snapshot/output/presence/collab) |
+| `TerminalScreen.swift` | SwiftTerm host, key bar, menus, control actions |
+| `SessionsView.swift` | session list, scope/filter, empty states |
+| `Notifications.swift` | bell → local notification, tap-to-open |
+| `Keychain.swift` | remembered password (device-only, never the TOTP secret) |
+| `SessionFilter.swift` | pure list shaping (unit-tested) |
+
+## Talking to hop
+
+- Auth: `POST /api/login` with `{password, totp}` sets the `tunnel_session`
+  cookie. The daemon also accepts `Authorization: Bearer <secret>` or
+  `?token=<secret>` — that's how the simulator skips TOTP in development.
+- Sessions: `GET /api/sessions`; previews: `GET /api/sessions/preview?name=`;
+  mutations: `POST /api/sessions{,/rename,/delete,/agent-permission}`.
+- Terminal: `wss://<host>/ws?room=<internalName>&name=&cols=&rows=`.
+
+Two iOS traps worth remembering, both cost real debugging time:
+1. `Cookie` is a **reserved** URLSession header — a manually set one is dropped
+   unless `httpShouldHandleCookies = false`, and URLSession's own jar skips
+   `Secure` cookies on `wss://`. Miss both and the upgrade 401s (Cloudflare
+   reports that as 502).
+2. `URLSessionWebSocketTask` caps messages at **1 MB** by default; hop's join
+   snapshot is up to 1.5 MB, so any session with real scrollback dies right
+   after a successful upgrade unless `maximumMessageSize` is raised.
+
+## Development
+
+`make sim` runs it in the simulator against your live daemon (auth via the
+daemon's own token, no TOTP). `make sim OPEN=Solstice` opens a session
+directly. `make shot` grabs a screenshot. Dev-only env vars: `HOP_DEV_TOKEN`,
+`HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`.
+
+`tools/lan-bridge.mjs` exposes the local hay-host to the LAN for testing
+without a tunnel — it's LAN-open while running, so stop it when done.
+
+Coordination notes and the running change log live in `STATUS.md`.
