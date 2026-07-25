@@ -257,6 +257,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Proving claude actually scrolls (iteration 89)
+
+Before trusting the wheel fix, tested it against the live daemon with a
+throwaway WebSocket client (wheel events scroll a view and inject no text, so
+this is safe against a real agent session).
+
+First run said **claude ignores wheel events** — which would have killed the
+approach. It was wrong twice over: the session was showing a modal ("Enter to
+confirm · Esc to cancel"), which ignores scrolling, and the first attempt used
+THIS session as the subject, whose screen changes constantly because I'm
+working in it.
+
+Redone with a control period on an idle session at a normal prompt:
+
+```
+Polaris: changed on its own (control): false
+Polaris: changed after 8 wheel-ups:   true
+```
+
+**Claude scrolls on wheel events.** Also measured, read-only, across the fleet:
+every claude session is `alt=true mouse=true sgr=true`; the one shell session is
+`alt=false mouse=false`. So the three-way scroll behaviour is exactly right, and
+each branch has a real session that exercises it.
+
+The lesson is the same one from the gzip measurement two days' work ago: an
+experiment without a control is not a measurement. Both times the uncontrolled
+version pointed the wrong way, and both times it pointed toward MORE work
+(optimise polling; abandon wheel events).
+
 ## Why scrolling did nothing on agent sessions (iteration 88)
 
 Jian: "still cannot scroll, number one issue." It was not the gesture — that
