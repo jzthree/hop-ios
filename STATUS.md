@@ -257,25 +257,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
-## What the app actually costs on cellular (iteration 86)
+## What the app actually costs on cellular — and a measurement I got wrong
 
-Measured rather than assumed, against the live daemon:
+Measured against the live daemon:
 
-| | size | foreground rate | cellular cost |
+| | raw | **on the wire** | foreground rate |
 |---|---|---|---|
-| session list | **9.9 KB** (19 sessions) | 5s wifi / 12s cellular | ~3 MB/hour |
-| one preview | **1.2 KB** | ×6, 9s wifi / 25s cellular | ~1 MB/hour |
-| opening a session | **334 KB** | per open | — |
+| session list | 9.9 KB (19 sessions) | **1.7 KB** (gzip) | 5s wifi / 12s cellular |
+| one preview | 1.2 KB | ~0.5 KB | ×6, 9s / 25s |
+| opening a session | — | **334 KB** | per open |
 
-So roughly **4 MB/hour with the app open on cellular** — and the list kept
-polling at full rate *while a terminal was open*, where that session already
-streams live over its own socket and the rest are background news. The list
-poll now runs at 3× the interval whenever a terminal is on screen: attention
-still arrives, without a megabyte an hour nobody sees.
+**≈0.6 MB/hour with the app open on cellular** — not the 4 MB/hour I first
+concluded and acted on.
 
-Worth keeping the numbers: they're the difference between "should we optimise
-this?" and knowing that the 334 KB open (down from 2447 KB) is now smaller than
-seven minutes of idle polling.
+The mistake is the useful part: `curl` doesn't send `Accept-Encoding` unless
+asked, so the first measurement was of an uncompressed response nobody
+receives. URLSession requests gzip by default, and the daemon serves it — 9861
+bytes becomes 1729. I was wrong by 6×, in the direction that makes optimisation
+look worthwhile.
+
+Acting on it, I had already slowed the list poll to a third whenever a terminal
+was open. That trade — delaying "another agent needs you", which is the only
+reason this poll exists — bought roughly nothing, so it is **reverted**. A
+measurement taken with the wrong client is worse than none: it's confident.
 
 ## Swipe to reply, and a lesson about discriminating tests (iteration 83)
 

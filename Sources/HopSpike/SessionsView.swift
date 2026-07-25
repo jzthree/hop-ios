@@ -356,15 +356,14 @@ struct SessionsView: View {
             if network.isOnline {
                 await model.refreshSessions(silent: true)
             }
-            // Measured: the list is ~10 KB per poll. At the foreground rate
-            // that's 3 MB/hour on cellular — and it keeps running while you're
-            // INSIDE a terminal, where that session already streams live over
-            // its own socket and the others are merely background news. Slow
-            // it while a terminal is open: attention still arrives, just not at
-            // the cost of a megabyte an hour you never see.
-            let base = network.sessionPollInterval
-            let interval = network.isOnline ? (path.isEmpty ? base : base * 3) : 4
-            try? await Task.sleep(for: .seconds(interval))
+            // Deliberately NOT slowed while a terminal is open. That was tried
+            // on the theory it saved ~3 MB/hour on cellular, but the server
+            // gzips: the list is 9.9 KB raw and 1.7 KB on the wire, which
+            // URLSession requests by default. Real cost is well under a
+            // megabyte an hour, and tripling the interval would have delayed
+            // "another agent needs you" — the one thing this poll is for — to
+            // buy nothing.
+            try? await Task.sleep(for: .seconds(network.isOnline ? network.sessionPollInterval : 4))
         }
     }
 
