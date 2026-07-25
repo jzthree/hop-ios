@@ -75,11 +75,23 @@ struct SessionsView: View {
 
     private var listView: some View {
         List {
-            if let err = model.lastError {
+            // Offline with sessions already loaded looks EXACTLY like a live
+            // list — same rows, same relative times quietly going stale. Say
+            // so, or the app is lying about how current it is.
+            if !network.isOnline {
+                Section {
+                    Label("Offline — this list may be out of date.", systemImage: "wifi.slash")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let err = model.lastError, network.isOnline {
                 Section {
                     Label(err, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
                         .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Section {
@@ -118,6 +130,7 @@ struct SessionsView: View {
                         filtering: !filter.isEmpty,
                         filter: filter,
                         unreachable: model.sessions.isEmpty && model.lastError != nil,
+                        offline: !network.isOnline,
                         server: model.normalizedServerURL,
                         scope: scope,
                         retry: { Task { await model.refreshSessions() } },
@@ -226,8 +239,12 @@ struct SessionsView: View {
     private func pollSessions() async {
         guard scenePhase == .active else { return }
         while !Task.isCancelled {
-            await model.refreshSessions(silent: true)
-            try? await Task.sleep(for: .seconds(network.sessionPollInterval))
+            // Offline: don't wake the radio to fail. NWPathMonitor flips this
+            // back the moment there's a path, and the loop resumes.
+            if network.isOnline {
+                await model.refreshSessions(silent: true)
+            }
+            try? await Task.sleep(for: .seconds(network.isOnline ? network.sessionPollInterval : 4))
         }
     }
 
@@ -317,6 +334,7 @@ struct EmptyStateView: View {
     let filtering: Bool
     let filter: String
     let unreachable: Bool
+    let offline: Bool
     let server: String
     let scope: SessionScope
     let retry: () -> Void
@@ -324,7 +342,8 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: unreachable ? "wifi.exclamationmark"
+            Image(systemName: offline ? "wifi.slash"
+                  : unreachable ? "wifi.exclamationmark"
                   : filtering ? "magnifyingglass" : "terminal")
                 .font(.system(size: 30))
                 .foregroundStyle(unreachable ? .orange : Color.hopPurple)
@@ -342,12 +361,14 @@ struct EmptyStateView: View {
     }
 
     private var title: String {
+        if offline { return "No internet connection" }
         if unreachable { return "Can't reach hop" }
         if filtering { return "No matches" }
         return scope == .agent ? "No agent sessions" : "No sessions yet"
     }
 
     private var detail: String {
+        if offline { return "This phone has no network. hop is probably fine." }
         if unreachable { return "\(server) didn't answer. Check that the daemon and tunnel are up." }
         if filtering { return "Nothing matches “\(filter)”." }
         return scope == .agent

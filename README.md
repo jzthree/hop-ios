@@ -96,7 +96,7 @@ directly. `make shot` grabs a screenshot. `make sim GROUP=1 SCOPE=all
 SHEET=account` lands on a specific state — a screenshot is the only way to
 review UI that a unit test can't see. Dev-only env vars: `HOP_DEV_TOKEN`,
 `HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`,
-`HOP_DEV_GROUP`, `HOP_DEV_SHEET`.
+`HOP_DEV_GROUP`, `HOP_DEV_SHEET`, `HOP_DEV_FILTER`, `HOP_DEV_OFFLINE`.
 
 ### Reading the app's diagnostics
 

@@ -761,6 +761,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Now pinned, including clock skew — a host clock slightly ahead of the phone
    gives a negative age and must read "now", never "-4s". 30 tests.
 
+43. **"No signal" and "hop is down" are different problems.** The app reported
+   both as whatever URLError said — "A server with the specified hostname could
+   not be found" points you at the daemon when the actual problem is that
+   you're in a lift. NWPathMonitor (already there from #23) knows the
+   difference, so offline now says so, and the poll loop stops waking the radio
+   to fail while there's no path (it resumes the moment one appears).
+   **The screenshot then found the real bug.** Forcing offline showed a
+   completely normal list, because bootstrap's first fetch had already
+   succeeded — so offline looks EXACTLY like live: same rows, same relative
+   times quietly going stale, no indication whatsoever. You'd read a
+   ten-minute-old list believing it was current. The empty state I'd just
+   written only helps when there are no sessions at all, which is the rare case.
+   The list now carries an explicit "Offline — this list may be out of date."
+   banner whenever there's no path, cached sessions or not. Verified on screen.
+   Added HOP_DEV_OFFLINE=1 (`make sim OFFLINE=1`) because a simulator borrows
+   the host's network and can't otherwise reach this state.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

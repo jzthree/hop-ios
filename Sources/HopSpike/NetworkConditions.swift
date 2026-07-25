@@ -15,6 +15,14 @@ final class NetworkConditions: ObservableObject {
 
     @Published private(set) var isExpensive = false     // cellular / personal hotspot
     @Published private(set) var isConstrained = false   // Low Data Mode
+    /// Whether there's any usable path at all. "Your phone has no signal" and
+    /// "hop is down" ask for completely different things from the user, and
+    /// URLError's text ("A server with the specified hostname could not be
+    /// found") points at the wrong one.
+    /// HOP_DEV_OFFLINE=1 forces this false: the offline UI is otherwise
+    /// unreachable in a simulator, which borrows the host's network.
+    @Published private(set) var isOnline =
+        ProcessInfo.processInfo.environment["HOP_DEV_OFFLINE"] != "1"
 
     private let monitor = NWPathMonitor()
 
@@ -23,6 +31,9 @@ final class NetworkConditions: ObservableObject {
             Task { @MainActor in
                 self?.isExpensive = path.isExpensive
                 self?.isConstrained = path.isConstrained
+                if ProcessInfo.processInfo.environment["HOP_DEV_OFFLINE"] != "1" {
+                    self?.isOnline = path.status == .satisfied
+                }
             }
         }
         monitor.start(queue: DispatchQueue(label: "io.zhoulab.hop.spike.network"))

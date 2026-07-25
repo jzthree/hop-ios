@@ -217,7 +217,12 @@ final class AppModel: ObservableObject {
             QuickActions.publish(sessions)
         } catch {
             // Network failure: keep the user where they are, surface the reason.
-            lastError = error.localizedDescription
+            // Offline is worth naming — otherwise the phone having no signal
+            // reads as "the daemon is broken", which sends you to the wrong
+            // place entirely.
+            lastError = NetworkConditions.shared.isOnline
+                ? error.localizedDescription
+                : "No internet connection"
         }
     }
 
