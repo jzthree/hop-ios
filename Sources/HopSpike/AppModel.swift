@@ -97,10 +97,24 @@ final class AppModel: ObservableObject {
                 if !silent { lastError = "Server returned \(http.statusCode)" }
                 return
             }
-            let seen = seenBells
+            var seen = seenBells
+            // Seed a silent baseline for sessions this device has never seen:
+            // without a stored marker, `attention` fell back to the CURRENT
+            // bellSeq and could never become true — so a session you had not
+            // opened yet never rang, on the list or in notifications.
+            var seeded = false
+            for s in raw {
+                guard let key = (s["internalName"] as? String) ?? (s["name"] as? String) else { continue }
+                if seen[key] == nil {
+                    seen[key] = (s["bellSeq"] as? Int) ?? 0
+                    seeded = true
+                }
+            }
+            if seeded { seenBells = seen }
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
+            HopNotifier.shared.report(attention: sessions.filter(\.attention))
         } catch {
             // Network failure: keep the user where they are, surface the reason.
             lastError = error.localizedDescription
@@ -140,6 +154,7 @@ final class AppModel: ObservableObject {
         var seen = seenBells
         seen[session.internalName] = session.bellSeq
         seenBells = seen
+        HopNotifier.shared.clear(session.internalName)
     }
 }
 

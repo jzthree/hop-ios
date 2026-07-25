@@ -7,12 +7,19 @@ struct SessionsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [String] = []
     @State private var filter = ""
-    @State private var scope: Scope = .user
+    @State private var scope: Scope = {
+        switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
+        case "all": return .all
+        case "agent": return .agent
+        default: return .user
+        }
+    }()
     @State private var creating = false
     @State private var newName = ""
     @State private var renaming: HopSession?
     @State private var renameText = ""
     @State private var killTarget: HopSession?
+    @StateObject private var notifier = HopNotifier.shared
 
     enum Scope: String, CaseIterable { case user = "You", agent = "Agents", all = "All" }
 
@@ -77,6 +84,16 @@ struct SessionsView: View {
                     Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Toggle(isOn: Binding(
+                            get: { notifier.enabled },
+                            set: { on in Task { await notifier.setEnabled(on) } }
+                        )) {
+                            Label("Bell notifications", systemImage: "bell.badge")
+                        }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { newName = ""; creating = true } label: { Image(systemName: "plus") }
                 }
             }
@@ -113,6 +130,12 @@ struct SessionsView: View {
                 }
             } message: {
                 Text("\(killTarget?.name ?? "") and its running process end for everyone.")
+            }
+            .onChange(of: notifier.pendingOpen) { _, want in
+                // Tapped a bell notification: jump straight to that session.
+                guard let want else { return }
+                path = [want]
+                notifier.pendingOpen = nil
             }
             .task {
                 guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }

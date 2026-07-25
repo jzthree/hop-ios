@@ -117,10 +117,25 @@ LESSON: test against a REAL session with history, not a fresh probe.
 | **Still missing on iOS** | | |
 | Live preview cards in switcher | ✓ | ✗ (list only) |
 | Presence / take-release control | ✓ | ✗ |
-| Bell notifications (local/push) | ✓ (web push) | ✗ ← next big rock |
+| Bell notifications | ✓ (web push) | ✓ local (banner + tap-to-open); APNs pending |
 | Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
 | Agent-permission toggle | ✓ | ✗ |
 | Passkey / share link | ✓ | ✗ |
+
+## Loop iterations (autonomous, every 10 min)
+1. **App icon** — hop's purple prompt chevron, CoreGraphics-rendered 1024 opaque
+   full-bleed (iOS masks corners, rejects alpha). Matches the web favicon.
+2. **Bell notifications (local)** — HopNotifier posts a UNNotification when a
+   session's bellSeq passes this device's seen marker; banner shows even in
+   foreground, tap opens that session, delivered notifications clear when you
+   open it, toggle lives in the list's ⋯ menu.
+   **Bug found while testing**: sessions never opened on this device could NEVER
+   show attention — the seen marker defaulted to the CURRENT bellSeq, so
+   `attention` was always false. Baselines are now seeded (silently) on first
+   sight, matching the web client. Verified live: a real `\a` in a session lit
+   the red ring + bell icon within one poll.
+   Still device-only: the OS permission prompt needs a human tap (Simulator
+   can't), and true background/closed-app delivery needs the APNs server piece.
 
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)

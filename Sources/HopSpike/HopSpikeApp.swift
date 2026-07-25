@@ -15,7 +15,10 @@ struct HopApp: App {
                 .environmentObject(model)
                 .tint(.hopPurple)
                 .preferredColorScheme(.dark)
-                .task { await model.bootstrap() }
+                .task {
+                    HopNotifier.shared.configure()
+                    await model.bootstrap()
+                }
         }
     }
 }
