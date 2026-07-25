@@ -61,8 +61,9 @@ be the scriptable route but needs admin, so Console is the practical one.
    buffered", then the whole command lands on reconnect. Nothing typed >15s
    before the reconnect should appear.
 4. **Quick actions.** Long-press the hop icon → four sessions, attention first
-   → tap one → it should open THAT session, cold launch included. The publish
-   is log-verified; the tap-through is not.
+   → tap one → it should open THAT session. **Test it with the app fully
+   closed**: that path was broken until #51 (onChange can't fire for a value
+   set before the view exists) and is now verified only by proxy.
 5. **Badge.** Let an agent ring a bell with the app closed. A number should
    appear on the icon and clear when you read the session.
 6. **Attach claim.** Open a session on the phone that a desktop also has open
@@ -145,6 +146,29 @@ be the scriptable route but needs admin, so Console is the practical one.
 Parity is complete except the two deliberate omissions. Everything in **bold**
 was added after the first matrix was written, most of it found by reading hop's
 server and web client rather than by inspecting our own UI.
+
+## Cold-launch navigation was broken (iteration 51)
+
+Applying #50's lesson — *the thing new code hooks into may have several entry
+points* — to navigation, and it found a real one.
+
+Both headline entry points route through `.onChange`: quick actions set
+`model.requestedSession`, notification taps set `notifier.pendingOpen`.
+**`onChange` does not fire for a value that was already there.** A cold-launch
+quick action sets its value during scene connect, and a notification tapped
+with the app closed sets it as the delegate comes up — both long before
+`SessionsView` exists. So: long-press the icon with the app closed, or tap a
+bell notification with the app closed, and **nothing happened**. The two
+features most worth having on a phone, silently inert on the path that matters
+most, since the whole point is reaching a session without opening the app first.
+
+Pending requests are now consumed when the list appears, waiting for the
+session to be known so a dead route is dropped rather than pushed.
+
+Verified by rewiring `HOP_DEV_OPEN` to set `requestedSession` in `App.init()`,
+before any view exists — so `make sim OPEN=X` now exercises the real
+cold-launch path rather than a parallel one. Confirmed on screen: the app opens
+straight into the session.
 
 ## Task-safety audit (iteration 50)
 

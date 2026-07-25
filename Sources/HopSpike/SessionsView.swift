@@ -209,7 +209,7 @@ struct SessionsView: View {
                 }
                 .task(id: scenePhase) { await pollSessions() }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
-                .task { await openDevSessionIfRequested() }
+                .task { await openPendingSession() }
                 .task(id: filter) { await searchContent() }
         }
     }
@@ -272,14 +272,32 @@ struct SessionsView: View {
         }
     }
 
-    private func openDevSessionIfRequested() async {
-        guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
-        for _ in 0..<20 where path.isEmpty {
-            if let hit = model.sessions.first(where: { $0.name == want || $0.internalName == want }) {
-                path = [hit.internalName]
+    /// Consume a navigation request that arrived BEFORE this view existed. A
+    /// cold-launch quick action sets it during scene connect, and a notification
+    /// tapped while the app isn't running sets it as the delegate comes up — in
+    /// both cases `onChange` never fires, because the value was already there.
+    /// That silently broke the two headline entry points: tap a bell
+    /// notification or long-press the icon with the app closed, and nothing
+    /// happened at all.
+    ///
+    /// Waits for the list to know the session, so the destination isn't pushed
+    /// against a list that simply hasn't loaded yet.
+    private func openPendingSession() async {
+        guard let want = model.requestedSession ?? notifier.pendingOpen
+                ?? ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
+        var target: String?
+        for _ in 0..<25 {
+            if let hit = model.sessions.first(where: {
+                $0.internalName == want || $0.name == want
+            }) {
+                target = hit.internalName
+                break
             }
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .milliseconds(300))
         }
+        model.requestedSession = nil
+        notifier.pendingOpen = nil
+        if let target { path = [target] }   // gone: drop it, don't push a dead route
     }
 }
 

@@ -14,6 +14,13 @@ struct HopApp: App {
     init() {
         // Must register before the app finishes launching.
         BackgroundRefresh.register(model: AppModel.shared)
+        // Dev-only: set the navigation request HERE, before any view exists,
+        // so `make sim OPEN=X` exercises the real cold-launch path — the one a
+        // quick action or a notification tap takes, where onChange can never
+        // fire because the value predates the view.
+        if let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] {
+            AppModel.shared.requestedSession = want
+        }
         // Dev-only: let `make sim GROUP=1` land on the grouped list without
         // hand-toggling a menu the screenshot loop can't reach.
         if ProcessInfo.processInfo.environment["HOP_DEV_GROUP"] == "1" {
