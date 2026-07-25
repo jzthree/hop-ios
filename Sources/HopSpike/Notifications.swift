@@ -55,12 +55,19 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
 
     /// Called after every session refresh with the sessions currently wanting
     /// attention. Dedupes per bellSeq so one bell is one notification.
-    func report(attention sessions: [HopSession]) {
+    /// `snippet` returns what the session is actually SAYING right now. The
+    /// body used to be the tagline — a description of what a session is for,
+    /// which never changes and so never answers the only question a bell
+    /// raises: what does it want? "Do you want me to proceed?" is worth
+    /// waking a phone for; "Polish mobile client" is not.
+    func report(attention sessions: [HopSession],
+                snippet: (HopSession) async -> String?) async {
         // The badge is the whole point of a home-screen app: how many sessions
         // want you, visible without opening anything. It tracks the live count
         // (not a running total), so reading a session drops it on the next
         // refresh. Silently ignored until notifications are authorized.
-        UNUserNotificationCenter.current().setBadgeCount(sessions.count)
+        // In an async context these resolve to the async overloads.
+        try? await UNUserNotificationCenter.current().setBadgeCount(sessions.count)
         guard enabled else { return }
         for s in sessions {
             // Same restart case as the seen markers: a bellSeq that went
@@ -73,20 +80,25 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             notified[s.internalName] = s.bellSeq
             let content = UNMutableNotificationContent()
             content.title = s.name
-            content.body = s.tagline.isEmpty ? "Session wants your attention" : s.tagline
+            let live = await snippet(s)
+            content.body = live
+                ?? (s.tagline.isEmpty ? "Session wants your attention" : s.tagline)
+            // The tagline still rides along as the subtitle when there's a live
+            // line to show: which session, and what it's for, without crowding
+            // the part you actually read.
+            if live != nil, !s.tagline.isEmpty { content.subtitle = s.tagline }
             content.sound = .default
-            // A waiting agent is what time-sensitive exists for. NOTE: this
-            // currently degrades to .active on device — the wildcard team
-            // provisioning profile drops the time-sensitive entitlement with
-            // no build warning at all (verified via codesign -d
-            // --entitlements). It starts working the moment the App ID carries
-            // the capability; no code change needed. relevanceScore works
-            // regardless and floats a bell to the top of a summary.
+            // A waiting agent is what time-sensitive exists for. It needs the
+            // com.apple.developer.usernotifications.time-sensitive entitlement,
+            // which the App ID can now carry (it's explicit, with Push enabled)
+            // — add it to project.yml's entitlements block if Focus
+            // breakthrough is wanted. relevanceScore works regardless and
+            // floats a bell to the top of a summary.
             content.interruptionLevel = .timeSensitive
             content.relevanceScore = 1
             content.userInfo = ["session": s.internalName]
             content.threadIdentifier = s.internalName   // group per session
-            UNUserNotificationCenter.current().add(
+            try? await UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "\(s.internalName)-\(s.bellSeq)",
                                       content: content, trigger: nil))
         }

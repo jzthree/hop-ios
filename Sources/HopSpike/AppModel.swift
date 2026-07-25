@@ -229,7 +229,9 @@ final class AppModel: ObservableObject {
                seenBells[open] != shown.bellSeq {
                 markSeen(shown)
             }
-            HopNotifier.shared.report(attention: alertable(sessions, openSession: watching))
+            await HopNotifier.shared.report(attention: alertable(sessions, openSession: watching)) {
+                [weak self] session in await self?.notificationSnippet(for: session)
+            }
             QuickActions.publish(sessions)
         } catch {
             // Network failure: keep the user where they are, surface the reason.
@@ -322,6 +324,23 @@ final class AppModel: ObservableObject {
                                 name: (m["name"] as? String) ?? internalName,
                                 snippet: (m["snippet"] as? String) ?? "")
         }
+    }
+
+    /// The last meaningful line of a session's screen, for a notification body.
+    /// Prefers the cached preview; fetches one otherwise, since a session that
+    /// just rang is often NOT among the handful whose previews are polled.
+    private func notificationSnippet(for session: HopSession) async -> String? {
+        // ?? can't wrap an async call in its autoclosure — take the cached
+        // preview if there is one, otherwise go and get one.
+        let text: String?
+        if let cached = previews[session.internalName] {
+            text = cached
+        } else {
+            text = await fetchPreview(session.internalName)
+        }
+        guard let line = text?.split(separator: "\n").last.map(String.init) else { return nil }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.count > 2 ? String(trimmed.prefix(180)) : nil
     }
 
     private func fetchPreview(_ internalName: String) async -> String? {

@@ -226,6 +226,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A notification that says what the agent asked (iteration 81)
+
+The body was the session's TAGLINE — a description of what a session is for,
+which never changes, and so never answers the only question a bell raises:
+what does it want? "Do you want me to proceed?" is worth waking a phone for;
+"Polish mobile client" is not.
+
+The body is now the session's last meaningful output line, with the tagline
+demoted to the subtitle so you still get which session and what it's for
+without crowding the part you read. Cached previews are used when available,
+and fetched otherwise — a session that just rang is often NOT among the handful
+whose previews are polled, which is exactly when the content matters most.
+
+Also corrected a stale comment: time-sensitive delivery was recorded as
+permanently stripped, which was true under the wildcard App ID. The App ID is
+explicit now, so it's a one-line entitlement away if Focus breakthrough is
+wanted.
+
+Empty states verified on screen for the first time while here: "No matches"
+renders correctly, and content search still answers when the name filter finds
+nothing. (First attempt failed amusingly — the search term appeared in my own
+command, which lands in this session's scrollback and matched.)
+
 ## The headline feature shipped off, three taps deep (iteration 80)
 
 Bell notifications are the reason to have this on a phone instead of a browser
