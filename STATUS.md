@@ -137,6 +137,13 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Still device-only: the OS permission prompt needs a human tap (Simulator
    can't), and true background/closed-app delivery needs the APNs server piece.
 
+3. **Auto-reconnect** — iOS suspends the socket on background; returning left a
+   dead terminal until you found the menu item. Now: reconnect on foreground
+   whenever the socket isn't live, plus self-healing retry with backoff
+   (1/2/4/8s, capped 15s) for tunnel blips, reset on a healthy connect and
+   cancelled on manual reconnect/leave. Verified by a real background→
+   foreground cycle in the simulator: terminal came back live unattended.
+
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)
 - [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle

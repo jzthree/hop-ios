@@ -14,6 +14,7 @@ struct TerminalHostView: View {
     @State private var findOpen = false
     @State private var reconnectToken = 0
     @State private var toast: String?
+    @Environment(\.scenePhase) private var scenePhase
     enum ConnState { case connecting, live, closed }
 
     private func setFont(_ size: Double) {
@@ -100,6 +101,12 @@ struct TerminalHostView: View {
                     }
                 }
             }
+            .onChange(of: scenePhase) { _, phase in
+                // iOS suspends the socket when the app backgrounds; coming back
+                // to a dead terminal and having to hunt for a menu item was the
+                // single most annoying part of using this on a phone.
+                if phase == .active, status != .live { reconnectToken += 1 }
+            }
             .onAppear { model.markSeen(session) }
             .background(Color.black)
     }
@@ -163,6 +170,9 @@ struct TerminalScreen: UIViewRepresentable {
         private var ctrlArmed = false
         private var altArmed = false
         private var lastReconnectToken = 0
+        private var retryAttempt = 0
+        private var retryTask: Task<Void, Never>?
+        private var alive = true
 
         init(wsBase: String, httpBase: String, token: String?, urlSession: URLSession, room: String,
              onToast: @escaping (String) -> Void,
@@ -182,6 +192,7 @@ struct TerminalScreen: UIViewRepresentable {
                 guard let self, let tv = self.view else { return }
                 switch event {
                 case .connected:
+                    self.retryAttempt = 0      // healthy again: reset backoff
                     self.setStatus(.live)
                 case .output(let data):
                     tv.feed(text: data)
@@ -195,9 +206,11 @@ struct TerminalScreen: UIViewRepresentable {
                 case .failed(let reason):
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[31m[\(reason)]\u{1b}[0m\r\n")
+                    self.scheduleRetry()
                 case .closed:
                     self.setStatus(.closed)
-                    tv.feed(text: "\r\n\u{1b}[2m[disconnected — go back and reopen]\u{1b}[0m\r\n")
+                    tv.feed(text: "\r\n\u{1b}[2m[disconnected]\u{1b}[0m\r\n")
+                    self.scheduleRetry()
                 }
             }
             NotificationCenter.default.addObserver(self, selector: #selector(copyScreen),
@@ -210,13 +223,39 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         func detach() {
+            alive = false
+            retryTask?.cancel()
             NotificationCenter.default.removeObserver(self)
             client.close()
+        }
+
+        /// Reconnect on our own with backoff (1s, 2s, 4s, 8s, capped at 15s)
+        /// so a tunnel blip or a phone waking from sleep heals itself.
+        private func scheduleRetry() {
+            guard alive, retryTask == nil else { return }
+            let delay = min(15.0, pow(2.0, Double(retryAttempt)))
+            retryAttempt += 1
+            retryTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, self.alive, !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.retryTask = nil
+                    guard let tv = self.view else { return }
+                    self.setStatus(.connecting)
+                    let term = tv.getTerminal()
+                    self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
+                                        cols: term.cols, rows: term.rows,
+                                        token: self.token_, using: self.urlSession)
+                }
+            }
         }
 
         func reconnectIfNeeded(token: Int, view: HopTermView) {
             guard token != lastReconnectToken else { return }
             lastReconnectToken = token
+            retryTask?.cancel()
+            retryTask = nil
+            retryAttempt = 0
             client.close()
             setStatus(.connecting)
             let t = view.getTerminal()
