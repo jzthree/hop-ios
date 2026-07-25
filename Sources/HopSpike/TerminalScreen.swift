@@ -697,7 +697,6 @@ struct TerminalScreen: UIViewRepresentable {
             let t = view.getTerminal()
             snapshotLanded = false
             claimed = false
-            client.theme = themeIsLight ? .light : .dark
             fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
@@ -734,7 +733,19 @@ struct TerminalScreen: UIViewRepresentable {
         private var snapshotLanded = false
         /// The palette this view is rendering, mirrored from SwiftUI state so
         /// the room can be told the background a TUI should theme itself for.
-        var themeIsLight = false
+        ///
+        /// Pushed straight into the client on every change, rather than read at
+        /// connect time: there are THREE connect paths (attach, the automatic
+        /// retry, and reconnectIfNeeded) and only attach was setting it. After
+        /// toggling the terminal to light, every later reconnect went on
+        /// announcing the dark background — and since hop has no runtime
+        /// message for this, the room never learned otherwise for the life of
+        /// the screen. Claude Code picks its theme from what the terminal
+        /// REPORTS, so the answer being stale is the whole bug hop fixed
+        /// server-side in 2522c3e, arriving from the other end.
+        var themeIsLight = false {
+            didSet { client.theme = themeIsLight ? .light : .dark }
+        }
 
         /// Fast first paint. hop can serialize a session's CURRENT screen from
         /// its preview grid in one small response (~2 KB) — paint that at once

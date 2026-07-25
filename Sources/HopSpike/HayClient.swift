@@ -73,7 +73,7 @@ final class HayClient: NSObject {
             // OSC 10/11 on our behalf — without these it answers with whatever
             // the last web viewer had, so an app could theme itself for someone
             // else's screen.
-            .init(name: "bg", value: theme.backgroundHex),
+            .init(name: "bg", value: theme.backgroundHex),   // logged below
             .init(name: "fg", value: theme.foregroundHex)
         ]
         // The daemon accepts cookie, Bearer, or ?token= on the upgrade.
@@ -83,6 +83,12 @@ final class HayClient: NSObject {
             onEvent?(.failed("Bad server URL", permanent: true))   // retrying can't fix a URL
             return
         }
+
+        // The background a TUI will theme itself for. Worth a line in the log:
+        // Claude Code picks light or dark from what the terminal REPORTS, so
+        // this value being stale is invisible until an agent paints wrong.
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
+            .info("connect \(room, privacy: .public) bg=\(self.theme.backgroundHex, privacy: .public)")
 
         var req = URLRequest(url: url)
         // `Cookie` is a RESERVED header: URLSession overwrites/strips a manually

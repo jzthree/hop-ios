@@ -258,6 +258,37 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The room was told the wrong background (iteration 103)
+
+Claude Code picks its light or dark theme from the background the terminal
+REPORTS — that is the mechanism hop2 fixed server-side in 2522c3e, and rooms
+now answer colour probes with the viewer's real bg/fg, sent as `&bg=&fg=` on
+attach.
+
+This app sends them. It just stopped keeping them current: there are THREE
+connect paths (attach, the automatic retry, reconnectIfNeeded) and only attach
+set the client's theme. Toggle the terminal to light and every later
+reconnect went on announcing the dark background — and hop has no runtime
+message for colours, so the room never learned otherwise for the life of the
+screen. On a phone, where reconnects are constant, that is most of the time.
+
+Fixed where it can't be forgotten again: the theme pushes into the client on
+every change rather than being read at each connect.
+
+Demonstrated with a discriminator, after being wrong twice today about what
+old code did. Identical probe — open a session, toggle the theme, reconnect —
+against both builds, reading the background actually announced:
+
+| | first connect | after toggle + reconnect |
+|---|---|---|
+| old | ffffff | ffffff |
+| fixed | 0d1117 | ffffff |
+
+The first attempt at this measurement was confounded: a previous run had left
+the light theme persisted, so the app started light and the menu item the test
+tapped no longer existed. The probe is label-agnostic now — it taps whichever
+way round the toggle is, and asserts the announced colour CHANGES.
+
 ## Parked sessions (iteration 102)
 
 hop2 gained park and archive yesterday — "hide without closing; sometimes kill
