@@ -7,10 +7,23 @@ final class HayClient: NSObject {
         case connected
         case output(String)          // raw terminal bytes (snapshot or live)
         case activeSize(Int, Int)    // cols, rows
+        case presence([Viewer])      // who else is attached
+        case collab(Bool, String?)   // everyone-can-type, controllerId
+        case rejected(String)        // input refused (control locked)
         case ended(String)
         case failed(String)          // human-readable reason (auth, network, …)
         case closed
     }
+
+    struct Viewer: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let typing: Bool
+    }
+
+    /// This client's id, from the server's hello — needed to tell "I hold
+    /// control" from "someone else does".
+    private(set) var clientId: String?
 
     private var task: URLSessionWebSocketTask?
     var onEvent: ((Event) -> Void)?
@@ -67,6 +80,9 @@ final class HayClient: NSObject {
     }
 
     func sendInput(_ text: String) { sendJSON(["type": "input", "data": text]) }
+    func takeControl() { sendJSON(["type": "take_control"]) }
+    func releaseControl() { sendJSON(["type": "release_control"]) }
+    func setCollab(_ enabled: Bool) { sendJSON(["type": "toggle_collab", "enabled": enabled]) }
     func sendResize(cols: Int, rows: Int) { sendJSON(["type": "resize", "cols": cols, "rows": rows]) }
 
     func close() {
@@ -119,7 +135,22 @@ final class HayClient: NSObject {
               let type = obj["type"] as? String else { return }
         switch type {
         case "hello":
+            clientId = obj["clientId"] as? String
             onEvent?(.connected)
+            if let collabMode = obj["collabMode"] as? Bool {
+                onEvent?(.collab(collabMode, obj["controllerId"] as? String))
+            }
+        case "presence":
+            let clients = (obj["clients"] as? [[String: Any]]) ?? []
+            onEvent?(.presence(clients.compactMap { c in
+                guard let id = c["id"] as? String else { return nil }
+                return Viewer(id: id, name: (c["name"] as? String) ?? "someone",
+                              typing: (c["typing"] as? Bool) ?? false)
+            }))
+        case "collab":
+            onEvent?(.collab((obj["enabled"] as? Bool) ?? true, obj["controllerId"] as? String))
+        case "input_rejected":
+            onEvent?(.rejected((obj["reason"] as? String) ?? "Input rejected"))
         case "snapshot", "output":
             if let payload = obj["data"] as? String { onEvent?(.output(payload)) }
         case "active_size":

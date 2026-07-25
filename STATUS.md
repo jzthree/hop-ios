@@ -116,7 +116,7 @@ LESSON: test against a REAL session with history, not a fresh probe.
 | Bell → haptic | ✗ (iOS Safari has no haptics) | ✓ |
 | **Still missing on iOS** | | |
 | Live session previews | ✓ (hero tiles) | ✓ (3-line live screen per row) |
-| Presence / take-release control | ✓ | ✗ |
+| Presence / take-release control | ✓ | ✓ (viewer count + list, lock/unlock typing, take/release) |
 | Bell notifications | ✓ (web push) | ✓ local (banner + tap-to-open); APNs pending |
 | Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
 | Agent-permission toggle | ✓ | ✗ |
@@ -153,6 +153,14 @@ LESSON: test against a REAL session with history, not a fresh probe.
    skip TUI chrome (box characters, prompt-only lines, "bypass permissions" /
    "esc to interrupt" hints) and keep the last real content lines — so rows now
    read "Incubating… (10m 53s · 7.3k tokens)", "Ran 2 shell commands", etc.
+
+5. **Presence & control** — the client now parses presence/collab/hello and
+   input_rejected: the title bar shows a viewer count (and a lock badge when
+   someone else holds control, a raised-hand when you do), the ⋯ menu lists
+   viewers with a typing marker and offers lock-typing-to-one-user plus
+   take/release control, and a refused keystroke surfaces the server's reason
+   as a toast instead of vanishing. Verified live: a second client attached
+   over the tunnel appeared as "👥 2" within a second.
 
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)

@@ -13,7 +13,12 @@ struct TerminalHostView: View {
     @State private var findText = ""
     @State private var findOpen = false
     @State private var reconnectToken = 0
+    @State private var controlAction: ControlAction?
     @State private var toast: String?
+    @State private var viewers: [HayClient.Viewer] = []
+    @State private var collabEveryone = true
+    @State private var iHoldControl = false
+    @State private var lockedByOther = false
     @Environment(\.scenePhase) private var scenePhase
     enum ConnState { case connecting, live, closed }
 
@@ -26,7 +31,12 @@ struct TerminalHostView: View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
                        findText: findOpen ? findText : nil, reconnectToken: reconnectToken,
-                       onToast: { toast = $0 })
+                       onToast: { toast = $0 },
+                       onPresence: { viewers = $0 },
+                       onCollab: { everyone, mine, other in
+                           collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
+                       },
+                       control: $controlAction)
             .padding(.horizontal, 5)
             .ignoresSafeArea(.container, edges: .bottom)
             .overlay(alignment: .top) {
@@ -64,6 +74,15 @@ struct TerminalHostView: View {
                             .frame(width: 8, height: 8)
                         Text(session.name)
                             .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                        if lockedByOther {
+                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
+                        } else if !collabEveryone && iHoldControl {
+                            Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
+                        }
+                        if viewers.count > 1 {
+                            Label("\(viewers.count)", systemImage: "person.2.fill")
+                                .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                        }
                         if !session.runningApp.isEmpty {
                             Text(session.runningApp)
                                 .font(.caption2.weight(.semibold))
@@ -95,6 +114,30 @@ struct TerminalHostView: View {
                                   systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
                         }
                         Divider()
+                        // Who else is here + who may type (hay collab model).
+                        if !viewers.isEmpty {
+                            Section("Viewers") {
+                                ForEach(viewers) { v in
+                                    Label(v.typing ? "\(v.name) — typing" : v.name,
+                                          systemImage: "person.fill")
+                                }
+                            }
+                        }
+                        Button {
+                            controlAction = collabEveryone ? .lock : .unlock
+                        } label: {
+                            Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
+                                  systemImage: collabEveryone ? "lock" : "lock.open")
+                        }
+                        if !collabEveryone {
+                            Button {
+                                controlAction = iHoldControl ? .release : .take
+                            } label: {
+                                Label(iHoldControl ? "Release control" : "Take control",
+                                      systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
+                            }
+                        }
+                        Divider()
                         Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -112,6 +155,8 @@ struct TerminalHostView: View {
     }
 }
 
+enum ControlAction { case take, release, lock, unlock }
+
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
     static let hopCopyAll = Notification.Name("hopCopyAll")
@@ -126,10 +171,14 @@ struct TerminalScreen: UIViewRepresentable {
     var findText: String?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
+    var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
+    var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
+    @Binding var control: ControlAction?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.serverURL, token: model.accessToken,
-                    urlSession: model.urlSession, room: room, onToast: onToast) { status = $0 }
+                    urlSession: model.urlSession, room: room, onToast: onToast,
+                    onPresence: onPresence, onCollab: onCollab) { status = $0 }
     }
 
     func makeUIView(context: Context) -> HopTermView {
@@ -150,6 +199,10 @@ struct TerminalScreen: UIViewRepresentable {
         uiView.applyTheme(light: lightTheme)
         if let findText, !findText.isEmpty { uiView.scrollToMatch(findText) }
         context.coordinator.reconnectIfNeeded(token: reconnectToken, view: uiView)
+        if let action = control {
+            context.coordinator.apply(action)
+            DispatchQueue.main.async { self.control = nil }
+        }
     }
 
     static func dismantleUIView(_ uiView: HopTermView, coordinator: Coordinator) {
@@ -167,6 +220,8 @@ struct TerminalScreen: UIViewRepresentable {
         private let room: String
         private let setStatus: (TerminalHostView.ConnState) -> Void
         private let onToast: (String) -> Void
+        private let onPresence: ([HayClient.Viewer]) -> Void
+        private let onCollab: (Bool, Bool, Bool) -> Void
         private var ctrlArmed = false
         private var altArmed = false
         private var lastReconnectToken = 0
@@ -176,8 +231,12 @@ struct TerminalScreen: UIViewRepresentable {
 
         init(wsBase: String, httpBase: String, token: String?, urlSession: URLSession, room: String,
              onToast: @escaping (String) -> Void,
+             onPresence: @escaping ([HayClient.Viewer]) -> Void,
+             onCollab: @escaping (Bool, Bool, Bool) -> Void,
              setStatus: @escaping (TerminalHostView.ConnState) -> Void) {
             self.onToast = onToast
+            self.onPresence = onPresence
+            self.onCollab = onCollab
             self.wsBase = wsBase
             self.httpBase = httpBase
             self.token = token
@@ -196,6 +255,13 @@ struct TerminalScreen: UIViewRepresentable {
                     self.setStatus(.live)
                 case .output(let data):
                     tv.feed(text: data)
+                case .presence(let list):
+                    self.onPresence(list)
+                case .collab(let everyone, let controllerId):
+                    let mine = controllerId != nil && controllerId == self.client.clientId
+                    self.onCollab(everyone, mine, !everyone && !mine && controllerId != nil)
+                case .rejected(let reason):
+                    self.onToast(reason)
                 case .activeSize(let cols, let rows):
                     if tv.getTerminal().cols != cols || tv.getTerminal().rows != rows {
                         tv.getTerminal().resize(cols: cols, rows: rows)
@@ -220,6 +286,15 @@ struct TerminalScreen: UIViewRepresentable {
             let t = view.getTerminal()
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
+        }
+
+        func apply(_ action: ControlAction) {
+            switch action {
+            case .take: client.takeControl()
+            case .release: client.releaseControl()
+            case .lock: client.setCollab(false)
+            case .unlock: client.setCollab(true)
+            }
         }
 
         func detach() {
