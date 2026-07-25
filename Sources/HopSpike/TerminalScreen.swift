@@ -979,15 +979,52 @@ final class HopTermView: TerminalView {
         let cellHeight = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
         switch g.state {
         case .began:
+            stopMomentum()
             scrollAnchorRow = terminal.buffer.yDisp
         case .changed:
             // Drag DOWN reveals older output, like every scroll view on iOS.
             let rows = Int(g.translation(in: self).y / cellHeight)
             let target = max(0, scrollAnchorRow - rows)
             if target != terminal.buffer.yDisp { scrollTo(row: target) }
+        case .ended:
+            // Without inertia, reaching anything more than a screen back means
+            // swiping over and over. Every scroll view on the platform coasts;
+            // one that doesn't reads as broken rather than minimal.
+            startMomentum(rowsPerSecond: -g.velocity(in: self).y / cellHeight)
         default:
             break
         }
+    }
+
+    /// Rows still to travel, carried as a Double so slow tails don't round to
+    /// zero and stall the glide a few rows early.
+    private var momentumRows = 0.0
+    private var momentumLink: CADisplayLink?
+
+    private func startMomentum(rowsPerSecond: CGFloat) {
+        stopMomentum()
+        guard abs(rowsPerSecond) > 2 else { return }
+        momentumRows = Double(rowsPerSecond) / 60.0
+        let link = CADisplayLink(target: self, selector: #selector(stepMomentum))
+        link.add(to: .main, forMode: .common)
+        momentumLink = link
+    }
+
+    @objc private func stepMomentum() {
+        let terminal = getTerminal()
+        let target = Double(terminal.buffer.yDisp) + momentumRows
+        let clamped = max(0, Int(target.rounded()))
+        if clamped != terminal.buffer.yDisp { scrollTo(row: clamped) }
+        // 0.94/frame ≈ UIScrollView's feel: a flick coasts for about a second.
+        momentumRows *= 0.94
+        // Stop at the top or when the glide is finer than a row.
+        if abs(momentumRows) < 0.15 || (clamped == 0 && momentumRows < 0) { stopMomentum() }
+    }
+
+    private func stopMomentum() {
+        momentumLink?.invalidate()
+        momentumLink = nil
+        momentumRows = 0
     }
 
     private var installedTheme: Bool = false
@@ -1074,10 +1111,16 @@ final class HopTermView: TerminalView {
     /// on the touch path ever stops it.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window == nil { endRepeat() }
+        if window == nil {
+            endRepeat()
+            stopMomentum()
+        }
     }
 
-    deinit { repeatTimer?.invalidate() }
+    deinit {
+        repeatTimer?.invalidate()
+        momentumLink?.invalidate()      // a live CADisplayLink outlives the view
+    }
 
     @objc private func endRepeat() {
         repeatTimer?.invalidate()

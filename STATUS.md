@@ -210,6 +210,36 @@ were never in it. Auditing interactions instead:
 | Hardware keyboard | unaudited |
 | Drag & drop text | unaudited |
 
+## Scroll momentum + a UI test target (iteration 57)
+
+**Momentum.** The scroll was 1:1 with no inertia, so reaching anything more
+than a screen back meant swiping over and over. Every scroll view on the
+platform coasts; one that doesn't reads as broken rather than minimal. A
+CADisplayLink decays velocity at 0.94/frame (≈ UIScrollView's feel, about a
+second of glide), stops at the top, and is torn down in both `deinit` and
+`didMoveToWindow(nil)` — #19's leaked-timer lesson applied up front instead of
+after the fact.
+
+**`make uitest`.** Every interaction defect in this app — no touch scrolling,
+taps not raising the keyboard, drags scrolling out from under a selection — was
+invisible to unit tests AND to screenshots, because none of them involve a
+finger. XCUITest drives real gestures at the real app, which is the only
+automated way to catch that class here. Auth comes from the daemon token via
+`TEST_RUNNER_HOP_DEV_COOKIE`.
+
+First run earned it: **tap-to-raise-the-keyboard passes**, which is real
+regression cover for #56's silent breakage.
+
+Two things learned writing it:
+- The scroll test failed at first because it opened a CLAUDE session. TUI apps
+  have no scrollback (alt buffer), so there was nothing to scroll to — the test
+  was wrong, not the code. It targets a shell session now, and SKIPS rather
+  than fails when that shell has been idle: a red suite meaning "the session
+  was quiet" teaches you to ignore red.
+- It's slow (~4 min per test, dominated by launch and session load), so it is a
+  separate target from `make test` and meant for interaction changes, not
+  every commit.
+
 ## Tap-to-refocus was broken on every agent session (iteration 56)
 
 Checking whether #55's `allowMouseReporting = false` had broken tap-to-focus

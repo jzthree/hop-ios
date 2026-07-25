@@ -21,7 +21,7 @@ VERSION_FLAGS = CURRENT_PROJECT_VERSION=$(BUILDNO) HOP_GIT_DESCRIBE=$(GITDESC)
 
 TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
 
-.PHONY: gen build test sim install shot clean
+.PHONY: gen build test uitest sim install shot clean
 
 gen:
 	xcodegen
@@ -35,6 +35,15 @@ test: gen
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO
+
+# Real gestures against the real app: the only automated way to catch the
+# class of bug (no scrolling, taps not focusing) that unit tests and
+# screenshots both miss. TEST_RUNNER_ prefixed vars reach the test runner.
+uitest: gen
+	TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
+	  -project $(PROJECT) -scheme HopSpikeUI \
+	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS)
 
 simbuild: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \

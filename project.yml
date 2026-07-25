@@ -57,6 +57,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike.tests
         DEVELOPMENT_TEAM: 5AD7QB9795
         GENERATE_INFOPLIST_FILE: YES
+  HopSpikeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: HopSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike.uitests
+        DEVELOPMENT_TEAM: 5AD7QB9795
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: HopSpike
 schemes:
   HopSpike:
     build:
@@ -65,3 +77,10 @@ schemes:
         HopSpikeTests: [test]
     test:
       targets: [HopSpikeTests]
+  HopSpikeUI:
+    build:
+      targets:
+        HopSpike: all
+        HopSpikeUITests: [test]
+    test:
+      targets: [HopSpikeUITests]
