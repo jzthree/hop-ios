@@ -226,6 +226,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## State that outlives what it describes — audit (iteration 78)
+
+#77's bug lived in state that survived the thing it described, so I checked the
+rest. `previews` are pruned to live sessions, `QuickActions` replaces its
+signature each publish, the keychain password is per-server and cleared on sign
+out, cookies are dropped on rejection and sign-out, `notified` and `seenBells`
+now rebaseline. Settings (font size, theme, grouping, server) are meant to
+persist.
+
+One deliberate non-fix: `seenBells` grows forever, since entries for dead
+sessions are never removed. Pruning to live sessions looks tidy but is worse —
+a session that's temporarily absent (a parked one, or a hiccup returning a short
+list) would lose its marker and come back silently, swallowing bells rung while
+it was away. The growth is a dictionary of name→int; correctness beats tidiness.
+
+Also brought the README's dev-flag documentation up to date: three flags
+(`COMPACT`, `ATTENTION`, `GONE`) had gone undocumented, and the `-hop-ui-testing`
+argument wasn't mentioned at all.
+
 ## A recreated session could never ring (iteration 77)
 
 Reviewing the collab flow (which turned out sound — hop's `removeClient`

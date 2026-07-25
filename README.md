@@ -98,11 +98,34 @@ Two iOS traps worth remembering, both cost real debugging time:
 
 `make sim` runs it in the simulator against your live daemon (auth via the
 daemon's own token, no TOTP). `make sim OPEN=Solstice` opens a session
-directly. `make shot` grabs a screenshot. `make sim GROUP=1 SCOPE=all
-SHEET=account` lands on a specific state — a screenshot is the only way to
-review UI that a unit test can't see. Dev-only env vars: `HOP_DEV_TOKEN`,
-`HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`,
-`HOP_DEV_GROUP`, `HOP_DEV_SHEET`, `HOP_DEV_FILTER`, `HOP_DEV_OFFLINE`.
+directly, and `make shot` grabs a screenshot.
+
+Several app states can't be reached on demand — you can't wait for an agent to
+ring, or unplug the simulator's network — so `make sim` takes flags that put
+the app straight into them. A screenshot is the only way to review UI that no
+test can see, so being able to *reach* a state matters as much as rendering it.
+
+| `make sim` flag | Env var | Puts the app in |
+|---|---|---|
+| `OPEN=Orion` | `HOP_DEV_OPEN` | that session, via the real cold-launch path |
+| `SCOPE=all` | `HOP_DEV_SCOPE` | You / Agents / All |
+| `GROUP=1` | `HOP_DEV_GROUP` | grouped by project |
+| `FILTER=text` | `HOP_DEV_FILTER` | with the search field pre-filled |
+| `SHEET=account` | `HOP_DEV_SHEET` | the account sheet open |
+| `OFFLINE=1` | `HOP_DEV_OFFLINE` | offline (simulators borrow the host's network) |
+| `COMPACT=1` | `HOP_DEV_COMPACT` | the landscape layout, in portrait |
+| `ATTN=1` | `HOP_DEV_ATTENTION` | one session wanting attention |
+| `GONE=1` | `HOP_DEV_GONE` | the "session ended" state |
+| — | `HOP_DEV_COOKIE` / `HOP_DEV_TOKEN` | authenticated without a TOTP code |
+| — | `HOP_DEV_NOTIFY` | bell notifications pre-enabled |
+
+`ATTENTION`, `GONE` and `COOKIE` are `#if DEBUG` — they fake app state or inject
+a session, which has no place in a shipping build. The rest only pick a screen.
+
+UI tests pass `-hop-ui-testing`, which stops the caret blinking. A blinking
+caret is a permanent animation, and XCUITest waits for animations before every
+interaction — with it on, each tap sat through a 60s timeout and the suite took
+longer than ten minutes instead of 48 seconds.
 
 ### Reading the app's diagnostics
 
