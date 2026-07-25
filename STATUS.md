@@ -252,6 +252,13 @@ LESSON: test against a REAL session with history, not a fresh probe.
    touch-DOWN and drop their touch-up action, so a hold never sends a trailing
    extra keystroke on release.
 
+15. **App-icon badge** — the count of sessions wanting you now rides on the
+   home-screen icon, which is the thing a web client structurally cannot do:
+   you see "3" without opening anything. It tracks the LIVE count rather than a
+   running total, so reading a session drops it (immediately on open, via a
+   recount of what's still delivered; otherwise on the next refresh). Background
+   refresh updates it too, so the badge stays honest with the app closed.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

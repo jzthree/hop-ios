@@ -46,6 +46,11 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     /// Called after every session refresh with the sessions currently wanting
     /// attention. Dedupes per bellSeq so one bell is one notification.
     func report(attention sessions: [HopSession]) {
+        // The badge is the whole point of a home-screen app: how many sessions
+        // want you, visible without opening anything. It tracks the live count
+        // (not a running total), so reading a session drops it on the next
+        // refresh. Silently ignored until notifications are authorized.
+        UNUserNotificationCenter.current().setBadgeCount(sessions.count)
         guard enabled else { return }
         for s in sessions {
             guard s.attention, (notified[s.internalName] ?? -1) < s.bellSeq else { continue }
@@ -62,14 +67,27 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         }
     }
 
-    /// Clear a session's pending notifications once the user is looking at it.
+    /// Clear a session's pending notifications once the user is looking at it,
+    /// and drop the badge by that session immediately rather than waiting out
+    /// the poll interval.
     func clear(_ internalName: String) {
+        let notified = enabled
         UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
-            let ids = delivered
-                .filter { ($0.request.content.userInfo["session"] as? String) == internalName }
-                .map(\.request.identifier)
-            guard !ids.isEmpty else { return }
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+            let mine = delivered.filter {
+                ($0.request.content.userInfo["session"] as? String) == internalName
+            }
+            if !mine.isEmpty {
+                UNUserNotificationCenter.current()
+                    .removeDeliveredNotifications(withIdentifiers: mine.map(\.request.identifier))
+            }
+            // Recount from what's left. Only meaningful when notifications are
+            // on — with them off there's nothing delivered to count, and the
+            // next refresh sets the badge from live attention instead.
+            guard notified else { return }
+            let others = Set(delivered
+                .compactMap { $0.request.content.userInfo["session"] as? String }
+                .filter { $0 != internalName })
+            UNUserNotificationCenter.current().setBadgeCount(others.count)
         }
     }
 
