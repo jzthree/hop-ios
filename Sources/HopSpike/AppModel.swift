@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
             HopNotifier.shared.report(attention: sessions.filter(\.attention))
+            QuickActions.publish(sessions)
         } catch {
             // Network failure: keep the user where they are, surface the reason.
             lastError = error.localizedDescription

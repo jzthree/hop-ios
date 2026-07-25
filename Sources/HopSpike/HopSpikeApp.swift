@@ -7,6 +7,7 @@ extension Color {
 
 @main
 struct HopApp: App {
+    @UIApplicationDelegateAdaptor(HopAppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
 

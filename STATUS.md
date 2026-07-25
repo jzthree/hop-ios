@@ -288,6 +288,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    is explicit ASCII rather than "not whitespace" precisely because rejoining
    can butt a URL against a TUI border. All five cases are unit-tested (18).
 
+18. **Home Screen quick actions** — long-press the hop icon for the top four
+   sessions (attention first, with a bell icon and "Wants your attention";
+   otherwise tagline or cwd) and land straight in one, skipping the list. The
+   badge says how many want you; this says which.
+   SwiftUI's App lifecycle has no hook for these — cold-launch actions arrive
+   in `scene(_:willConnectTo:options:)` and warm ones in
+   `windowScene(_:performActionFor:)`, both scene-delegate methods — so the app
+   now installs a scene delegate that ONLY observes; SwiftUI's WindowGroup
+   still owns the window (verified in the simulator: no black screen).
+   Republish is gated on a change signature, since handing SpringBoard an
+   identical array twelve times a minute is pure IPC for nothing.
+   Verification note: quick actions live in SpringBoard, so no screenshot or
+   test can see them. An os_log line is the evidence —
+   `xcrun simctl spawn <sim> log show --last 60s --info --predicate
+   'subsystem == "io.zhoulab.hop.spike"'` showed "published 4 quick actions".
+   **Still worth one long-press on your phone to confirm the tap-through.**
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
