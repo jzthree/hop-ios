@@ -257,6 +257,26 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## What the app actually costs on cellular (iteration 86)
+
+Measured rather than assumed, against the live daemon:
+
+| | size | foreground rate | cellular cost |
+|---|---|---|---|
+| session list | **9.9 KB** (19 sessions) | 5s wifi / 12s cellular | ~3 MB/hour |
+| one preview | **1.2 KB** | ×6, 9s wifi / 25s cellular | ~1 MB/hour |
+| opening a session | **334 KB** | per open | — |
+
+So roughly **4 MB/hour with the app open on cellular** — and the list kept
+polling at full rate *while a terminal was open*, where that session already
+streams live over its own socket and the rest are background news. The list
+poll now runs at 3× the interval whenever a terminal is on screen: attention
+still arrives, without a megabyte an hour nobody sees.
+
+Worth keeping the numbers: they're the difference between "should we optimise
+this?" and knowing that the 334 KB open (down from 2447 KB) is now smaller than
+seven minutes of idle polling.
+
 ## Swipe to reply, and a lesson about discriminating tests (iteration 83)
 
 Swiping a session from the leading edge now offers **Reply** — the in-app twin
