@@ -116,6 +116,7 @@ struct SessionsView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
+                .accessibilityHidden(true)          // decoration, not a control
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -131,9 +132,11 @@ struct SessionsView: View {
                     Label("Server & account", systemImage: "person.crop.circle")
                 }
             } label: { Image(systemName: "ellipsis.circle") }
+            .accessibilityLabel("Settings")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { newName = ""; creating = true } label: { Image(systemName: "plus") }
+                .accessibilityLabel("New session")
         }
     }
 
@@ -370,5 +373,23 @@ struct SessionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
+        // One row = one utterance. Element-by-element, VoiceOver would read a
+        // dot, a name, a badge, a tagline and three lines of raw terminal
+        // scrollback — the preview is a glance aid, not something to listen to.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenSummary)
+        .accessibilityHint("Opens the terminal")
+    }
+
+    /// Internal rather than private so the test can hold it to what a row
+    /// should actually say.
+    var spokenSummary: String {
+        var parts = [session.name]
+        if session.attention { parts.append("wants attention") }
+        parts.append(session.live ? "running" : "stopped")
+        if !session.runningApp.isEmpty { parts.append(session.runningApp) }
+        if !session.tagline.isEmpty { parts.append(session.tagline) }
+        parts.append("active \(session.relativeTime) ago")
+        return parts.joined(separator: ", ")
     }
 }

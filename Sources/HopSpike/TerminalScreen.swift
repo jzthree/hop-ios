@@ -206,6 +206,7 @@ struct TerminalHostView: View {
                         Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
                     } label: {
                         Image(systemName: "ellipsis.circle")
+                            .accessibilityLabel("Terminal actions")
                     }
                 }
             }
@@ -790,13 +791,20 @@ final class HopTermView: TerminalView {
         ])
 
         // Width per key so labels never wrap ("es/c" was the old failure).
-        let keys: [(String, AccessoryKey, CGFloat)] = [
-            ("esc", .esc, 50), ("tab", .tab, 50), ("ctrl", .ctrl, 52), ("alt", .alt, 48),
-            ("^C", .ctrlC, 46), ("←", .left, 42), ("↓", .down, 42), ("↑", .up, 42), ("→", .right, 42),
-            ("|", .pipe, 38), ("/", .slash, 38), ("-", .dash, 38), ("~", .tilde, 38),
-            ("⇞", .pageUp, 42), ("⇟", .pageDown, 42), ("paste", .paste, 58), ("⌄", .dismiss, 42)
+        // Third element is the spoken name: "⇞" and "⌄" are unreadable to
+        // VoiceOver and unsayable to Voice Control ("tap page up" should work).
+        let keys: [(String, AccessoryKey, CGFloat, String)] = [
+            ("esc", .esc, 50, "escape"), ("tab", .tab, 50, "tab"),
+            ("ctrl", .ctrl, 52, "control"), ("alt", .alt, 48, "alt"),
+            ("^C", .ctrlC, 46, "control C"),
+            ("←", .left, 42, "left arrow"), ("↓", .down, 42, "down arrow"),
+            ("↑", .up, 42, "up arrow"), ("→", .right, 42, "right arrow"),
+            ("|", .pipe, 38, "pipe"), ("/", .slash, 38, "slash"),
+            ("-", .dash, 38, "dash"), ("~", .tilde, 38, "tilde"),
+            ("⇞", .pageUp, 42, "page up"), ("⇟", .pageDown, 42, "page down"),
+            ("paste", .paste, 58, "paste"), ("⌄", .dismiss, 42, "hide keyboard")
         ]
-        for (label, key, width) in keys {
+        for (label, key, width, spoken) in keys {
             var cfg = UIButton.Configuration.filled()
             cfg.title = label
             cfg.baseForegroundColor = .white
@@ -822,6 +830,7 @@ final class HopTermView: TerminalView {
                     btn.addTarget(self, action: #selector(endRepeat), for: event)
                 }
             }
+            btn.accessibilityLabel = spoken
             btn.titleLabel?.lineBreakMode = .byClipping
             btn.titleLabel?.numberOfLines = 1
             btn.translatesAutoresizingMaskIntoConstraints = false

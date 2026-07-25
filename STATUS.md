@@ -385,6 +385,24 @@ LESSON: test against a REAL session with history, not a fresh probe.
    This is a native-only capability: a web page polls at whatever rate it was
    written for.
 
+24. **Background-task double completion + an accessibility pass.**
+   - Audited the two files never reviewed. Keychain is correct (delete-then-add
+     avoids errSecDuplicateItem; WhenUnlockedThisDeviceOnly is the right class).
+     BackgroundRefresh was NOT: if iOS expired the slot while the refresh was
+     still in flight — exactly what a slow tunnel causes — the expiration
+     handler completed the task and then the refresh completed it AGAIN.
+     Completing a BGTask twice is a hard error; iOS logs "was completed twice"
+     and can stop granting background slots altogether, which would silently
+     kill pocket bell notifications. Now single-shot under a lock, with the
+     expiration handler installed BEFORE the work starts (an expiration in that
+     window would have found no handler at all), and a log line so background
+     runs are observable at all.
+   - Accessibility: icon-only controls announced as SF Symbol names or nothing,
+     which also breaks Voice Control. The key bar now speaks ("page up", not
+     "⇞"), toolbar buttons are labelled, the hare is marked decorative, and a
+     session row is ONE utterance leading with attention — not a dot, a badge,
+     and three lines of raw scrollback read aloud. Pinned by a test. 24 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

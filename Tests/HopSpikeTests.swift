@@ -270,6 +270,17 @@ final class HopSpikeTests: XCTestCase {
                      "previews are a nicety and cost a render each — drop them in Low Data Mode")
     }
 
+    func testRowSummaryLeadsWithWhatMatters() {
+        // VoiceOver reads one utterance per row; attention has to come early,
+        // and the raw terminal preview must not be in it at all.
+        let s = session(["name": "Orion", "tagline": "Polish mobile client",
+                         "foregroundProcess": "vim", "bellSeq": 4], seen: ["Orion": 3])
+        let spoken = SessionRow(session: s, preview: "╭───╮\n│ ❯ │").spokenSummary
+        XCTAssertTrue(spoken.hasPrefix("Orion, wants attention"), "got: \(spoken)")
+        XCTAssertTrue(spoken.contains("Polish mobile client"))
+        XCTAssertFalse(spoken.contains("╭"), "scrollback is a glance aid, not something to listen to")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
