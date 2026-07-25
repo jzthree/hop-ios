@@ -225,6 +225,36 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## One reshape per open, and saying when it happens (iteration 66)
+
+Answering Jian's question about independent terminal sizes turned up a real
+defect in our own behaviour.
+
+**Opening a session sent TWO PTY resizes.** The attach claim went out at the
+pre-keyboard height (51x48), then the keyboard appeared and took half the
+screen, triggering a second resize (51x23). One PTY means one size, so a desk
+terminal reflowed TWICE because someone glanced at their phone. Resizes are now
+held until the layout settles (~400ms) and exactly one claim goes out, at the
+size we actually keep. Verified: `attach claim 51x23`, where it used to read
+`51x48` followed by a correction.
+
+**And the phone now says when it reshapes someone else's session** — but only
+when the change is real (>8 columns different from what the room was using when
+we joined, which `hello` carries). Opening a session already at phone width
+says nothing.
+
+On the underlying question: independent sizes are impossible, not merely
+unimplemented. One session is one PTY with a single TIOCSWINSZ, and a TUI draws
+to that grid with absolute positioning — two sizes means one client gets
+garbage, not a slightly-wrong view. tmux hits the same wall and solves it the
+same way (a size policy: latest/smallest/largest; hop's typing-recency election
+is "latest"). Independent VIEWS are possible and hop's web client has them
+(`fit` claims, `full` keeps the shared size and pans), but on a phone a
+120-column grid is ~3pt per column, so panning is the only way to read it.
+Notably, NOT claiming is worse for agent sessions: claude would keep drawing
+for 160 columns into our 51-column grid, which is scrambled rather than wide.
+Claiming is the precondition for legibility, not a preference.
+
 ## Glanceable count + a real "session ended" state (iteration 65)
 
 - **Fleet summary.** With nineteen sessions the header said nothing useful.

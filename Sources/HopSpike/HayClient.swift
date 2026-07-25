@@ -20,6 +20,7 @@ final class HayClient: NSObject {
         // device isn't allowed in. Backing off forever against a 404 just
         // burns radio and repeats the same error at the user.
         case failed(String, permanent: Bool)
+        case joined(cols: Int, rows: Int)   // the room's size as we found it
         case renamed(String)         // display name changed elsewhere
         case serverError(String)     // the server rejected something we sent
         case closed
@@ -191,6 +192,10 @@ final class HayClient: NSObject {
         case "hello":
             connectedAt = Date()
             clientId = obj["clientId"] as? String
+            // The room's size BEFORE we join. Carried so the client can tell
+            // whether its attach claim actually reshaped a session someone
+            // else was sized for.
+            onEvent?(.joined(cols: jsonInt(obj["cols"]) ?? 0, rows: jsonInt(obj["rows"]) ?? 0))
             onEvent?(.connected)
             if let collabMode = obj["collabMode"] as? Bool {
                 onEvent?(.collab(collabMode, obj["controllerId"] as? String))

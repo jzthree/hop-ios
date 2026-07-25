@@ -589,6 +589,8 @@ struct TerminalScreen: UIViewRepresentable {
                     self.onCollab(everyone, mine, !everyone && !mine && controllerId != nil)
                 case .rejected(let reason):
                     self.onToast(reason)
+                case .joined(let cols, let rows):
+                    self.sizeAtJoin = (cols, rows)
                 case .renamed(let name):
                     self.onRenamed(name)
                 case .serverError(let message):
@@ -623,6 +625,7 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopJumpToLive, object: nil)
             let t = view.getTerminal()
             snapshotLanded = false
+            claimed = false
             client.theme = themeIsLight ? .light : .dark
             fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
@@ -772,6 +775,7 @@ struct TerminalScreen: UIViewRepresentable {
                     // path that never fast-painted, so the case where you're
                     // already staring at a dead terminal was the slowest.
                     self.snapshotLanded = false
+                    self.claimed = false
                     self.fastPaint(room: self.room)
                     let term = tv.getTerminal()
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
@@ -791,6 +795,7 @@ struct TerminalScreen: UIViewRepresentable {
             setStatus(.connecting)
             let t = view.getTerminal()
             snapshotLanded = false
+            claimed = false
             fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room,
                            cols: t.cols, rows: t.rows, token: token_, using: urlSession)
@@ -874,7 +879,30 @@ struct TerminalScreen: UIViewRepresentable {
         private var fittedCols = 0
         private var fittedRows = 0
 
+        /// What the room was sized to when we arrived, so the claim below can
+        /// tell "I fit this to the phone" from "I just reshaped the terminal
+        /// someone is using at their desk".
+        private var sizeAtJoin: (cols: Int, rows: Int)?
+
+        /// Resizes are held until this is true. Opening a session used to send
+        /// TWO: the claim at the pre-keyboard height, then another when the
+        /// keyboard appeared and took half the screen. One PTY means everyone
+        /// reflows both times — a desk terminal redrawing twice because someone
+        /// glanced at their phone.
+        private var claimed = false
+
         private func claimSizeOnAttach() {
+            // Let the keyboard's layout land first, then claim once at the
+            // size we'll actually keep.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(400))
+                self?.sendAttachClaim()
+            }
+        }
+
+        private func sendAttachClaim() {
+            guard !claimed else { return }
+            claimed = true
             let t = view?.getTerminal()
             let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
             let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
@@ -882,11 +910,22 @@ struct TerminalScreen: UIViewRepresentable {
             client.sendResize(cols: cols, rows: rows, claim: "attach")
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
+            // One PTY means one size, so opening a session here reflows it
+            // everywhere — including whatever screen it was sized for. Say so
+            // when the change is real, rather than letting a desk terminal
+            // reflow for no visible reason. It self-heals: whoever types next
+            // takes the size back.
+            if let was = sizeAtJoin, was.cols > 0, abs(was.cols - cols) > 8 {
+                onToast("Resized to \(cols)×\(rows) for this screen (was \(was.cols)×\(was.rows))")
+            }
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             fittedCols = newCols
             fittedRows = newRows
+            // Before the claim, record only. Sending now would reshape the PTY
+            // at a height the keyboard is about to take away.
+            guard claimed else { return }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)
