@@ -226,6 +226,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Every reconnect cost two connections (iteration 79)
+
+Reviewing HayClient's socket lifecycle: `close()` cancelled the task but left
+its pending `receive` to fire with a failure. The coordinator can't tell that
+apart from a real drop, so it set the status to closed and **scheduled a
+retry** — while a new connection was already in flight.
+
+Measured before fixing, one "Reconnect" tap: snapshots at **13:54:16.99**
+(open), **:20.25** (the tap), **:21.30** — a third connection exactly 1s later,
+matching the backoff's first delay. Each one costs another 334 KB and another
+attach claim, and the claim reflows the PTY for **everyone** attached, so a
+reconnect on the phone made a desk terminal redraw twice.
+
+Sockets now carry a generation, bumped on close, and results from a retired one
+are ignored. Re-measured: **3 → 2** connections, which is open plus the
+requested reconnect. Also affects the automatic paths — waking the phone and
+foregrounding both go through the same close/connect.
+
 ## State that outlives what it describes — audit (iteration 78)
 
 #77's bug lived in state that survived the thing it described, so I checked the

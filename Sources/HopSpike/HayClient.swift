@@ -101,6 +101,9 @@ final class HayClient: NSObject {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        // Retire any previous socket first, so its in-flight receive can't be
+        // mistaken for news about this one.
+        close()
         let t = session.webSocketTask(with: req)
         // hop replays a JOIN SNAPSHOT of up to ~1.5 MB (HAY_SNAPSHOT_REPLAY_BYTES)
         // in a single message. URLSessionWebSocketTask's default cap is 1 MB, so
@@ -110,7 +113,7 @@ final class HayClient: NSObject {
         t.maximumMessageSize = 32 * 1024 * 1024
         task = t
         t.resume()
-        receiveLoop()
+        receiveLoop(generation)
     }
 
     func sendInput(_ text: String) { sendJSON(["type": "input", "data": text]) }
@@ -132,10 +135,19 @@ final class HayClient: NSObject {
         sendJSON(msg)
     }
 
+    /// Retiring a socket has to silence it too. Cancelling leaves the pending
+    /// `receive` to fire with a failure, which the coordinator read as a real
+    /// drop: it set the status to closed and scheduled a RETRY — so a
+    /// deliberate reconnect produced a second one a second later, costing
+    /// another snapshot and another attach claim, which reflows the PTY for
+    /// everyone. Measured: three connections for one Reconnect tap.
     func close() {
+        generation &+= 1        // anything still in flight belongs to a dead socket
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }
+
+    private var generation = 0
 
     private func sendJSON(_ obj: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
@@ -145,9 +157,11 @@ final class HayClient: NSObject {
 
     private var connectedAt: Date?
 
-    private func receiveLoop() {
+    private func receiveLoop(_ generation: Int) {
         task?.receive { [weak self] result in
-            guard let self else { return }
+            // A result from a socket we already retired says nothing about the
+            // one we have now.
+            guard let self, generation == self.generation else { return }
             switch result {
             case .failure(let error):
                 // A rejected upgrade surfaces as an error here; name it so the
@@ -179,7 +193,7 @@ final class HayClient: NSObject {
                 if case .string(let text) = message {
                     DispatchQueue.main.async { self.handle(text) }
                 }
-                self.receiveLoop()
+                self.receiveLoop(generation)
             }
         }
     }

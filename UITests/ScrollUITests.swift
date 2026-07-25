@@ -175,6 +175,22 @@ final class ScrollUITests: XCTestCase {
     // checklist, and the pure logic under them (findMatchRow, extractLinks) is
     // covered by unit tests instead.
 
+    /// Reconnect used to cost TWO connections: cancelling the old socket left
+    /// its pending receive to fire as a failure, which scheduled a retry a
+    /// second later. The count itself is only visible in the log
+    /// (`snapshot N KB`, measured 3 → 2), so what this asserts is the part
+    /// XCUITest can see — that the session stays usable across it, which the
+    /// second teardown was quietly disrupting.
+    func testReconnectKeepsTheSessionUsable() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.buttons["Terminal actions"].tap()
+        app.buttons["Reconnect"].tap()
+        Thread.sleep(forTimeInterval: 6)   // longer than the old 1s spurious retry
+        XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after reconnect")
+        XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after reconnect")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")
