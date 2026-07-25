@@ -10,6 +10,12 @@ final class AppModel: ObservableObject {
     @Published var checkingAuth = true
     @Published var sessions: [HopSession] = []
     @Published var lastError: String?
+    // Optional access token (the daemon accepts it as Bearer / ?token=).
+    // Dev/simulator runs can inject it via the HOP_DEV_TOKEN env var so the
+    // real UI can be exercised without an authenticator code.
+    var accessToken: String? {
+        ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] ?? UserDefaults.standard.string(forKey: "accessToken")
+    }
 
     let urlSession: URLSession = {
         let cfg = URLSessionConfiguration.default
@@ -61,15 +67,24 @@ final class AppModel: ObservableObject {
 
     func refreshSessions(silent: Bool = false) async {
         guard let url = baseURL?.appendingPathComponent("api/sessions") else { return }
+        var listReq = URLRequest(url: url)
+        if let token = accessToken { listReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         do {
-            let (data, resp) = try await urlSession.data(from: url)
+            let (data, resp) = try await urlSession.data(for: listReq)
             guard let http = resp as? HTTPURLResponse else { return }
-            // The daemon redirects unauthenticated API hits to the login page.
+            // Only a definitive rejection logs the user out. A transient blip
+            // (timeout, tunnel hiccup, 5xx) must NOT bounce them to the login
+            // screen — that made a momentary network glitch look like a lost
+            // session and hid the real error.
             let isJSON = (http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("json")
+            if http.statusCode == 401 || http.statusCode == 403 || (!isJSON && http.statusCode == 200) {
+                authenticated = false
+                return
+            }
             guard http.statusCode == 200, isJSON,
                   let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let raw = obj["sessions"] as? [[String: Any]] else {
-                authenticated = false
+                if !silent { lastError = "Server returned \(http.statusCode)" }
                 return
             }
             let seen = seenBells
@@ -77,7 +92,8 @@ final class AppModel: ObservableObject {
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
         } catch {
-            if !silent { lastError = error.localizedDescription }
+            // Network failure: keep the user where they are, surface the reason.
+            lastError = error.localizedDescription
         }
     }
 
@@ -123,8 +139,13 @@ struct HopSession: Identifiable {
     }
 
     var runningApp: String {
-        let shells: Set<String> = ["zsh", "bash", "sh", "fish", "-zsh", "login"]
-        return shells.contains(foregroundProcess) ? "" : foregroundProcess
+        let p = foregroundProcess.trimmingCharacters(in: .whitespaces)
+        let shells: Set<String> = ["zsh", "bash", "sh", "fish", "-zsh", "login", "node"]
+        if p.isEmpty || shells.contains(p) { return "" }
+        // claude retitles its process to its VERSION ("2.1.220") — a bare
+        // version tells the user nothing, so name the app instead.
+        if p.range(of: #"^v?\d+(\.\d+)+$"#, options: .regularExpression) != nil { return "claude" }
+        return p
     }
 
     var relativeTime: String {

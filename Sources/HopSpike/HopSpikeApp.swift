@@ -14,6 +14,7 @@ struct HopApp: App {
             RootView()
                 .environmentObject(model)
                 .tint(.hopPurple)
+                .preferredColorScheme(.dark)
                 .task { await model.bootstrap() }
         }
     }

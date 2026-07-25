@@ -53,6 +53,27 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 - Not yet: app icon asset, Face ID/keychain credential save, reconnect-in-place,
   session create/rename/kill, push notifications (next big rock).
 
+## Simulator review loop (Orion can SEE the UI now)
+`xcodebuild -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build-sim
+CODE_SIGNING_ALLOWED=NO build`, then `simctl install/launch` with
+`SIMCTL_CHILD_HOP_DEV_TOKEN=<daemon sessionSecret>` (bypasses TOTP; the daemon
+accepts it as Bearer/?token=) and optional `SIMCTL_CHILD_HOP_DEV_OPEN=<session>`
+to auto-open a terminal. Screenshot: `simctl io <udid> screenshot out.png`.
+Probe sessions: create with `X-Hop-Actor: agent`, delete in a finally.
+
+## Fixes from the first on-device round (2026-07-25)
+- **WS connect failed while REST worked** — URLSession does not attach `Secure`
+  cookies to `wss://` (scheme isn't https), so the daemon 401'd the upgrade.
+  Now the session cookie is set explicitly on the WS request (+ optional Bearer/
+  ?token=), and failures print the real reason (401/404/network) in the terminal.
+- **Transient blip logged you out** — any non-JSON/failed /api/sessions marked the
+  app unauthenticated; now only 401/403 (or an HTML login page) does.
+- Accessory keys wrapped to two lines ("es/c") → fixed widths, no wrap,
+  horizontally scrollable, added paste + keyboard-dismiss.
+- Terminal nav bar was an empty black void → inline `● name` + app capsule.
+- Dark appearance app-wide; purple capsule showed claude's VERSION string
+  ("2.1.220") → version-looking values now render as "claude".
+
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)
 - [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle

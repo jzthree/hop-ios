@@ -5,9 +5,12 @@ import SwiftUI
 struct SessionsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    // Dev/simulator: auto-open a session so the terminal screen can be driven
+    // and screenshotted without touch input.
+    @State private var path: [String] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     ForEach(model.sessions.filter { !$0.isPort }) { session in
@@ -34,6 +37,15 @@ struct SessionsView: View {
                 }
             }
             .refreshable { await model.refreshSessions() }
+            .task {
+                guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
+                for _ in 0..<20 where path.isEmpty {
+                    if let hit = model.sessions.first(where: { $0.name == want || $0.internalName == want }) {
+                        path = [hit.internalName]
+                    }
+                    try? await Task.sleep(for: .milliseconds(400))
+                }
+            }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
                 while !Task.isCancelled {
