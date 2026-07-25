@@ -691,6 +691,12 @@ struct TerminalScreen: UIViewRepresentable {
                     self.retryTask = nil
                     guard let tv = self.view else { return }
                     self.setStatus(.connecting)
+                    // The automatic retry is the MOST common reconnect — a
+                    // tunnel blip, or a phone waking up — and it was the one
+                    // path that never fast-painted, so the case where you're
+                    // already staring at a dead terminal was the slowest.
+                    self.snapshotLanded = false
+                    self.fastPaint(room: self.room)
                     let term = tv.getTerminal()
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
                                         cols: term.cols, rows: term.rows,

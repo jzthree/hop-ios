@@ -79,9 +79,11 @@ be the scriptable route but needs admin, so Console is the practical one.
 10. **Low Data Mode** (Settings → Cellular): live previews should stop
     appearing; the list should still update, just slower.
 11. **Reconnect after a real suspend.** Open a shell session (not claude),
-    lock the phone for a minute, come back. History must not appear twice and
-    no junk like "35;197;31M" should land at the prompt. The simulator can't
-    reproduce this — it never truly suspends.
+    lock the phone for a minute, come back. Three things to watch: history must
+    not appear twice, no junk like "35;197;31M" at the prompt, and the screen
+    should repaint almost immediately rather than after a pause (the fast paint
+    on auto-reconnect, #50). The simulator can't reproduce any of it — it never
+    truly suspends.
 12. **VoiceOver.** Swipe through the list: each row should read as one sentence
     starting with the name and "wants attention", never raw box-drawing.
 
@@ -143,6 +145,20 @@ be the scriptable route but needs admin, so Console is the practical one.
 Parity is complete except the two deliberate omissions. Everything in **bold**
 was added after the first matrix was written, most of it found by reading hop's
 server and web client rather than by inspecting our own UI.
+
+## Task-safety audit (iteration 50)
+
+Swept every `Task {` after #49 found one racing. Result: the rest are fine —
+those inside SwiftUI views and inside `@MainActor` types inherit the actor, and
+the two in the terminal coordinator (fast paint, reconnect backoff) both do
+their UIKit work inside `await MainActor.run`. Only #33's diagnostic was wrong.
+
+The sweep found a different bug though: **three call sites connect the socket,
+and only two fast-painted.** The missing one was the automatic backoff retry —
+a tunnel blip, or a phone waking from sleep — which is both the MOST common
+reconnect and the case where you're already staring at a dead terminal, so the
+slowest path was the one that needed it most. #41 wired the two explicit paths
+and missed the automatic one. All three now reset `snapshotLanded` and paint.
 
 ## Crash-safety + concurrency audit (iteration 49)
 
