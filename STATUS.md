@@ -225,6 +225,30 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## APNs entitlement is LIVE (iteration 64)
+
+`aps-environment => development` is now in the signed app, verified with
+`codesign -d --entitlements`. #16 and #26 both recorded this as silently
+stripped; it took three things, and the last was self-inflicted:
+
+1. An **explicit App ID with Push enabled** (#63). A wildcard App ID cannot
+   carry the entitlement — Apple simply drops it.
+2. **Getting Xcode to stop using the cached wildcard profile.** It matched
+   `io.zhoulab.hop.spike` and won every time. Moving it aside (backed up, and
+   lightscope's own explicit profile untouched) made Xcode create
+   `iOS Team Provisioning Profile: io.zhoulab.hop.spike`, which carries
+   `aps-environment`.
+3. **XcodeGen overwrites `HopSpike.entitlements` with an empty dict** unless
+   the contents are declared in `project.yml` under `entitlements: properties:`.
+   Exactly the trap #45 hit with Info.plist — a generated file edited by hand,
+   silently discarded, build green. Second time; now commented in project.yml.
+
+Client half of push is implemented: `PushRegistry` registers for remote
+notifications once notification permission is granted, keeps the device token,
+and surfaces it in Copy Diagnostics (first 16 chars) so it can be read off a
+phone. Delivering an actual push still needs the daemon side — an endpoint to
+register tokens against and a send-on-bell path — which are hop2 changes.
+
 ## TestFlight: everything done except one web form (iteration 63)
 
 Asked to push to TestFlight. Got most of the way; the last step is Apple's to

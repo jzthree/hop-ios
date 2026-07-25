@@ -37,6 +37,10 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
                 .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
             enabled = granted
             if !granted { return }
+            // With permission in hand, ask APNs for a token too. Harmless if
+            // the daemon can't use it yet; it means the moment the endpoint
+            // exists, the token is already there.
+            PushRegistry.shared.register()
         } else {
             enabled = false
         }

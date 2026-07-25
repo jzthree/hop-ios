@@ -38,6 +38,13 @@ targets:
         NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [io.zhoulab.hop.spike.refresh]
+    entitlements:
+      # GENERATED from these properties — editing HopSpike.entitlements
+      # directly is silently overwritten with an empty dict, exactly like
+      # Info.plist. Same trap, second time.
+      path: HopSpike.entitlements
+      properties:
+        aps-environment: development
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike

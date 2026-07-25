@@ -9,6 +9,7 @@ struct AccountView: View {
     @State private var copied = false
     @StateObject private var network = NetworkConditions.shared
     @StateObject private var notifier = HopNotifier.shared
+    @StateObject private var push = PushRegistry.shared
 
     /// The state worth knowing when something is wrong on a phone I can't
     /// attach a debugger to. Deliberately no session names, no cwds and no
@@ -24,6 +25,7 @@ struct AccountView: View {
         authenticated: \(model.authenticated), sessions: \(model.sessions.count),         attention: \(model.sessions.filter(\.attention).count)
         network: \(net)
         notifications: \(notifier.enabled ? "on" : "off")
+        apns: \(push.deviceToken.map { String($0.prefix(16)) + "…" } ?? push.failure ?? "not registered")
         lastError: \(model.lastError ?? "none")
         """
     }

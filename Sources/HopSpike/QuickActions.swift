@@ -72,7 +72,49 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
     }
 }
 
+/// APNs registration. The entitlement is live now that the App ID is explicit
+/// and has Push enabled — a wildcard App ID cannot carry `aps-environment`,
+/// which is why this was blocked for so long.
+///
+/// This is the CLIENT half only: it obtains the device token and keeps it
+/// where diagnostics can show it. Actually delivering a push needs a daemon
+/// endpoint to register the token against and a send-on-bell path in hop, both
+/// of which are hop2 changes.
+@MainActor
+final class PushRegistry: ObservableObject {
+    static let shared = PushRegistry()
+    @Published private(set) var deviceToken: String?
+    @Published private(set) var failure: String?
+
+    func register() {
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    func received(_ token: Data) {
+        deviceToken = token.map { String(format: "%02x", $0) }.joined()
+        failure = nil
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "push")
+            .info("APNs token \(self.deviceToken?.prefix(12) ?? "")… (\(token.count) bytes)")
+    }
+
+    func failed(_ error: Error) {
+        failure = error.localizedDescription
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "push")
+            .error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
+    }
+}
+
 final class HopAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        Task { @MainActor in PushRegistry.shared.received(token) }
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        Task { @MainActor in PushRegistry.shared.failed(error) }
+    }
+
     func application(_ application: UIApplication,
                      configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
