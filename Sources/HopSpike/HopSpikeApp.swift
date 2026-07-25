@@ -47,6 +47,7 @@ struct LoginView: View {
     @State private var password = ""
     @State private var totp = ""
     @State private var busy = false
+    @State private var remember = true
     @FocusState private var focus: Field?
     enum Field { case password, totp }
 
@@ -88,6 +89,13 @@ struct LoginView: View {
                 }
                 .font(.system(.body, design: .monospaced))
 
+                Toggle(isOn: $remember) {
+                    Text("Remember password on this device")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.switch)
+
                 if let err = model.lastError {
                     Text(err).font(.footnote).foregroundStyle(.red)
                 }
@@ -96,6 +104,12 @@ struct LoginView: View {
                     busy = true
                     Task {
                         await model.login(password: password, totp: totp)
+                        if model.authenticated {
+                            // Only the password — never the TOTP secret, which
+                            // would put both factors on one device.
+                            if remember { Keychain.save(password, account: model.serverURL) }
+                            else { Keychain.delete(account: model.serverURL) }
+                        }
                         busy = false
                     }
                 } label: {
@@ -112,6 +126,12 @@ struct LoginView: View {
                 Spacer()
             }
             .padding(.horizontal, 28)
+            .onAppear {
+                if password.isEmpty, let saved = Keychain.read(account: model.serverURL) {
+                    password = saved
+                    remember = true
+                }
+            }
         }
     }
 }

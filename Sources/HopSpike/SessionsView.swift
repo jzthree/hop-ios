@@ -55,6 +55,21 @@ struct SessionsView: View {
                         NavigationLink(value: session.internalName) {
                             SessionRow(session: session, preview: model.previews[session.internalName])
                         }
+                        .contextMenu {
+                            Button {
+                                Task { _ = await model.setAgentAccess(session, allowed: !session.agentPermitted) }
+                            } label: {
+                                Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
+                                      systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+                            }
+                            Button {
+                                renameText = session.name
+                                renaming = session
+                            } label: { Label("Rename", systemImage: "pencil") }
+                            Button(role: .destructive) { killTarget = session } label: {
+                                Label("Kill", systemImage: "xmark.circle")
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) { killTarget = session } label: {
                                 Label("Kill", systemImage: "xmark.circle")
@@ -193,6 +208,8 @@ struct SessionRow: View {
                     }
                     if session.createdBy == "agent" {
                         Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
+                    } else if session.agentPermitted {
+                        Image(systemName: "cpu").font(.caption2).foregroundStyle(Color.hopGlow.opacity(0.8))
                     }
                     if session.attention {
                         Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.red)

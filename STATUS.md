@@ -119,8 +119,9 @@ LESSON: test against a REAL session with history, not a fresh probe.
 | Presence / take-release control | ✓ | ✓ (viewer count + list, lock/unlock typing, take/release) |
 | Bell notifications | ✓ (web push) | ✓ local (banner + tap-to-open); APNs pending |
 | Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
-| Agent-permission toggle | ✓ | ✗ |
-| Passkey / share link | ✓ | ✗ |
+| Agent-permission toggle | ✓ | ✓ (long-press a session) |
+| Passkey / share link | ✓ | ✗ (low value on phone) |
+| Saved password (keychain) | ✗ | ✓ (device-only; TOTP still required) |
 
 ## Loop iterations (autonomous, every 10 min)
 1. **App icon** — hop's purple prompt chevron, CoreGraphics-rendered 1024 opaque
@@ -161,6 +162,19 @@ LESSON: test against a REAL session with history, not a fresh probe.
    take/release control, and a refused keystroke surfaces the server's reason
    as a toast instead of vanishing. Verified live: a second client attached
    over the tunnel appeared as "👥 2" within a second.
+
+6. **Agent access + saved password** — long-press a session to allow/block
+   agent (MCP) access, with a purple cpu marker on rows where agents may drive;
+   login can remember the PASSWORD in the keychain (device-only, never synced,
+   never the TOTP secret — both factors on one device would defeat 2FA), so a
+   7-day cookie expiry costs one 6-digit code instead of a full re-entry.
+
+## Remaining (needs your call)
+- **APNs background delivery**: device-token endpoint + push-on-bell in the
+  hop2 daemon. Client work is done; this is the only thing between us and
+  "phone buzzes while locked". Needs a greenlight to touch hop2 + coordination
+  with Solstice.
+- Split panes / wall zoom: deliberately skipped — desktop-shaped.
 
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)

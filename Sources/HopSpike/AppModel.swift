@@ -149,6 +149,9 @@ final class AppModel: ObservableObject {
     func renameSession(_ s: HopSession, to newName: String) async -> Bool {
         await post("api/sessions/rename", ["oldName": s.name, "newName": newName])
     }
+    func setAgentAccess(_ s: HopSession, allowed: Bool) async -> Bool {
+        await post("api/sessions/agent-permission", ["internalName": s.internalName, "allowed": allowed])
+    }
     func killSession(_ s: HopSession) async -> Bool {
         await post("api/sessions/delete", ["internalName": s.internalName])
     }
@@ -227,6 +230,7 @@ struct HopSession: Identifiable {
     let attention: Bool
     let createdBy: String
     let tagline: String
+    let agentPermitted: Bool
     var id: String { internalName }
 
     init?(json: [String: Any], seenBellSeq: [String: Int]) {
@@ -240,6 +244,7 @@ struct HopSession: Identifiable {
         live = (json["live"] as? Bool) ?? false
         isPort = (json["type"] as? String) == "port"
         attention = bellSeq > (seenBellSeq[internalName] ?? bellSeq)
+        agentPermitted = (json["agentPermitted"] as? Bool) ?? false
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
 
