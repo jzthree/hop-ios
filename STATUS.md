@@ -257,6 +257,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Measured, then NOT built: capping the coast on Low Data (iteration 99)
+
+Every wheel notch makes the remote app repaint, so momentum has an INBOUND
+cost, and the app already drops previews entirely in Low Data Mode. The
+obvious next step was to cap the coast there too.
+
+Measured it first, against idle sessions with a control period (both controls
+read 0 bytes over 3s, so these are clean):
+
+| session   | bytes per notch |
+|---|---|
+| Polaris   | 86 |
+| Supernova | 875 |
+
+Worst case ~875 B/notch, and a hard flick is about 50 notches: **~44 KB**.
+That is not a price worth degrading the core interaction for. Previews are a
+nicety and Low Data drops them; reading output is what the app is FOR. No cap.
+
+Recorded so the idea isn't re-litigated: the number that matters is 44 KB per
+hard flick, worst case, uncompressed.
+
 ## Reconnect when the route changes (iteration 98)
 
 A phone changes networks constantly, and the terminal only reconnected on two
