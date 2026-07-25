@@ -83,7 +83,16 @@ final class HayClient: NSObject {
     func takeControl() { sendJSON(["type": "take_control"]) }
     func releaseControl() { sendJSON(["type": "release_control"]) }
     func setCollab(_ enabled: Bool) { sendJSON(["type": "toggle_collab", "enabled": enabled]) }
-    func sendResize(cols: Int, rows: Int) { sendJSON(["type": "resize", "cols": cols, "rows": rows]) }
+    /// `claim: "attach"` marks the first fit after opening a session. hop's
+    /// size election normally needs every peer input-idle for 60s; an attach
+    /// claim only needs 2.5s, because opening a session somewhere is a
+    /// deliberate act. Without it the phone loses to any desktop that typed in
+    /// the last minute and renders at ITS width — mis-wrapped until you type.
+    func sendResize(cols: Int, rows: Int, claim: String? = nil) {
+        var msg: [String: Any] = ["type": "resize", "cols": cols, "rows": rows]
+        if let claim { msg["claim"] = claim }
+        sendJSON(msg)
+    }
 
     func close() {
         task?.cancel(with: .goingAway, reason: nil)

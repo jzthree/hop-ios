@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftTerm
+import os
 
 // Native terminal host: SwiftTerm view + a key accessory bar above the iOS
 // keyboard (Esc / Tab / sticky-Ctrl / arrows / paste — the keys the soft
@@ -212,7 +213,11 @@ struct TerminalHostView: View {
                 // iOS suspends the socket when the app backgrounds; coming back
                 // to a dead terminal and having to hunt for a menu item was the
                 // single most annoying part of using this on a phone.
-                if phase == .active, status != .live { reconnectToken += 1 }
+                // Only a CLOSED socket needs this. Firing on .connecting too
+                // meant becoming active while the first connect was still in
+                // flight tore it down and started over — and every connect
+                // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
+                if phase == .active, status == .closed { reconnectToken += 1 }
             }
             .onAppear { model.markSeen(session) }
             .background(Color.black)
@@ -351,6 +356,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .connected:
                     self.retryAttempt = 0      // healthy again: reset backoff
                     self.setStatus(.live)
+                    self.claimSizeOnAttach()
                 case .output(let data):
                     tv.feed(text: data)
                 case .presence(let list):
@@ -548,7 +554,25 @@ struct TerminalScreen: UIViewRepresentable {
             client.sendInput(text)
         }
 
+        /// The size this phone's view actually fits, recorded from layout —
+        /// NOT read back off the terminal, which a peer's active_size may have
+        /// already widened to a desktop's dimensions by the time we connect.
+        private var fittedCols = 0
+        private var fittedRows = 0
+
+        private func claimSizeOnAttach() {
+            let t = view?.getTerminal()
+            let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
+            let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
+            guard cols > 0, rows > 0 else { return }
+            client.sendResize(cols: cols, rows: rows, claim: "attach")
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
+        }
+
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+            fittedCols = newCols
+            fittedRows = newRows
             client.sendResize(cols: newCols, rows: newRows)
         }
 

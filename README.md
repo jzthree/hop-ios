@@ -69,6 +69,9 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 - Sessions: `GET /api/sessions`; previews: `GET /api/sessions/preview?name=`;
   mutations: `POST /api/sessions{,/rename,/delete,/agent-permission}`.
 - Terminal: `wss://<host>/ws?room=<internalName>&name=&cols=&rows=`.
+- Size: hop elects the shared PTY size by typing recency. A plain `resize`
+  needs every peer input-idle 60s; the first fit after attaching must send
+  `claim: "attach"` (2.5s) or the phone renders at a desktop peer's width.
 
 Two iOS traps worth remembering, both cost real debugging time:
 1. `Cookie` is a **reserved** URLSession header — a manually set one is dropped

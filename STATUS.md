@@ -336,6 +336,25 @@ LESSON: test against a REAL session with history, not a fresh probe.
    back in a second after signing out. Refreshes now carry an auth epoch and
    discard themselves if it moved.
 
+21. **Attach claim — a protocol gap, found by reading hop's server.** Our
+   client sent a bare `resize` on attach. hop elects the shared PTY size by
+   typing recency: a plain resize needs every peer input-idle for 60s
+   (RESIZE_CLAIM_IDLE_MS), while `claim: "attach"` needs only 2.5s
+   (ATTACH_CLAIM_IDLE_MS) because opening a session somewhere is a deliberate
+   act. So opening on the phone any time a desktop had typed in the last MINUTE
+   lost the election and rendered at the desktop's width — mis-wrapped until
+   you typed. The web client has sent the claim for a while (its comment calls
+   it "one autofit away"); we now match it. The claimed size comes from the
+   view's own layout, not read back off the terminal, which a peer's
+   active_size may already have widened.
+   Verified by log line, not by assumption: "attach claim 51x26 for Orion".
+   **That log then exposed a second bug**: opening ONE session produced THREE
+   connects. Becoming active while the first connect was still in flight tore
+   it down and restarted it, because the reconnect fired on `status != .live`
+   and `.connecting` isn't `.live`. Each connect pulls a fresh snapshot — up to
+   1.5 MB — so that was ~4.5 MB on someone's cellular to open one terminal. Now
+   gated on `status == .closed`: one connect, re-measured.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
