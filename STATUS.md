@@ -73,6 +73,17 @@ Auth facts worth remembering: cookie name is `tunnel_session`; the daemon
 accepts cookie | `Authorization: Bearer` | `?token=`; all four of
 `/ws?room=` and `/s/<name>/ws` × cookie/bearer/token work through the tunnel.
 
+## SECOND root cause: "refused (101)" = 1 MB WebSocket message cap
+101 is Switching Protocols — the upgrade SUCCEEDED; the failure was right after.
+URLSessionWebSocketTask defaults to a **1 MB maximumMessageSize**, but hop
+replays a join snapshot of up to 1.5 MB (HAY_SNAPSHOT_REPLAY_BYTES) in ONE
+message — so every session with real scrollback died on connect while the tiny
+probe sessions used for testing worked. Fix: maximumMessageSize = 32 MB, and the
+error mapping no longer calls a 101 "refused" (post-connect failures now report
+the real cause). Verified in the simulator against Solstice, a heavy live claude
+session, over the tunnel: full scrollback rendered.
+LESSON: test against a REAL session with history, not a fresh probe.
+
 ## Fixes from the first on-device round (2026-07-25)
 - **WS connect failed while REST worked** — URLSession does not attach `Secure`
   cookies to `wss://` (scheme isn't https), so the daemon 401'd the upgrade.

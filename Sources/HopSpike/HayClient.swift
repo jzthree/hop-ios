@@ -55,6 +55,12 @@ final class HayClient: NSObject {
         }
 
         let t = session.webSocketTask(with: req)
+        // hop replays a JOIN SNAPSHOT of up to ~1.5 MB (HAY_SNAPSHOT_REPLAY_BYTES)
+        // in a single message. URLSessionWebSocketTask's default cap is 1 MB, so
+        // any session with real scrollback blew the limit and the task failed
+        // right after a SUCCESSFUL upgrade (HTTP 101) — which read like a refused
+        // connection. Allow room for the largest snapshot plus headroom.
+        t.maximumMessageSize = 32 * 1024 * 1024
         task = t
         t.resume()
         receiveLoop()
@@ -83,16 +89,19 @@ final class HayClient: NSObject {
                 // user sees "not authorized" rather than a bare "disconnected".
                 let ns = error as NSError
                 let reason: String
-                if let http = self.task?.response as? HTTPURLResponse {
-                    switch http.statusCode {
-                    case 401: reason = "not authorized — sign in again"
+                let status = (self.task?.response as? HTTPURLResponse)?.statusCode
+                // 101 = Switching Protocols: the upgrade SUCCEEDED, so this is a
+                // post-connect failure (message too large, server close, network).
+                if let status, status != 101 {
+                    switch status {
+                    case 401, 403: reason = "not authorized — sign in again"
                     case 404: reason = "session not found on the server"
-                    default: reason = "server refused the connection (\(http.statusCode))"
+                    default: reason = "server refused the connection (\(status))"
                     }
                 } else if ns.domain == NSURLErrorDomain {
                     reason = ns.localizedDescription
                 } else {
-                    reason = "connection closed"
+                    reason = "connection lost: \(ns.localizedDescription)"
                 }
                 DispatchQueue.main.async { self.onEvent?(.failed(reason)) }
             case .success(let message):
