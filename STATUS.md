@@ -225,6 +225,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The app icon would have failed TestFlight (iteration 68)
+
+Chasing Release-build warnings before the first upload found a blocker, not a
+nit: **"A 1024x1024 app store icon is required"** and **"A 60x60@2x app icon is
+required"**. The icon set had the right 1024 image but its `Contents.json`
+carried `"scale": "1x"`, which makes Xcode read it as a legacy multi-size entry
+with everything missing, rather than the modern single-size icon. Dropping the
+key clears both. App Store validation rejects builds for exactly this, so it
+would have surfaced as a failed upload after everything else was ready.
+
+Also cleared the three code warnings, one of which was real:
+- `fastPaint` captured `self` as a var crossing into concurrent code — the same
+  shape as the race in #49. Now `Task { @MainActor [weak self] }`, so the
+  network await still suspends off-main and the body resumes on the actor,
+  with no nested `MainActor.run`.
+- The quick-action scene delegate used the ASYNC UIKit variant, which must send
+  a non-Sendable `UIApplicationShortcutItem` across an actor boundary. The
+  completion-handler form is `@MainActor` and needs no crossing — UIKit calls
+  it on the main thread anyway, so the annotation is just the truth.
+- An ignored `resignFirstResponder()` result.
+
+Release now builds with **zero warnings** from our own code and assets.
+
 ## Push environment per configuration (iteration 67)
 
 `aps-environment` was hardcoded to `development`. A TestFlight build carrying

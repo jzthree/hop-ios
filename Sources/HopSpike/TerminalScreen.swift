@@ -683,25 +683,27 @@ struct TerminalScreen: UIViewRepresentable {
             req.timeoutInterval = 5
             if let t = token_, !t.isEmpty { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
             let session = urlSession
-            Task { [weak self] in
+            // @MainActor on the Task rather than a nested MainActor.run: the
+            // network await still suspends off-main, the body resumes on the
+            // main actor, and `self` is no longer a captured var crossing into
+            // concurrent code — which Swift 6 rejects outright.
+            Task { @MainActor [weak self] in
                 guard let (data, resp) = try? await session.data(for: req),
                       (resp as? HTTPURLResponse)?.statusCode == 200,
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let screen = obj["data"] as? String, !screen.isEmpty else { return }
-                await MainActor.run {
-                    guard let self, self.alive, !self.snapshotLanded,
-                          self.room == room, let tv = self.view else { return }
-                    // Paint at the session's real dimensions: writing a wide
+                guard let self, self.alive, !self.snapshotLanded,
+                      self.room == room, let tv = self.view else { return }
+                // Paint at the session's real dimensions: writing a wide
                     // screen into a narrow grid wraps it into mush.
-                    let t = tv.getTerminal()
-                    if let cols = obj["cols"] as? Int, let rows = obj["rows"] as? Int,
-                       cols > 1, rows > 1, t.cols != cols || t.rows != rows {
-                        t.resize(cols: cols, rows: rows)
-                    }
-                    tv.feed(text: screen)
-                    Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
-                        .info("fast paint \(screen.utf8.count / 1024) KB (snapshot still in flight)")
+                let t = tv.getTerminal()
+                if let cols = obj["cols"] as? Int, let rows = obj["rows"] as? Int,
+                   cols > 1, rows > 1, t.cols != cols || t.rows != rows {
+                    t.resize(cols: cols, rows: rows)
                 }
+                tv.feed(text: screen)
+                Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                    .info("fast paint \(screen.utf8.count / 1024) KB (snapshot still in flight)")
             }
         }
 
@@ -838,7 +840,7 @@ struct TerminalScreen: UIViewRepresentable {
                 altArmed.toggle()
                 view?.setAltArmed(altArmed)
             case .dismiss:
-                view?.resignFirstResponder()
+                _ = view?.resignFirstResponder()
             case .paste:
                 // Through SwiftTerm, not straight down the socket: when the
                 // app has bracketed paste on, it wraps the text in

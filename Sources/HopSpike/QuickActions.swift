@@ -65,10 +65,16 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
         }
     }
 
+    /// The completion-handler form, not the async one. UIKit calls this on the
+    /// main thread, so @MainActor is simply the truth — whereas the async
+    /// variant has to send a non-Sendable UIApplicationShortcutItem across an
+    /// actor boundary, which Swift 6 rejects however it's written.
+    @MainActor
     func windowScene(_ windowScene: UIWindowScene,
-                     performActionFor shortcutItem: UIApplicationShortcutItem) async -> Bool {
+                     performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
         QuickActions.handle(shortcutItem)
-        return true
+        completionHandler(true)
     }
 }
 
