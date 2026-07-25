@@ -156,12 +156,13 @@ final class HopSpikeTests: XCTestCase {
         }
     }
 
-    func testLocalOnlyKeysNeverNeedASocket() {
-        // Arming ctrl or dismissing the keyboard must keep working while the
-        // connection is down; anything that writes bytes must not.
-        for key in [AccessoryKey.ctrl, .alt, .dismiss] { XCTAssertFalse(key.sendsInput) }
-        for key in [AccessoryKey.esc, .tab, .ctrlC, .up, .paste, .tilde, .pageDown] {
-            XCTAssertTrue(key.sendsInput)
+    func testKeysWithoutAStaticSequenceAreHandledByTheView() {
+        // ctrl/alt arm locally and dismiss is pure UI. paste belongs here too:
+        // it must go through SwiftTerm so bracketed-paste markers are added
+        // when the app asked for them — sending the clipboard raw made every
+        // newline in a multi-line paste execute a line.
+        for key in [AccessoryKey.ctrl, .alt, .dismiss, .paste] {
+            XCTAssertNil(key.sequence)
         }
     }
 

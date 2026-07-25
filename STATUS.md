@@ -681,6 +681,24 @@ LESSON: test against a REAL session with history, not a fresh probe.
      needs a build plus a host restart, and this file is shared with Solstice —
      STATUS's own rule is to coordinate before touching shared hop2 files.
 
+38. **Paste was executing your multi-line text line by line.** The accessory
+   paste key read the clipboard and sent it straight down the socket, bypassing
+   SwiftTerm — which means bracketed-paste markers were never added. With
+   bracketed paste on (claude has it on), a pasted multi-line command or prompt
+   should arrive as ONE paste; sent raw, every newline executed a line.
+   Pasting is precisely what you do on a phone instead of typing, so this was
+   in the way of the main workflow. Paste now goes through `view.paste(nil)`,
+   which wraps it in ESC[200~/ESC[201~ when the app asked for it and still
+   lands in `deliver()`, so offline buffering keeps working.
+   Also deleted `AccessoryKey.sendsInput`: dead since #22 moved the connection
+   check into `deliver()`, and referenced only by a test — a test asserting
+   properties of code nothing calls, which is worse than no test. Replaced with
+   one that pins what actually matters (paste has no static sequence).
+   **Process note**: the first attempt at that deletion removed 16 unrelated
+   tests, because the edit sliced from one function to another far later in the
+   file. The suite count (13 instead of 29) is what caught it. Restored from
+   git and redone with an exact-match assert.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

@@ -697,6 +697,15 @@ struct TerminalScreen: UIViewRepresentable {
                 view?.setAltArmed(altArmed)
             case .dismiss:
                 view?.resignFirstResponder()
+            case .paste:
+                // Through SwiftTerm, not straight down the socket: when the
+                // app has bracketed paste on, it wraps the text in
+                // ESC[200~ / ESC[201~ so a multi-line paste arrives as ONE
+                // paste. Sending it raw meant every newline executed a line —
+                // and pasting is exactly what you do on a phone instead of
+                // typing. Its send path still lands in deliver(), so buffering
+                // while disconnected keeps working.
+                view?.paste(nil)
             default:
                 if let seq = key.sequence { deliver(seq) }
             }
@@ -787,18 +796,9 @@ enum AccessoryKey {
         case .down: return "\u{1b}[B"
         case .left: return "\u{1b}[D"
         case .right: return "\u{1b}[C"
-        case .paste: return UIPasteboard.general.string
-        case .ctrl, .alt, .dismiss: return nil
-        }
-    }
-
-    /// Keys that put bytes on the wire, as opposed to arming a modifier or
-    /// dismissing the keyboard. (`paste` counts even when the pasteboard is
-    /// empty — it is an input key that happened to have nothing to say.)
-    var sendsInput: Bool {
-        switch self {
-        case .ctrl, .alt, .dismiss: return false
-        default: return true
+        // paste is not a static sequence: it goes through the view so the
+        // app's bracketed-paste mode is honoured. See the handler.
+        case .paste, .ctrl, .alt, .dismiss: return nil
         }
     }
 
