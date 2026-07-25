@@ -405,6 +405,16 @@ final class AppModel: ObservableObject {
     /// The session being watched RIGHT NOW: only counts while in front.
     private var watching: String? { foreground ? openSession : nil }
 
+    /// Mark by name+seq, for paths that never hold a HopSession — notably the
+    /// background notification handler, which has only what the notification
+    /// carried.
+    func markSeen(internalName: String, bellSeq: Int) {
+        var seen = seenBells
+        seen[internalName] = max(seen[internalName] ?? 0, bellSeq)
+        seenBells = seen
+        HopNotifier.shared.clear(internalName)
+    }
+
     func markSeen(_ session: HopSession) {
         var seen = seenBells
         seen[session.internalName] = session.bellSeq

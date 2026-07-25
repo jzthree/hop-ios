@@ -110,7 +110,9 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             content.interruptionLevel = .timeSensitive
             content.relevanceScore = 1
             content.categoryIdentifier = Self.bellCategory
-            content.userInfo = ["session": s.internalName]
+            // bellSeq travels with it so a reply handled in the background can
+            // mark the session seen without fetching the list first.
+            content.userInfo = ["session": s.internalName, "bellSeq": s.bellSeq]
             content.threadIdentifier = s.internalName   // group per session
             try? await UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "\(s.internalName)-\(s.bellSeq)",
@@ -165,7 +167,15 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         if let typed = (response as? UNTextInputNotificationResponse)?.userText,
            !typed.trimmingCharacters(in: .whitespaces).isEmpty {
             let ok = await QuickReply.send(typed, to: name, model: AppModel.shared)
-            if !ok {
+            if ok {
+                // Answering IS attending to it. Without this the session kept
+                // its dot and its badge after you'd already dealt with it,
+                // which is the app nagging about something you just handled.
+                let seq = response.notification.request.content.userInfo["bellSeq"] as? Int
+                await MainActor.run {
+                    AppModel.shared.markSeen(internalName: name, bellSeq: seq ?? 0)
+                }
+            } else {
                 // Never leave someone believing an answer was delivered.
                 let failed = UNMutableNotificationContent()
                 failed.title = name
