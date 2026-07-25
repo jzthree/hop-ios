@@ -172,6 +172,11 @@ final class AppModel: ObservableObject {
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
+            // A refresh that worked is proof the last failure is over. Without
+            // this, one tunnel blip pinned a red banner to the top of the list
+            // for the rest of the session, through every successful refresh
+            // after it.
+            lastError = nil
             // Drop previews for sessions that are gone: otherwise a killed
             // session's last screen sits in memory, and a name reused later
             // would show it as if it were live.
@@ -202,9 +207,17 @@ final class AppModel: ObservableObject {
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
-            let (_, resp) = try await urlSession.data(for: req)
+            let (data, resp) = try await urlSession.data(for: req)
             let ok = (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 500)
-            if ok { await refreshSessions(silent: true) } else { lastError = "Request failed" }
+            if ok {
+                await refreshSessions(silent: true)
+            } else {
+                // hop says WHY ("invalid session name", "already exists").
+                // "Request failed" threw that away and left the user guessing
+                // at a dialog that just closed and did nothing.
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                lastError = (obj?["error"] as? String) ?? "Request failed"
+            }
             return ok
         } catch {
             lastError = error.localizedDescription

@@ -554,6 +554,18 @@ LESSON: test against a REAL session with history, not a fresh probe.
    coercion helpers are now shared between the HTTP and socket paths rather
    than living privately in one of them. 29 tests.
 
+32. **A stale error banner that never went away.** `lastError` was set on
+   failure and NEVER cleared on success, so a single tunnel blip pinned a red
+   banner to the top of the session list for the rest of the launch — through
+   every successful refresh after it. The app looked broken while working
+   perfectly. A refresh that succeeds now clears it.
+   Second half: `post()` collapsed every rejection into "Request failed",
+   discarding what hop actually said. Verified the real shape with curl rather
+   than assuming — `POST /api/sessions` with a bad name returns 400
+   `{"error":"Invalid session name"}` — so creating a session with a space in
+   the name now says exactly that, instead of a dialog that closes and appears
+   to do nothing. 29 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
