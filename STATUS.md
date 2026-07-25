@@ -257,6 +257,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Who owns the screen, not what we happen to have (iteration 94)
+
+The three-way scroll rule was branching on "do we have local scrollback yet",
+which is not the question. hop's web client branches on ALT SCREEN, and the
+difference shows at a bare shell prompt: a fresh session has no scrollback, so
+our rule fired Page keys at a shell that never asked for them — and then
+silently switched to scrolling our own buffer once enough output had piled up.
+The same gesture on the same session doing two different things depending on
+how long you'd been looking at it.
+
+(Checked what that actually does: this machine's zsh has no binding for
+ESC[5~, so it was inert HERE. That is a property of one machine's config, not
+a defence of the rule.)
+
+The decision is now a pure function of who owns the screen — `scrollSink` —
+and alt-screen is tracked alongside the mouse flags, seeded from the snapshot
+and followed live through 47/1047/1049. `RemoteMouseState` became
+`RemoteModes` accordingly.
+
 ## The coast was wrong on the phone and right in the simulator (iteration 93)
 
 The momentum written an hour ago decayed per FRAME. CADisplayLink runs at up

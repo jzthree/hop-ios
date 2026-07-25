@@ -604,7 +604,8 @@ struct TerminalScreen: UIViewRepresentable {
                     // keeps the same two flags in refs for the same reason, and
                     // it needs SGR specifically: without it the app expects the
                     // legacy encoding, which caps coordinates at 223.
-                    tv.setRemoteMouse(reporting: mouseReporting, sgr: mouseSgr)
+                    tv.setRemoteModes(altScreen: alternateScreen,
+                                      mouseReporting: mouseReporting, mouseSgr: mouseSgr)
                     tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
@@ -1125,12 +1126,13 @@ final class HopTermView: TerminalView {
     /// This mirrors what SwiftTerm's macOS view does for a scroll wheel, which
     /// the iOS view has no equivalent of:
     ///
-    /// 1. App takes wheel events (claude does) — send them, so the app scrolls
-    ///    its own transcript, one notch per row of finger travel. Wheel is not
-    ///    a click: this doesn't reintroduce the phantom taps that #55 removed.
-    /// 2. No local scrollback and no wheel (a pager on the alt screen) — send
-    ///    PAGE keys, three rows to the page.
-    /// 3. Otherwise — move our own viewport, with momentum.
+    /// 1. App owns the screen and takes wheel events (claude does) — send
+    ///    them, so the app scrolls its own transcript, one notch per row of
+    ///    finger travel. Wheel is not a click: this doesn't reintroduce the
+    ///    phantom taps that #55 removed.
+    /// 2. App owns the screen but won't take wheel (a pager) — send PAGE keys,
+    ///    three rows to the page.
+    /// 3. Nobody else owns the screen — move our own viewport, with momentum.
     ///
     /// Only case 3 was implemented, which is why dragging did nothing at all on
     /// an agent session: the alternate screen has NO scrollback by design, so
@@ -1139,6 +1141,7 @@ final class HopTermView: TerminalView {
     /// Case 2 sends Page and not arrows, learned the hard way from the desktop
     /// client: arrows at a claude prompt recall previous PROMPTS. A fallback
     /// that rewrites what you were typing is worse than one that does nothing.
+    /// Which case applies is `scrollSink`, decided by who owns the screen.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
         switch g.state {
         case .began:
@@ -1174,16 +1177,16 @@ final class HopTermView: TerminalView {
         let cell = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
         let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
 
-        if appTakesWheel {
+        switch sink {
+        case .wheel:
             let rows = Int(scrollDebt / cell)          // truncates toward zero
             guard rows != 0 else { return }
             scrollDebt -= CGFloat(rows) * cell
             log.debug("scroll \(rows > 0 ? "back" : "forward") \(abs(rows)) via wheel")
             keyHandler?.scrollInput(wheelSequence(
                 rows: rows, cols: terminal.cols, screenRows: terminal.rows))
-        } else if terminal.getLine(row: terminal.rows) == nil {
-            // No local scrollback (a pager on the alt screen): coarse keys, so
-            // travel has to pile up before it's worth one.
+        case .pageKeys:
+            // Coarse keys, so travel has to pile up before it's worth one.
             let pagePoints = cell * CGFloat(Self.rowsPerPageKey)
             let pages = Int(scrollDebt / pagePoints)
             guard pages != 0 else { return }
@@ -1192,7 +1195,7 @@ final class HopTermView: TerminalView {
             if let key = (pages > 0 ? AccessoryKey.pageUp : .pageDown).sequence {
                 keyHandler?.scrollInput(String(repeating: key, count: min(abs(pages), 8)))
             }
-        } else {
+        case .viewport:
             let rows = Int(scrollDebt / cell)
             guard rows != 0 else { return }
             scrollDebt -= CGFloat(rows) * cell
@@ -1201,14 +1204,16 @@ final class HopTermView: TerminalView {
         }
     }
 
-    private var remoteMouse = RemoteMouseState()
-    private var appTakesWheel: Bool { remoteMouse.takesWheel }
-
-    func setRemoteMouse(reporting: Bool, sgr: Bool) {
-        remoteMouse.seed(reporting: reporting, sgr: sgr)
+    private var remote = RemoteModes()
+    private var sink: ScrollSink {
+        scrollSink(altScreen: remote.altScreen, takesWheel: remote.takesWheel)
     }
 
-    func noteRemoteModes(in chunk: String) { remoteMouse.note(chunk) }
+    func setRemoteModes(altScreen: Bool, mouseReporting: Bool, mouseSgr: Bool) {
+        remote.seed(altScreen: altScreen, mouseReporting: mouseReporting, mouseSgr: mouseSgr)
+    }
+
+    func noteRemoteModes(in chunk: String) { remote.note(chunk) }
 
     private var momentum = ScrollMomentum()
     private var momentumLink: CADisplayLink?
@@ -1244,8 +1249,7 @@ final class HopTermView: TerminalView {
         // A local viewport already parked at the oldest line has nothing left
         // to reveal, and the debt would grow without bound — enough of it and
         // the flick back the other way would be swallowed doing nothing.
-        let stuckAtTop = wasAtTop && points > 0 && !appTakesWheel
-            && terminal.getLine(row: terminal.rows) != nil
+        let stuckAtTop = wasAtTop && points > 0 && sink == .viewport
         if stuckAtTop { stopMomentum() }
     }
 

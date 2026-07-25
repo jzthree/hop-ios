@@ -374,18 +374,18 @@ final class HopSpikeTests: XCTestCase {
     // MARK: - Whether the remote app takes wheel events
 
     func testWheelNeedsBothTrackingAndSgr() {
-        var m = RemoteMouseState()
+        var m = RemoteModes()
         XCTAssertFalse(m.takesWheel)                 // a plain shell: neither
-        m.seed(reporting: true, sgr: false)
+        m.seed(altScreen: true, mouseReporting: true, mouseSgr: false)
         // Tracking without SGR means the app expects the legacy encoding,
         // which caps coordinates at 223 and is not what we send.
         XCTAssertFalse(m.takesWheel)
-        m.seed(reporting: true, sgr: true)
+        m.seed(altScreen: true, mouseReporting: true, mouseSgr: true)
         XCTAssertTrue(m.takesWheel)                  // claude, as measured
     }
 
     func testModesFollowTheAppMidSession() {
-        var m = RemoteMouseState()
+        var m = RemoteModes()
         // claude starting inside a shell session we're already watching.
         m.note("\u{1b}[?1003h\u{1b}[?1006h")
         XCTAssertTrue(m.takesWheel)
@@ -396,21 +396,21 @@ final class HopSpikeTests: XCTestCase {
     }
 
     func testCombinedAndSplitModeSequences() {
-        var m = RemoteMouseState()
+        var m = RemoteModes()
         m.note("\u{1b}[?1000;1006h")                  // one sequence, both params
         XCTAssertTrue(m.takesWheel)
 
         // A mode set can arrive split across two WebSocket messages; without
         // the carry-over the app looks like it never asked for anything.
-        var split = RemoteMouseState()
+        var split = RemoteModes()
         split.note("output\u{1b}[?10")
         split.note("03h\u{1b}[?1006h")
         XCTAssertTrue(split.takesWheel)
     }
 
     func testUnrelatedModesAreIgnored() {
-        var m = RemoteMouseState()
-        m.seed(reporting: true, sgr: true)
+        var m = RemoteModes()
+        m.seed(altScreen: true, mouseReporting: true, mouseSgr: true)
         m.note("\u{1b}[?1049h\u{1b}[?25l\u{1b}[?2004h")  // alt screen, cursor, paste
         XCTAssertTrue(m.takesWheel)
     }
@@ -502,5 +502,34 @@ final class HopSpikeTests: XCTestCase {
         var stepped = 0.0
         while let step = m.step(elapsed: 1.0 / 60) { stepped += step }
         XCTAssertEqual(stepped, hard, accuracy: hard * 0.05)
+    }
+
+    // MARK: - Which sink a drag goes to
+
+    func testAFreshShellPromptNeverGetsPageKeys() {
+        // The bug this pins: deciding by "do we have scrollback yet" fires
+        // Page keys at a bare shell that never asked for them, and then
+        // silently switches to scrolling our own buffer once enough output has
+        // piled up — the same gesture doing two different things on the same
+        // session depending on how long you'd been looking at it.
+        XCTAssertEqual(scrollSink(altScreen: false, takesWheel: false), .viewport)
+        XCTAssertEqual(scrollSink(altScreen: false, takesWheel: true), .viewport)
+        // The app owns the screen: it scrolls, we don't.
+        XCTAssertEqual(scrollSink(altScreen: true, takesWheel: true), .wheel)
+        XCTAssertEqual(scrollSink(altScreen: true, takesWheel: false), .pageKeys)
+    }
+
+    func testAltScreenFollowsTheApp() {
+        var m = RemoteModes()
+        XCTAssertFalse(m.altScreen)
+        m.note("\u{1b}[?1049h")                        // claude starts
+        XCTAssertTrue(m.altScreen)
+        m.note("\u{1b}[?1049l")                        // ...and exits
+        XCTAssertFalse(m.altScreen)
+        // The older spellings of the same thing.
+        m.note("\u{1b}[?47h")
+        XCTAssertTrue(m.altScreen)
+        m.note("\u{1b}[?1047l")
+        XCTAssertFalse(m.altScreen)
     }
 }
