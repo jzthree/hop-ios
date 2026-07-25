@@ -824,6 +824,39 @@ LESSON: test against a REAL session with history, not a fresh probe.
    been doing for 45 iterations — `xcrun simctl ui <sim> appearance light` is
    worth remembering.
 
+47. **Light-mode sweep (clean) — and it found the preview-corruption bug Jian
+   reported weeks ago, in hop, with evidence.**
+   Sweep first: with the simulator in light appearance, the list, terminal,
+   system keyboard, search field and Account sheet all render dark correctly —
+   the forced `.preferredColorScheme(.dark)` propagates even to the keyboard.
+   #46's launch screen was the only light-mode defect.
+   Then a preview in that screenshot read **"Enter to  elect · ↑/↓ to  avigate"**
+   — the "s" of select and the "n" of navigate simply gone. This is Jian's
+   earlier report ("session view preview sometimes displays in incorrect format
+   but can recover"), and it is NOT a client bug:
+   - `curl /api/sessions/preview?name=rooms` returns the dropped characters
+     already, so the daemon is producing them.
+   - Preview text comes from `readGridScreen` (hop:~5195) — a headless xterm.js
+     grid fed incrementally via hay's `getOutputSince` cursor.
+   - `getOutputSince` handles trimming correctly, BUT its `reset: true` path
+     (stale/first cursor) returns `tailOutput(maxBytes)`: a RAW tail starting at
+     an arbitrary character. hop then disposes the grid, builds a fresh
+     headless term, and writes that tail (hop:~5256-5293).
+   - TUI output is escape-dense, so an arbitrary cut lands inside an escape
+     sequence often. The fresh parser eats the fragment plus the character
+     after it — exactly one letter missing right after an attribute change,
+     which is the symptom. It "recovers" because later deltas repaint.
+   - hop's OTHER replay path already guards against precisely this:
+     `boundSnapshotReplay` moves the cut past the first newline "so a partial
+     escape sequence can't corrupt the replay". The grid-reset path has no
+     equivalent.
+   **Suggested minimal fix (hop2, for Solstice — not applied here):** in
+   `hay/apps/server/src/rooms.ts`, `getOutputSince`, apply the same
+   first-newline trim to the `reset: true` tail that `boundSnapshotReplay`
+   already applies. Fixing it there fixes every consumer: the web switcher
+   tiles, the iOS row previews, and the iOS fast paint, which all read the same
+   grid.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
