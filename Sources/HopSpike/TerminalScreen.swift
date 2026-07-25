@@ -38,6 +38,15 @@ struct TerminalHostView: View {
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.verticalSizeClass) private var verticalSize
+
+    /// Landscape on a phone: the keyboard eats over half the height, so every
+    /// point of chrome costs a line of terminal. Hide the nav bar and status
+    /// bar and give the rest to the session. HOP_DEV_COMPACT=1 forces it in
+    /// portrait, because the simulator can't be rotated from a script.
+    private var landscapePhone: Bool {
+        verticalSize == .compact || ProcessInfo.processInfo.environment["HOP_DEV_COMPACT"] == "1"
+    }
     enum ConnState { case connecting, live, closed }
 
     /// Action-sheet labels truncate in the middle by default, which eats the
@@ -144,6 +153,8 @@ struct TerminalHostView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(landscapePhone ? .hidden : .visible, for: .navigationBar)
+            .statusBarHidden(landscapePhone)
             .toolbarBackground(Color(white: 0.07), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
@@ -311,6 +322,7 @@ struct TerminalScreen: UIViewRepresentable {
 
     func makeUIView(context: Context) -> HopTermView {
         let tv = HopTermView(frame: .zero)
+        tv.installScrollGesture()
         // SwiftTerm keeps 500 lines by default, but hop's join snapshot is a
         // full client scrollback — up to 1.5 MB. We were downloading tens of
         // thousands of lines and discarding all but the last 500, so "copy all
@@ -818,7 +830,12 @@ struct TerminalScreen: UIViewRepresentable {
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func scrolled(source: TerminalView, position: Double) {
             // >0.999 means pinned to the live edge; anything less is history.
-            onScroll(position < 0.999)
+            // But a session with no scrollback at all reports 0, which made the
+            // "Live" button sit there permanently on a fresh TUI session —
+            // offering to return you to a place you had never left.
+            let t = source.getTerminal()
+            let hasHistory = t.getLine(row: t.rows) != nil
+            onScroll(hasHistory && position < 0.999)
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             // OSC 8 hyperlinks come from session output, which for an agent
@@ -886,6 +903,15 @@ enum AccessoryKey {
         }
     }
 
+    var spokenName: String {
+        switch self {
+        case .shiftTab: return "shift tab"
+        case .pageUp: return "page up"
+        case .pageDown: return "page down"
+        default: return "\(self)"
+        }
+    }
+
     /// Keys that repeat while held, like a real keyboard. Navigation only:
     /// a stuck ^C or a repeating paste is destructive, and repeating a
     /// modifier would just flap its armed state.
@@ -908,6 +934,41 @@ final class HopTermView: TerminalView {
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
     private var repeatTimer: Timer?
+    private var scrollAnchorRow = 0
+
+    /// SwiftTerm's iOS view has no scroll gesture: one pan handler forwards
+    /// mouse events (claude turns mouse mode on, so drags reach the app) and
+    /// the other does selection, whose only scroll-ish branch sends ARROW KEYS.
+    /// Nothing moves the local viewport, so the scrollback was unreachable by
+    /// touch — the first gesture anyone tries on a phone.
+    ///
+    /// Drags the buffer 1:1 with the finger, alongside SwiftTerm's own
+    /// recognizers so long-press selection and its menu keep working.
+    func installScrollGesture() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = self
+        addGestureRecognizer(pan)
+    }
+
+    @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
+        let terminal = getTerminal()
+        // Row height from the view itself: rows is what the terminal thinks it
+        // has and bounds is what it's drawn into, so the ratio is the cell
+        // height without reaching into SwiftTerm internals.
+        let cellHeight = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
+        switch g.state {
+        case .began:
+            scrollAnchorRow = terminal.buffer.yDisp
+        case .changed:
+            // Drag DOWN reveals older output, like every scroll view on iOS.
+            let rows = Int(g.translation(in: self).y / cellHeight)
+            let target = max(0, scrollAnchorRow - rows)
+            if target != terminal.buffer.yDisp { scrollTo(row: target) }
+        default:
+            break
+        }
+    }
 
     func applyTheme(light: Bool) {
         if light {
@@ -950,6 +1011,16 @@ final class HopTermView: TerminalView {
         ctrlButton?.configuration?.baseForegroundColor = armed ? .black : .white
         ctrlButton?.configuration?.background.backgroundColor =
             armed ? UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1) : UIColor(white: 0.22, alpha: 1)
+    }
+
+    private var holdKeys: [ObjectIdentifier: AccessoryKey] = [:]
+
+    @objc private func handleKeyLongPress(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, let btn = g.view as? UIButton,
+              let key = holdKeys[ObjectIdentifier(btn)] else { return }
+        endRepeat()          // a hold is the alternate key, not a repeat
+        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        keyHandler?.accessoryKey(key, isRepeat: false)
     }
 
     // MARK: hold-to-repeat
@@ -1016,19 +1087,26 @@ final class HopTermView: TerminalView {
         // Width per key so labels never wrap ("es/c" was the old failure).
         // Third element is the spoken name: "⇞" and "⌄" are unreadable to
         // VoiceOver and unsayable to Voice Control ("tap page up" should work).
-        let keys: [(String, AccessoryKey, CGFloat, String)] = [
-            ("esc", .esc, 50, "escape"), ("tab", .tab, 50, "tab"),
-            ("⇧tab", .shiftTab, 58, "shift tab"),
-            ("ctrl", .ctrl, 52, "control"), ("alt", .alt, 48, "alt"),
-            ("^C", .ctrlC, 46, "control C"),
-            ("←", .left, 42, "left arrow"), ("↓", .down, 42, "down arrow"),
-            ("↑", .up, 42, "up arrow"), ("→", .right, 42, "right arrow"),
-            ("|", .pipe, 38, "pipe"), ("/", .slash, 38, "slash"),
-            ("-", .dash, 38, "dash"), ("~", .tilde, 38, "tilde"),
-            ("⇞", .pageUp, 42, "page up"), ("⇟", .pageDown, 42, "page down"),
-            ("paste", .paste, 58, "paste"), ("⌄", .dismiss, 42, "hide keyboard")
+        // Only keys an iOS keyboard CANNOT produce. Dropped |, /, -, ~ and the
+        // separate paste key: the first four live one layer away on the system
+        // keyboard, and spending a third of a phone-width bar on them pushed
+        // the arrows off-screen. `hold` is a second key on a long press —
+        // shift+tab, PgUp and PgDn are real keys with no room of their own,
+        // and each sits on the key it belongs to.
+        let keys: [(String, AccessoryKey, CGFloat, String, AccessoryKey?)] = [
+            ("esc", .esc, 44, "escape", nil),
+            ("tab", .tab, 44, "tab", .shiftTab),
+            ("ctrl", .ctrl, 46, "control", nil),
+            ("alt", .alt, 42, "alt", nil),
+            ("^C", .ctrlC, 42, "control C", nil),
+            ("←", .left, 36, "left arrow", nil),
+            ("↓", .down, 36, "down arrow", .pageDown),
+            ("↑", .up, 36, "up arrow", .pageUp),
+            ("→", .right, 36, "right arrow", nil),
+            ("paste", .paste, 52, "paste", nil),
+            ("⌄", .dismiss, 36, "hide keyboard", nil)
         ]
-        for (label, key, width, spoken) in keys {
+        for (label, key, width, spoken, hold) in keys {
             var cfg = UIButton.Configuration.filled()
             cfg.title = label
             cfg.baseForegroundColor = .white
@@ -1055,6 +1133,21 @@ final class HopTermView: TerminalView {
                 }
             }
             btn.accessibilityLabel = spoken
+            if let hold {
+                // A dot is the whole affordance: quiet enough to ignore, and
+                // the only honest way to say "there's more here" on a 36pt key.
+                cfg.attributedTitle = AttributedString(
+                    label + " ·", attributes: AttributeContainer([
+                        .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+                    ]))
+                btn.configuration = cfg
+                let press = UILongPressGestureRecognizer(target: self,
+                                                         action: #selector(handleKeyLongPress(_:)))
+                press.minimumPressDuration = 0.35
+                btn.addGestureRecognizer(press)
+                holdKeys[ObjectIdentifier(btn)] = hold
+                btn.accessibilityHint = "Hold for \(hold.spokenName)"
+            }
             btn.titleLabel?.lineBreakMode = .byClipping
             btn.titleLabel?.numberOfLines = 1
             btn.translatesAutoresizingMaskIntoConstraints = false
@@ -1064,5 +1157,15 @@ final class HopTermView: TerminalView {
             stack.addArrangedSubview(btn)
         }
         return bar
+    }
+}
+
+extension HopTermView: UIGestureRecognizerDelegate {
+    /// Coexist with SwiftTerm's pan recognizers rather than replacing them:
+    /// selection only engages after a long-press has started one, and mouse
+    /// reporting is a separate concern from moving our own viewport.
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
     }
 }
