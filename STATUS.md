@@ -226,6 +226,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The summary agreed with whatever you'd filtered to (iteration 75)
+
+The fleet summary counted attention across the VISIBLE rows. So filtering to
+one project — or switching scope to "You" while an agent session was waiting —
+made it report **"nothing waiting on you"** while something was. Technically
+true of what was on screen, false about the fleet, and wrong in the direction
+that matters: the entire job of this line is to answer "is anything waiting?"
+
+Attention is now counted across the whole fleet, the session count says
+"1 of 19" when narrowed, and it names what's hidden: **"1 of 19 · 1 wants you
+(1 not shown here)"**. Verified on screen with a filter that deliberately
+excludes the waiting session.
+
+Same species as the offline banner in #43 and the stale error in #32: the app
+knowing something and showing something narrower.
+
 ## Where UI testing stops being worth it (iteration 74)
 
 Tried covering find-in-scrollback and "Open link…". Both failed, and the useful

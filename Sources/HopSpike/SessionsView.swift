@@ -38,13 +38,23 @@ struct SessionsView: View {
         filterSessions(model.sessions, scope: scope, query: filter)
     }
 
-    private var wanting: Int { visible.filter(\.attention).count }
+    /// Attention is counted across the WHOLE fleet, not the filtered view.
+    /// Counting only what's on screen meant filtering to one project could
+    /// report "nothing waiting on you" while a session in another project was
+    /// waiting — the summary quietly agreeing with whatever you'd narrowed to.
+    private var wanting: Int { model.sessions.filter { $0.attention && !$0.isPort }.count }
 
     private var fleetSummary: String {
-        let n = visible.count
-        let sessions = "\(n) session\(n == 1 ? "" : "s")"
-        if wanting == 0 { return "\(sessions) · nothing waiting on you" }
-        return "\(sessions) · \(wanting) want\(wanting == 1 ? "s" : "") you"
+        let shown = visible.count
+        let total = model.sessions.filter { !$0.isPort }.count
+        let scope = shown == total
+            ? "\(shown) session\(shown == 1 ? "" : "s")"
+            : "\(shown) of \(total)"
+        guard wanting > 0 else { return "\(scope) · nothing waiting on you" }
+        // And say so when the thing waiting isn't one of the rows you can see.
+        let hidden = wanting - visible.filter(\.attention).count
+        let note = hidden > 0 ? " (\(hidden) not shown here)" : ""
+        return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)"
     }
 
     /// One unlabelled section normally; project buckets when grouping is on.
