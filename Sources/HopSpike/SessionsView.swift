@@ -38,6 +38,15 @@ struct SessionsView: View {
         filterSessions(model.sessions, scope: scope, query: filter)
     }
 
+    private var wanting: Int { visible.filter(\.attention).count }
+
+    private var fleetSummary: String {
+        let n = visible.count
+        let sessions = "\(n) session\(n == 1 ? "" : "s")"
+        if wanting == 0 { return "\(sessions) · nothing waiting on you" }
+        return "\(sessions) · \(wanting) want\(wanting == 1 ? "s" : "") you"
+    }
+
     /// One unlabelled section normally; project buckets when grouping is on.
     /// Filtering always flattens — you're hunting one thing, not browsing.
     private var sections: [(label: String, rows: [HopSession])] {
@@ -104,6 +113,13 @@ struct SessionsView: View {
                 }
                 .pickerStyle(.segmented)
                 .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            } footer: {
+                // With nineteen sessions the header said nothing. The count you
+                // actually care about is how many want you — and when that's
+                // zero, saying so is the useful answer, not silence.
+                Text(fleetSummary)
+                    .font(.caption)
+                    .foregroundStyle(wanting > 0 ? Color.hopAttention : .secondary)
             }
             ForEach(sections, id: \.label) { section in
                 Section {

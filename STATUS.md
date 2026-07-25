@@ -225,6 +225,18 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Glanceable count + a real "session ended" state (iteration 65)
+
+- **Fleet summary.** With nineteen sessions the header said nothing useful.
+  It now reads "19 sessions · 1 wants you", amber when something is waiting and
+  "nothing waiting on you" when not — the zero case is an answer, not silence.
+- **Session ended.** A session that ends, or a room the server no longer has,
+  used to leave a red line buried in the scrollback — easy to miss when you've
+  just tapped in expecting a live terminal. There's now a card: what happened,
+  why, and a way back. The scrollback stays readable behind it, because the
+  last thing the session printed is usually why you opened it.
+  `HOP_DEV_GONE=1` renders the state, which is otherwise unreachable on demand.
+
 ## APNs entitlement is LIVE (iteration 64)
 
 `aps-environment => development` is now in the signed app, verified with

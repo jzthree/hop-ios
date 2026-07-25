@@ -43,8 +43,15 @@ struct TerminalHostView: View {
     /// for space the user cannot see — the bottom of the session, including
     /// claude's prompt line, sat behind the keys.
     @State private var accessoryInset: CGFloat = 0
+    /// Set when the session is gone for good — ended, or a room the server no
+    /// longer has. A red line buried in the scrollback is easy to miss when
+    /// you've just tapped in expecting a live terminal.
+    @State private var goneReason: String? =
+        ProcessInfo.processInfo.environment["HOP_DEV_GONE"] == "1"
+        ? "Session terminated" : nil
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.verticalSizeClass) private var verticalSize
+    @Environment(\.dismiss) private var dismiss
 
     /// Landscape on a phone: the keyboard eats over half the height, so every
     /// point of chrome costs a line of terminal. Hide the nav bar and status
@@ -81,6 +88,7 @@ struct TerminalHostView: View {
                        },
                        onFontChange: { setFont($0) },
                        onRenamed: { renamedTitle = $0 },
+                       onGone: { goneReason = $0 },
                        onPresence: { viewers = $0 },
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
@@ -119,6 +127,27 @@ struct TerminalHostView: View {
                     }
                 }
                 Button("Cancel", role: .cancel) {}
+            }
+            .overlay {
+                if let goneReason {
+                    VStack(spacing: 12) {
+                        Image(systemName: "moon.zzz.fill")
+                            .font(.system(size: 28)).foregroundStyle(.secondary)
+                        Text("Session ended").font(.headline)
+                        Text(goneReason)
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Back to sessions") { dismiss() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.hopPurple)
+                    }
+                    .padding(24)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(32)
+                    // The scrollback stays readable behind it — the last thing
+                    // the session printed is usually why you opened it.
+                    .transition(.opacity)
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 if scrolledUp {
@@ -331,6 +360,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onLinks: ([String]) -> Void = { _ in }
     var onFontChange: (Double) -> Void = { _ in }
     var onRenamed: (String) -> Void = { _ in }
+    var onGone: (String) -> Void = { _ in }
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
@@ -339,7 +369,7 @@ struct TerminalScreen: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
-                    onFontChange: onFontChange, onRenamed: onRenamed,
+                    onFontChange: onFontChange, onRenamed: onRenamed, onGone: onGone,
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
     }
 
@@ -459,6 +489,7 @@ struct TerminalScreen: UIViewRepresentable {
         private let onLinks: ([String]) -> Void
         private let onFontChange: (Double) -> Void
         private let onRenamed: (String) -> Void
+        private let onGone: (String) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
         private let onScroll: (Bool) -> Void
@@ -474,6 +505,7 @@ struct TerminalScreen: UIViewRepresentable {
              onLinks: @escaping ([String]) -> Void,
              onFontChange: @escaping (Double) -> Void,
              onRenamed: @escaping (String) -> Void,
+             onGone: @escaping (String) -> Void,
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
              onScroll: @escaping (Bool) -> Void,
@@ -483,6 +515,7 @@ struct TerminalScreen: UIViewRepresentable {
             self.onLinks = onLinks
             self.onFontChange = onFontChange
             self.onRenamed = onRenamed
+            self.onGone = onGone
             self.onPresence = onPresence
             self.onCollab = onCollab
             self.wsBase = wsBase
@@ -568,9 +601,11 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                 case .ended(let message):
                     self.setStatus(.closed)
+                    self.onGone(message)
                     tv.feed(text: "\r\n\u{1b}[2m[\(message)]\u{1b}[0m\r\n")
                 case .failed(let reason, let permanent):
                     self.setStatus(.closed)
+                    if permanent { self.onGone(reason) }
                     tv.feed(text: "\r\n\u{1b}[31m[\(reason)]\u{1b}[0m\r\n")
                     // A gone room or a rejected identity won't fix itself.
                     if !permanent { self.scheduleRetry() }
