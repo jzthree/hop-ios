@@ -180,6 +180,15 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Run: `xcodebuild test -scheme HopSpike -destination 'platform=iOS
    Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO`
 
+8. **Robustness + terminal ergonomics** — the server field now accepts what
+   people actually type ("hop.zhoulab.io", a pasted URL with a trailing slash,
+   stray whitespace): it defaults to https and trims, instead of failing login
+   with no explanation (covered by tests, and the keychain account + WS cookie
+   lookup use the same normalized origin). A "Live" pill appears when you
+   scroll into scrollback and snaps back to the live edge. Pinch anywhere on
+   the terminal to size the text (persisted, same 8–24 bounds as the menu).
+   9 tests green.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

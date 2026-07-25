@@ -33,9 +33,21 @@ final class AppModel: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "seenBells") }
     }
 
-    var baseURL: URL? { URL(string: serverURL) }
+    /// What the user typed, made usable: default to https when they omit the
+    /// scheme, drop trailing slashes and stray whitespace. Without this,
+    /// "hop.zhoulab.io" or a pasted URL with a trailing "/" failed to log in
+    /// with no explanation.
+    var normalizedServerURL: String {
+        var s = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasSuffix("/") { s.removeLast() }
+        guard !s.isEmpty else { return s }
+        if !s.contains("://") { s = "https://" + s }
+        return s
+    }
+
+    var baseURL: URL? { URL(string: normalizedServerURL) }
     var wsBase: String {
-        serverURL
+        normalizedServerURL
             .replacingOccurrences(of: "https://", with: "wss://")
             .replacingOccurrences(of: "http://", with: "ws://")
     }

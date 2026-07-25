@@ -19,6 +19,7 @@ struct TerminalHostView: View {
     @State private var collabEveryone = true
     @State private var iHoldControl = false
     @State private var lockedByOther = false
+    @State private var scrolledUp = false
     @Environment(\.scenePhase) private var scenePhase
     enum ConnState { case connecting, live, closed }
 
@@ -36,9 +37,26 @@ struct TerminalHostView: View {
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
                        },
-                       control: $controlAction)
+                       control: $controlAction,
+                       onScroll: { scrolledUp = $0 })
             .padding(.horizontal, 5)
             .ignoresSafeArea(.container, edges: .bottom)
+            .overlay(alignment: .bottomTrailing) {
+                if scrolledUp {
+                    Button {
+                        NotificationCenter.default.post(name: .hopJumpToLive, object: nil)
+                    } label: {
+                        Label("Live", systemImage: "arrow.down.to.line")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(Color.hopPurple, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 12)
+                    .transition(.opacity)
+                }
+            }
             .overlay(alignment: .top) {
                 if let toast {
                     Text(toast)
@@ -160,6 +178,7 @@ enum ControlAction { case take, release, lock, unlock }
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
     static let hopCopyAll = Notification.Name("hopCopyAll")
+    static let hopJumpToLive = Notification.Name("hopJumpToLive")
 }
 
 struct TerminalScreen: UIViewRepresentable {
@@ -174,11 +193,12 @@ struct TerminalScreen: UIViewRepresentable {
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
+    var onScroll: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(wsBase: model.wsBase, httpBase: model.serverURL, token: model.accessToken,
+        Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast,
-                    onPresence: onPresence, onCollab: onCollab) { status = $0 }
+                    onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
     }
 
     func makeUIView(context: Context) -> HopTermView {
@@ -189,6 +209,9 @@ struct TerminalScreen: UIViewRepresentable {
         tv.backgroundColor = .black
         tv.nativeForegroundColor = UIColor(red: 0.90, green: 0.90, blue: 0.91, alpha: 1)
         tv.nativeBackgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator,
+                                             action: #selector(Coordinator.handlePinch(_:)))
+        tv.addGestureRecognizer(pinch)
         context.coordinator.attach(view: tv)
         tv.becomeFirstResponder()
         return tv
@@ -222,6 +245,7 @@ struct TerminalScreen: UIViewRepresentable {
         private let onToast: (String) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
+        private let onScroll: (Bool) -> Void
         private var ctrlArmed = false
         private var altArmed = false
         private var lastReconnectToken = 0
@@ -233,7 +257,9 @@ struct TerminalScreen: UIViewRepresentable {
              onToast: @escaping (String) -> Void,
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
+             onScroll: @escaping (Bool) -> Void,
              setStatus: @escaping (TerminalHostView.ConnState) -> Void) {
+            self.onScroll = onScroll
             self.onToast = onToast
             self.onPresence = onPresence
             self.onCollab = onCollab
@@ -283,9 +309,22 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopCopyScreen, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(copyAll),
                                                    name: .hopCopyAll, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
+                                                   name: .hopJumpToLive, object: nil)
             let t = view.getTerminal()
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
+        }
+
+        /// Pinch the terminal to size the text, like every other iOS reader.
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            guard let tv = view, g.state == .changed, abs(g.scale - 1) > 0.15 else { return }
+            let current = tv.font.pointSize
+            let next = min(24, max(8, current + (g.scale > 1 ? 1 : -1)))
+            g.scale = 1
+            guard next != current else { return }
+            tv.font = UIFont.monospacedSystemFont(ofSize: next, weight: .regular)
+            UserDefaults.standard.set(Double(next), forKey: "termFontSize")
         }
 
         func apply(_ action: ControlAction) {
@@ -336,6 +375,13 @@ struct TerminalScreen: UIViewRepresentable {
             let t = view.getTerminal()
             client.connect(base: wsBase, httpBase: httpBase, room: room,
                            cols: t.cols, rows: t.rows, token: token_, using: urlSession)
+        }
+
+        @objc func jumpToLive() {
+            guard let tv = view else { return }
+            // Scroll past the end; SwiftTerm clamps to the live edge.
+            tv.scrollTo(row: Int.max / 2)
+            onScroll(false)
         }
 
         @objc func copyScreen() {
@@ -411,7 +457,10 @@ struct TerminalScreen: UIViewRepresentable {
 
         func setTerminalTitle(source: TerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-        func scrolled(source: TerminalView, position: Double) {}
+        func scrolled(source: TerminalView, position: Double) {
+            // >0.999 means pinned to the live edge; anything less is history.
+            onScroll(position < 0.999)
+        }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             if let u = URL(string: link) { UIApplication.shared.open(u) }
         }

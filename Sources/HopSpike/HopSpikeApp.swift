@@ -107,8 +107,8 @@ struct LoginView: View {
                         if model.authenticated {
                             // Only the password — never the TOTP secret, which
                             // would put both factors on one device.
-                            if remember { Keychain.save(password, account: model.serverURL) }
-                            else { Keychain.delete(account: model.serverURL) }
+                            if remember { Keychain.save(password, account: model.normalizedServerURL) }
+                            else { Keychain.delete(account: model.normalizedServerURL) }
                         }
                         busy = false
                     }
@@ -127,7 +127,7 @@ struct LoginView: View {
             }
             .padding(.horizontal, 28)
             .onAppear {
-                if password.isEmpty, let saved = Keychain.read(account: model.serverURL) {
+                if password.isEmpty, let saved = Keychain.read(account: model.normalizedServerURL) {
                     password = saved
                     remember = true
                 }

@@ -94,6 +94,21 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(filterSessions(list, scope: .all, query: "  ").count, 3, "blank query filters nothing")
     }
 
+    @MainActor
+    func testServerURLNormalization() {
+        let m = AppModel()
+        m.serverURL = "hop.zhoulab.io"
+        XCTAssertEqual(m.normalizedServerURL, "https://hop.zhoulab.io", "bare host gets https")
+        XCTAssertEqual(m.wsBase, "wss://hop.zhoulab.io")
+
+        m.serverURL = "https://hop.zhoulab.io/"
+        XCTAssertEqual(m.normalizedServerURL, "https://hop.zhoulab.io", "trailing slash dropped")
+
+        m.serverURL = "  http://127.0.0.1:8080  "
+        XCTAssertEqual(m.normalizedServerURL, "http://127.0.0.1:8080", "explicit scheme kept")
+        XCTAssertEqual(m.wsBase, "ws://127.0.0.1:8080")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
