@@ -1187,6 +1187,15 @@ final class HopTermView: TerminalView {
 
     private var momentum = ScrollMomentum()
     private var momentumLink: CADisplayLink?
+    /// A finger down stops the coast even if no recognizer claims the touch.
+    /// The recognizers are asked FIRST (see gestureRecognizerShouldBegin), so
+    /// by the time this runs the brake has usually already happened — which is
+    /// exactly why the decision can't live here: a flag set in touchesBegan is
+    /// set too late for the tap that is already being decided.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if momentumLink != nil { stopMomentum() }
+        super.touchesBegan(touches, with: event)
+    }
 
     private func startMomentum(pointsPerSecond: CGFloat) {
         stopMomentum()
@@ -1444,13 +1453,25 @@ extension HopTermView: UIGestureRecognizerDelegate {
     /// belongs to its handles. And a scroll is a VERTICAL gesture — anything
     /// mostly sideways belongs to whoever else wants it.
     override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        // Only gate OUR pan; leave UIView's own answer for everything else.
-        guard let pan = g as? UIPanGestureRecognizer else {
-            return super.gestureRecognizerShouldBegin(g)
+        if let pan = g as? UIPanGestureRecognizer {
+            guard !selectionActive else { return false }
+            // A drag that grabs a coasting terminal keeps scrolling from
+            // there, so pans are never braked — only started.
+            let v = pan.velocity(in: self)
+            return abs(v.y) >= abs(v.x)
         }
-        guard !selectionActive else { return false }
-        let v = pan.velocity(in: self)
-        return abs(v.y) >= abs(v.x)
+        // Everything else — tap, double tap, long press — is swallowed while
+        // a coast is running, and stops it. Every scroll view on iOS works
+        // this way: the first touch on something moving stops it and does
+        // nothing else. Without this, stopping a coast also raises the
+        // keyboard, shrinking the screen you were trying to read.
+        if momentumLink != nil {
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                .info("coast braked by touch")
+            stopMomentum()
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(g)
     }
 
     /// Coexist with the long-press and tap recognizers, which are how

@@ -274,4 +274,26 @@ final class ScrollUITests: XCTestCase {
                       "swipe from the edge didn't leave the session")
         XCTAssertFalse(app.buttons["escape"].exists, "key bar survived the swipe back")
     }
+
+    /// Touching a coasting terminal must STOP it and do nothing else, the way
+    /// every scroll view on iOS behaves. The failure this pins is specific:
+    /// without the brake, the tap that stops a coast also raises the keyboard,
+    /// which shrinks the screen you were reading.
+    func testTapDuringCoastOnlyStopsIt() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.buttons["hide keyboard"].tap()
+        XCTAssertFalse(app.keys["a"].waitForExistence(timeout: 3), "keyboard should be down")
+
+        app.swipeDown(velocity: .fast)
+        // Inside the coast (about a second): this touch is a brake.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertFalse(app.keys["a"].waitForExistence(timeout: 2),
+                       "a tap that stops a coast must not also raise the keyboard")
+
+        // ...and the very next tap is an ordinary tap again.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),
+                      "tapping a stopped terminal must still raise the keyboard")
+    }
 }

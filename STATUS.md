@@ -257,6 +257,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Stopping the coast (iteration 91)
+
+Momentum created an interaction that didn't exist before: what a touch means
+while the screen is still moving. On iOS the answer is settled — the first
+touch stops it and does nothing else — and without that, the tap that stops a
+coast also raises the keyboard, shrinking the screen you were reading.
+
+Worth recording HOW this was got wrong, because the assumption was reasonable
+and false. The brake was first written in `touchesBegan`, setting a flag the
+gesture delegate would read. Gesture recognizers are asked FIRST: the log
+shows `shouldBegin UITapGestureRecognizer braking=false` at the same
+millisecond the flag was being set, so the tap sailed through — and the flag,
+now stale, swallowed an ordinary tap 1.5 seconds later. Both halves of that
+were only visible because the test asserted the *next* tap still works.
+
+The decision now lives in `gestureRecognizerShouldBegin`, where it's asked at
+the right moment and needs no state at all.
+
 ## Momentum, and the scroll rework under it (iteration 90)
 
 Jian, after confirming scrolling works: "will feel more natural if it has
