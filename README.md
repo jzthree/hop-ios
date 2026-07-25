@@ -15,7 +15,7 @@ Standalone by design: it consumes hop's public HTTP + WebSocket API and needs
 ```bash
 brew install xcodegen          # once
 make test                      # unit suite in the simulator
-make uitest                    # real gestures via XCUITest (slow, ~4 min/test)
+make uitest                    # real gestures via XCUITest (~48s for the suite)
 make install                   # signed build -> connected iPhone
 ```
 

@@ -380,6 +380,14 @@ struct TerminalScreen: UIViewRepresentable {
     func makeUIView(context: Context) -> HopTermView {
         let tv = HopTermView(frame: .zero)
         tv.installScrollGesture()
+        // A blinking caret is a permanent animation, and XCUITest waits for
+        // animations to finish before every interaction — so each tap sat
+        // through a 60s "app never became idle" timeout, making the suite take
+        // longer than a coffee break and hiding real failures behind noise.
+        // Steady cursor under test only; the app keeps its blink.
+        if ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") {
+            tv.getTerminal().setCursorStyle(.steadyBlock)
+        }
         // SwiftTerm keeps 500 lines by default, but hop's join snapshot is a
         // full client scrollback — up to 1.5 MB. We were downloading tens of
         // thousands of lines and discarding all but the last 500, so "copy all

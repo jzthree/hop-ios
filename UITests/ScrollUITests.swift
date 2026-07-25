@@ -13,6 +13,7 @@ final class ScrollUITests: XCTestCase {
         let app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
         app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]   // steady caret: see TerminalScreen
         app.launchEnvironment["HOP_DEV_OPEN"] = name
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launch()
@@ -33,9 +34,12 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25),
                       "never reached a terminal — key bar absent")
 
-        let terminal = app.otherElements.firstMatch
-        terminal.swipeDown()
-        terminal.swipeDown()
+        // Same reason: swipe by coordinates rather than resolving the terminal
+        // element.
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        let low = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        top.press(forDuration: 0.05, thenDragTo: low)
+        top.press(forDuration: 0.05, thenDragTo: low)
 
         // Scrolling up from the live edge is what surfaces the jump-to-live
         // control; if it never appears, the drag did not move the viewport.
@@ -92,13 +96,49 @@ final class ScrollUITests: XCTestCase {
                       "the key bar must survive: it's the only way to send esc")
     }
 
+    /// Sign-out is destructive, had a race (an in-flight refresh could land
+    /// after it and put you straight back in), and lives three taps deep behind
+    /// a menu — so it is exactly the flow nobody exercises by hand twice.
+    /// Safe to run: it only clears this simulator's cookie, which the dev
+    /// bootstrap re-seeds on the next launch.
+    func testSignOutReturnsToLoginAndStaysThere() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25),
+                      "never reached the session list")
+
+        app.buttons["Settings"].tap()
+        app.buttons["Server & account"].tap()
+        let signOut = app.buttons["Sign out"].firstMatch
+        XCTAssertTrue(signOut.waitForExistence(timeout: 5), "account sheet never appeared")
+        signOut.tap()
+        // The confirmation repeats the label; take whichever is hittable now.
+        app.buttons.matching(identifier: "Sign out").allElementsBoundByIndex
+            .last { $0.isHittable }?.tap()
+
+        // Back at login, and it must STAY there: the race was a refresh landing
+        // after sign-out and flipping authenticated back to true.
+        let password = app.secureTextFields["password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 8), "sign out did not return to login")
+        Thread.sleep(forTimeInterval: 6)     // longer than the 5s poll interval
+        XCTAssertTrue(password.exists, "an in-flight refresh put us back in")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["hide keyboard"].tap()
         XCTAssertFalse(app.keys["a"].waitForExistence(timeout: 3), "keyboard should be down")
-        app.otherElements.firstMatch.tap()
+        // Coordinate tap, not an element query: resolving `otherElements`
+        // against a terminal makes XCUITest snapshot the entire accessibility
+        // hierarchy, which took MINUTES per call and made the suite unrunnable
+        // in one go.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),
                       "tapping the terminal must bring the keyboard back")
     }

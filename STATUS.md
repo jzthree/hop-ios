@@ -226,6 +226,30 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The UI suite went from unrunnable to 48 seconds (iteration 72)
+
+Individual UI tests were fast but the SUITE exceeded ten minutes, so it could
+never run in one go. Profiling the slow one showed where every second went:
+**"App animations complete notification not received"** — a 60-second wait
+before *each* interaction, because the app never becomes idle. The cause is the
+blinking caret: a permanent animation, so XCUITest concludes the app is
+perpetually mid-animation.
+
+Under `-hop-ui-testing` the caret is steady (the app keeps its blink). The tap
+test went **190s → 9s**, and the whole suite now runs in **48 seconds**:
+
+| test | covers |
+|---|---|
+| `testCtrlArmsAndDisarms` | sticky modifiers, never pressed before #70 |
+| `testLandscapeHidesChromeButKeepsTheKeyBar` | real rotation, not the dev-flag proxy |
+| `testSignOutReturnsToLoginAndStaysThere` | destructive flow + the #20 race, with a 6s wait to prove a refresh doesn't put you back in |
+| `testTapRaisesTheKeyboard` | the tap that did nothing on every agent session |
+| `testDragScrollsAndLiveButtonReturns` | skips honestly when the shell has no scrollback |
+
+Sign-out was the third checklist item to turn out automatable after I'd written
+it off. It's safe to run: it clears only the simulator's cookie, which the dev
+bootstrap re-seeds next launch.
+
 ## Landscape verified for real (iteration 71)
 
 XCUIDevice can rotate the simulator, which I hadn't used — so landscape had only
