@@ -15,6 +15,32 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 3. APNs daemon endpoint only after the spike passes.
 4. hop2 changes: minimal, separately committed.
 
+## Where this stands right now
+
+**Waiting on you, in order of what unblocks most:**
+1. **App Store Connect → Apps → + → New App**, bundle ID `io.zhoulab.hop.spike`
+   (already registered, appears in the dropdown). Then
+   `make testflight ISSUER=254072af-7f14-4065-acd8-d09fe4924553` uploads, and
+   the phone installs over 5G — which permanently removes the "phone isn't on
+   the network" problem below.
+2. **Phone on the Mac's network** (Personal Hotspot works) for `make install`.
+   The device has been `unavailable` for a while, so roughly twenty commits are
+   built and waiting: touch scrolling, momentum, the key-bar redesign, hop's
+   colour palette, both autofit fixes, the attention redesign, notification
+   content and lock-screen replies.
+3. **The device checklist below** — now 11 items, several closed by automation
+   since it was written.
+
+**Blocked on a decision, not on work:** the daemon side of APNs (an endpoint to
+register tokens against, and a send-on-bell path). Apple's half is done — the
+App ID is explicit, Push is enabled, the entitlement lands in the signed app,
+and the client already obtains and displays a device token.
+
+**Handed over, not done here:** the preview-corruption bug in hop
+(`getOutputSince`'s reset tail can start mid-escape-sequence — see the
+Reference section). It affects the web switcher and iOS equally, and the fix is
+a few lines in shared hop2 code.
+
 ## Current state (updated by Orion)
 - **Scaffolded**: XcodeGen project (`project.yml` → HopSpike app), SwiftTerm via SPM.
   ~250 lines Swift: ConnectView (bridge URL + session form) → TerminalScreen
