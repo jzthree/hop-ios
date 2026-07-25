@@ -197,7 +197,14 @@ final class AppModel: ObservableObject {
                     seeded = true
                 }
             }
-            if seeded { seenBells = seen }
+            // Drop markers for sessions that no longer exist. hop encourages
+            // killing and recreating sessions, so without this the store grows
+            // for the life of the install — and a name that comes back gets a
+            // silent baseline from rebaselinedMarker anyway, which is what a
+            // session this device has never seen should get.
+            let live = Set(raw.compactMap { ($0["internalName"] as? String) ?? ($0["name"] as? String) })
+            let pruned = seen.filter { live.contains($0.key) }
+            if seeded || pruned.count != seen.count { seenBells = pruned }
             // HOP_DEV_ATTENTION=1 forces the first session into the attention
             // state: otherwise the design of the thing the app is FOR can only
             // be reviewed by waiting for an agent to ring. DEBUG-only — it
@@ -229,7 +236,8 @@ final class AppModel: ObservableObject {
                seenBells[open] != shown.bellSeq {
                 markSeen(shown)
             }
-            await HopNotifier.shared.report(attention: alertable(sessions, openSession: watching)) {
+            await HopNotifier.shared.report(attention: alertable(sessions, openSession: watching),
+                                            known: alive) {
                 [weak self] session in await self?.notificationSnippet(for: session)
             }
             QuickActions.publish(sessions)

@@ -87,3 +87,17 @@ func rebaselinedMarker(existing: Int?, bellSeq: Int) -> Int? {
     guard let existing else { return bellSeq }
     return bellSeq < existing ? bellSeq : nil
 }
+
+/// Whether a bell still needs a notification, given what this device has
+/// already posted for that session.
+///
+/// The restart case is the same one [[rebaselinedMarker]] exists for, seen
+/// from the other side: a bellSeq that went BACKWARDS is a session killed and
+/// recreated under the same name, and the record left by its predecessor must
+/// not silence the new one. Left out, a rebuilt session stays quiet until it
+/// out-rings the session it replaced.
+func shouldNotify(bellSeq: Int, lastNotified: Int?) -> Bool {
+    guard let lastNotified else { return true }
+    return bellSeq != lastNotified
+}
+

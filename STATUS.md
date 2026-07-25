@@ -257,6 +257,36 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Bells could arrive twice, and two stores grew forever (iteration 101)
+
+`HopNotifier` documents its contract as "one bell is one notification", and
+kept the record of what it had already posted **in memory only**. A phone kills
+apps constantly, and every relaunch re-notified every session still waiting —
+bells already read and dismissed, arriving again. Now persisted, with the
+decision itself pulled out as a pure `shouldNotify` beside `rebaselinedMarker`
+(same restart case, seen from the other side) and unit-tested.
+
+Found while verifying that: `seenBells` still held a marker for `scrolllock`,
+the scratch session deleted an hour earlier. hop encourages killing and
+recreating sessions, so that store grew for the life of the install. Both
+stores now prune to the sessions that still exist; a name that comes back gets
+a silent baseline, which is what a session this device has never seen should
+get anyway.
+
+Verified against the simulator's actual preferences file: the stale marker is
+gone, 19 markers remain for 19 live sessions, and forcing an attention session
+writes `notifiedBells = { Altair = 0 }` — the record the persisted dedupe then
+reads on the next launch.
+
+### A flake I couldn't name
+
+One UI run failed and passed on retry; three further runs were clean, so call
+it ~1 in 4. Its identity is unrecoverable because the call site piped
+xcodebuild through grep and kept only the summary line. `make uitest` now
+always writes the full log to `build-sim/uitest.log`. These tests drive a live
+fleet, so the likeliest cause is a session being slow to attach — but that is
+a hypothesis, not a finding, and the next occurrence will be nameable.
+
 ## Scrolling a session someone else is driving (iteration 100)
 
 hop's server rejects every input from a non-controller and answers each one

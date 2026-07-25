@@ -39,11 +39,19 @@ test: gen
 # Real gestures against the real app: the only automated way to catch the
 # class of bug (no scrolling, taps not focusing) that unit tests and
 # screenshots both miss. TEST_RUNNER_ prefixed vars reach the test runner.
+# Full output is kept, always. These tests drive a LIVE fleet, so a rare flake
+# is expected — and a flake you can't name is a flake you can't fix. Filtering
+# xcodebuild's output through grep at the call site loses the test's identity
+# exactly when it matters.
 uitest: gen
-	TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
-	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS)
+	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) > build-sim/uitest.log 2>&1; \
+	  status=$$?; \
+	  grep -E "Executed [0-9]+ tests" build-sim/uitest.log | tail -1; \
+	  grep -E "' failed \(|XCTAssert" build-sim/uitest.log | head -5; \
+	  echo "full log: build-sim/uitest.log"; exit $$status
 
 simbuild: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \

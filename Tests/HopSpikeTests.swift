@@ -549,4 +549,14 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(drawnCellHeight(viewHeight: 0, drawnRows: 0, terminalRows: 0), 1)
         XCTAssertGreaterThan(drawnCellHeight(viewHeight: 10, drawnRows: 1000, terminalRows: 0), 0)
     }
+
+    func testOneBellIsOneNotification() {
+        XCTAssertTrue(shouldNotify(bellSeq: 3, lastNotified: nil))    // never posted
+        XCTAssertFalse(shouldNotify(bellSeq: 3, lastNotified: 3))     // already posted
+        XCTAssertTrue(shouldNotify(bellSeq: 4, lastNotified: 3))      // rang again
+        // Killed and recreated under the same name: the counter restarts, and
+        // the predecessor's record must not silence the new session.
+        XCTAssertTrue(shouldNotify(bellSeq: 1, lastNotified: 50))
+        XCTAssertTrue(shouldNotify(bellSeq: 0, lastNotified: 50))
+    }
 }

@@ -7,6 +7,10 @@ import UserNotifications
 // notification — banners show even in the foreground, and tapping one opens
 // that session. This is the local half; APNs (fires with the app closed) is
 // the server-side follow-up.
+/// File scope, not a static: a stored property's initializer cannot reference
+/// the type it lives in.
+private let notifiedBellsKey = "notifiedBells"
+
 @MainActor
 final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     static let shared = HopNotifier()
@@ -16,7 +20,13 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     /// Session the user tapped a notification for; the UI navigates to it.
     @Published var pendingOpen: String?
 
-    private var notified: [String: Int] = [:]   // internalName -> bellSeq already notified
+    /// internalName -> bellSeq already notified. PERSISTED: the contract this
+    /// class advertises is "one bell, one notification", and an in-memory map
+    /// only keeps that promise until the app is killed. A phone kills apps
+    /// constantly, and every relaunch re-notified every session still waiting —
+    /// bells you had already read and dismissed, arriving again.
+    private var notified: [String: Int] =
+        UserDefaults.standard.dictionary(forKey: notifiedBellsKey) as? [String: Int] ?? [:]
 
     /// The category that carries the Reply action. Registered once at launch:
     /// a notification without it shows no reply field, and the category has to
@@ -73,7 +83,9 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     /// which never changes and so never answers the only question a bell
     /// raises: what does it want? "Do you want me to proceed?" is worth
     /// waking a phone for; "Polish mobile client" is not.
-    func report(attention sessions: [HopSession],
+    /// `known` is every session that still exists, so records for sessions
+    /// that are gone don't accumulate on disk forever.
+    func report(attention sessions: [HopSession], known: Set<String>,
                 snippet: (HopSession) async -> String?) async {
         // The badge is the whole point of a home-screen app: how many sessions
         // want you, visible without opening anything. It tracks the live count
@@ -83,13 +95,8 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         try? await UNUserNotificationCenter.current().setBadgeCount(sessions.count)
         guard enabled else { return }
         for s in sessions {
-            // Same restart case as the seen markers: a bellSeq that went
-            // backwards means a new session wearing an old name, so the
-            // dedupe record for the old one must not silence it.
-            if let last = notified[s.internalName], s.bellSeq < last {
-                notified[s.internalName] = nil
-            }
-            guard s.attention, (notified[s.internalName] ?? -1) < s.bellSeq else { continue }
+            guard s.attention, shouldNotify(bellSeq: s.bellSeq,
+                                            lastNotified: notified[s.internalName]) else { continue }
             notified[s.internalName] = s.bellSeq
             let content = UNMutableNotificationContent()
             content.title = s.name
@@ -118,6 +125,8 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
                 UNNotificationRequest(identifier: "\(s.internalName)-\(s.bellSeq)",
                                       content: content, trigger: nil))
         }
+        if !known.isEmpty { notified = notified.filter { known.contains($0.key) } }
+        UserDefaults.standard.set(notified, forKey: notifiedBellsKey)
     }
 
     /// Signing out: drop the badge, everything delivered, and the per-session
@@ -125,6 +134,7 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     /// what has already been seen, and its first real bell stays silent.
     func reset() {
         notified = [:]
+        UserDefaults.standard.removeObject(forKey: notifiedBellsKey)
         UNUserNotificationCenter.current().setBadgeCount(0)
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
