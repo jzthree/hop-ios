@@ -11,7 +11,10 @@ final class HayClient: NSObject {
         case collab(Bool, String?)   // everyone-can-type, controllerId
         case rejected(String)        // input refused (control locked)
         case ended(String)
-        case failed(String)          // human-readable reason (auth, network, …)
+        // `permanent` means retrying cannot help: the room is gone, or this
+        // device isn't allowed in. Backing off forever against a 404 just
+        // burns radio and repeats the same error at the user.
+        case failed(String, permanent: Bool)
         case closed
     }
 
@@ -42,7 +45,7 @@ final class HayClient: NSObject {
         if let token, !token.isEmpty { items.append(.init(name: "token", value: token)) }
         comps?.queryItems = items
         guard let url = comps?.url else {
-            onEvent?(.failed("Bad server URL"))
+            onEvent?(.failed("Bad server URL", permanent: true))   // retrying can't fix a URL
             return
         }
 
@@ -118,13 +121,18 @@ final class HayClient: NSObject {
                 // user sees "not authorized" rather than a bare "disconnected".
                 let ns = error as NSError
                 let reason: String
+                var permanent = false
                 let status = (self.task?.response as? HTTPURLResponse)?.statusCode
                 // 101 = Switching Protocols: the upgrade SUCCEEDED, so this is a
                 // post-connect failure (message too large, server close, network).
                 if let status, status != 101 {
                     switch status {
-                    case 401, 403: reason = "not authorized — sign in again"
-                    case 404: reason = "session not found on the server"
+                    case 401, 403:
+                        reason = "not authorized — sign in again"
+                        permanent = true
+                    case 404:
+                        reason = "session not found on the server"
+                        permanent = true
                     default: reason = "server refused the connection (\(status))"
                     }
                 } else if ns.domain == NSURLErrorDomain {
@@ -132,7 +140,8 @@ final class HayClient: NSObject {
                 } else {
                     reason = "connection lost: \(ns.localizedDescription)"
                 }
-                DispatchQueue.main.async { self.onEvent?(.failed(reason)) }
+                let isPermanent = permanent
+                DispatchQueue.main.async { self.onEvent?(.failed(reason, permanent: isPermanent)) }
             case .success(let message):
                 if case .string(let text) = message {
                     DispatchQueue.main.async { self.handle(text) }

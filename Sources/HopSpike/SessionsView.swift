@@ -149,8 +149,13 @@ struct SessionsView: View {
                 .navigationTitle("hop")
                 .toolbar { toolbar }
                 .navigationDestination(for: String.self) { name in
-                    if let session = model.sessions.first(where: { $0.internalName == name }) {
+                    // Fall back to the last known value: a session that ends
+                    // while you're reading it must not blank the screen.
+                    if let session = model.sessions.first(where: { $0.internalName == name })
+                        ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
+                    } else {
+                        ContentUnavailableView("Session not found", systemImage: "questionmark.folder")
                     }
                 }
                 .refreshable { await model.refreshSessions() }

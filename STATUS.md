@@ -503,6 +503,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    is re-checked on disappear because switching sessions can appear-then-
    disappear and a blind clear would wipe the new one. 28 tests.
 
+29. **A session ending under you blanked the screen.** When an agent finishes
+   and its process exits, hop drops the session; the next list refresh removed
+   it, the navigation destination found nothing, and the terminal you were
+   reading went blank — taking the final output with it. The destination now
+   falls back to the last known value, so the terminal stays up with its
+   "[session ended]" line and you can still read (and copy) what it left.
+   Related, found in the same pass: a permanently dead room was retried
+   forever. A 404 ("session not found") or a 401/403 went down the same
+   backoff path as a network blip, so the client kept redialling a room that
+   no longer exists and repeating the error. Failures now say whether they are
+   permanent, and permanent ones stop.
+   Checked and found sound: local bell haptics (SwiftTerm's parser owns OSC
+   state, so a title-update BEL never reaches the bell delegate — the same
+   distinction hop's server makes server-side), and create-navigation
+   (hop's toInternalSessionName is identity for valid names, so the typed name
+   IS the room). 28 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

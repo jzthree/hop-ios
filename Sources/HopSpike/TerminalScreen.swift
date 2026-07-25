@@ -468,10 +468,11 @@ struct TerminalScreen: UIViewRepresentable {
                 case .ended(let message):
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[2m[\(message)]\u{1b}[0m\r\n")
-                case .failed(let reason):
+                case .failed(let reason, let permanent):
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[31m[\(reason)]\u{1b}[0m\r\n")
-                    self.scheduleRetry()
+                    // A gone room or a rejected identity won't fix itself.
+                    if !permanent { self.scheduleRetry() }
                 case .closed:
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[2m[disconnected]\u{1b}[0m\r\n")

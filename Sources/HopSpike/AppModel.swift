@@ -175,6 +175,7 @@ final class AppModel: ObservableObject {
             // Drop previews for sessions that are gone: otherwise a killed
             // session's last screen sits in memory, and a name reused later
             // would show it as if it were live.
+            for s in sessions { lastKnown[s.internalName] = s }
             let alive = Set(sessions.map(\.internalName))
             previews = previews.filter { alive.contains($0.key) }
             // Watching a session counts as seeing its bells: keep the marker
@@ -277,6 +278,13 @@ final class AppModel: ObservableObject {
             }
         return kept.suffix(wanted).joined(separator: "\n")
     }
+
+    /// Every session seen this launch. A session that ends while you're
+    /// reading it drops out of `sessions` on the next refresh, and the
+    /// navigation destination then had nothing to render — the screen went
+    /// blank and took the final output with it. Falling back to the last known
+    /// value keeps the terminal (and its "[session ended]" line) on screen.
+    private(set) var lastKnown: [String: HopSession] = [:]
 
     /// The session currently on screen, if any. A bell from the terminal
     /// you're staring at is not news.
