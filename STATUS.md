@@ -244,6 +244,14 @@ LESSON: test against a REAL session with history, not a fresh probe.
    computed pieces. That's a compile-time cliff, not a style preference — it's
    commented in the file so it doesn't get "cleaned up" back into one chain.
 
+14. **Hold-to-repeat on the key bar** — holding ↓ or ⇞ now repeats like a real
+   keyboard (instant first keystroke on touch-down, then 0.42s delay → 55ms
+   cadence) instead of demanding one tap per line. Navigation keys only: a
+   stuck ^C or a repeating paste is destructive, and a repeating modifier would
+   just flap its armed state — pinned by a test. Repeating keys fire on
+   touch-DOWN and drop their touch-up action, so a hold never sends a trailing
+   extra keystroke on release.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

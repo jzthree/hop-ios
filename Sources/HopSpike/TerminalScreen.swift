@@ -498,6 +498,16 @@ struct TerminalScreen: UIViewRepresentable {
 enum AccessoryKey {
     case esc, tab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
+
+    /// Keys that repeat while held, like a real keyboard. Navigation only:
+    /// a stuck ^C or a repeating paste is destructive, and repeating a
+    /// modifier would just flap its armed state.
+    var repeats: Bool {
+        switch self {
+        case .up, .down, .left, .right, .pageUp, .pageDown: return true
+        default: return false
+        }
+    }
 }
 protocol AccessoryKeyHandler: AnyObject { func accessoryKey(_ key: AccessoryKey) }
 
@@ -505,6 +515,7 @@ final class HopTermView: TerminalView {
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
+    private var repeatTimer: Timer?
 
     func applyTheme(light: Bool) {
         if light {
@@ -554,6 +565,29 @@ final class HopTermView: TerminalView {
             armed ? UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1) : UIColor(white: 0.22, alpha: 1)
     }
 
+    // MARK: hold-to-repeat
+
+    private var repeatKeys: [ObjectIdentifier: AccessoryKey] = [:]
+
+    @objc private func beginRepeat(_ sender: UIButton) {
+        guard let key = repeatKeys[ObjectIdentifier(sender)] else { return }
+        endRepeat()
+        keyHandler?.accessoryKey(key)               // instant first keystroke
+        // Then iOS keyboard cadence, a little quicker — a terminal's ↓ is
+        // held to walk history, not to type a character.
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.42, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.055, repeats: true) { [weak self] _ in
+                self?.keyHandler?.accessoryKey(key)
+            }
+        }
+    }
+
+    @objc private func endRepeat() {
+        repeatTimer?.invalidate()
+        repeatTimer = nil
+    }
+
     private func makeAccessory() -> UIView {
         let bar = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 46))
         bar.backgroundColor = UIColor(white: 0.11, alpha: 1)
@@ -600,9 +634,20 @@ final class HopTermView: TerminalView {
                 out.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .medium)
                 return out
             }
-            let btn = UIButton(configuration: cfg, primaryAction: UIAction { [weak self] _ in
+            // Repeating keys fire on touch-DOWN and drive themselves after
+            // that, so the first keystroke is instant. Everything else keeps
+            // the standard touch-up action (a tap you can slide off to cancel).
+            let action = key.repeats ? nil : UIAction { [weak self] _ in
                 self?.keyHandler?.accessoryKey(key)
-            })
+            }
+            let btn = UIButton(configuration: cfg, primaryAction: action)
+            if key.repeats {
+                repeatKeys[ObjectIdentifier(btn)] = key
+                btn.addTarget(self, action: #selector(beginRepeat(_:)), for: .touchDown)
+                for event: UIControl.Event in [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit] {
+                    btn.addTarget(self, action: #selector(endRepeat), for: event)
+                }
+            }
             btn.titleLabel?.lineBreakMode = .byClipping
             btn.titleLabel?.numberOfLines = 1
             btn.translatesAutoresizingMaskIntoConstraints = false

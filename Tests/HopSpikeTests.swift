@@ -145,6 +145,17 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(hop2?.rows.map(\.name).sorted(), ["a", "b"], "root and subdir share a bucket")
     }
 
+    func testOnlyNavigationKeysRepeatWhenHeld() {
+        // A stuck ^C or a repeating paste is destructive; a repeating modifier
+        // would just flap its armed state.
+        for key in [AccessoryKey.up, .down, .left, .right, .pageUp, .pageDown] {
+            XCTAssertTrue(key.repeats)
+        }
+        for key in [AccessoryKey.ctrlC, .paste, .ctrl, .alt, .esc, .tab, .dismiss, .tilde] {
+            XCTAssertFalse(key.repeats)
+        }
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
