@@ -96,9 +96,32 @@ review UI that a unit test can't see. Dev-only env vars: `HOP_DEV_TOKEN`,
 `HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`,
 `HOP_DEV_GROUP`, `HOP_DEV_SHEET`.
 
-Quick actions can't be seen in a screenshot (they live in SpringBoard), so
-`publish` logs instead: `xcrun simctl spawn <sim> log show --last 60s --info
---predicate 'subsystem == "io.zhoulab.hop.spike"'`.
+### Reading the app's diagnostics
+
+The app logs the handful of numbers that explain its behaviour, under
+subsystem `io.zhoulab.hop.spike`. Note `--info`: these are info-level and are
+invisible without it.
+
+Simulator:
+
+```bash
+xcrun simctl spawn <sim> log show --last 60s --info \
+  --predicate 'subsystem == "io.zhoulab.hop.spike"'
+```
+
+On the phone, `log collect --device-udid` needs admin, so use **Console.app**:
+open it, pick the iPhone in the sidebar, Start streaming, and put
+`io.zhoulab.hop.spike` in the search box (Action → Include Info Messages).
+
+| Line | What it tells you |
+|------|-------------------|
+| `attach claim 51x26 for X` | the phone claimed the shared PTY size — if absent, the terminal will be wrapped at some other client's width |
+| `snapshot 2447 KB after 96 ms` | what opening that session cost on the wire, and how long the server took |
+| `scrollback reachable N lines` | how much history find and copy-all can actually see (26 = one screen; TUI apps have no scrollback) |
+| `published N quick actions` | Home Screen shortcuts were refreshed — the only evidence, since SpringBoard owns them |
+| `background refresh finished, success=` | a pocket bell-poll ran; silence here means iOS stopped granting slots |
+| `unhandled server message X` | hop added a protocol message this client ignores |
+| `server rejected a message: …` | this client sent something hop couldn't parse — input may be silently broken |
 
 `tools/lan-bridge.mjs` exposes the local hay-host to the LAN for testing
 without a tunnel — it's LAN-open while running, so stop it when done.

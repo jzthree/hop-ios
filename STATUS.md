@@ -41,6 +41,11 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 Ordered by what's most likely to be wrong and what it costs if it is. Each was
 built and instrumented here but CANNOT be exercised without a hand on a phone.
 
+If something looks wrong, the app says why in the log: **Console.app → your
+iPhone → search `io.zhoulab.hop.spike`** (Action → Include Info Messages).
+README has a table of what each line means. `log collect --device-udid` would
+be the scriptable route but needs admin, so Console is the practical one.
+
 1. **Keyboard feel — the thesis the app rests on.** Type a real command with
    dictation and autocorrect. If this doesn't beat the web client, nothing else
    in this repo matters.
