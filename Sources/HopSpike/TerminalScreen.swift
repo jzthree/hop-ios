@@ -568,12 +568,13 @@ struct TerminalScreen: UIViewRepresentable {
                         var depth = 0
                         while depth < 6000, t.getLine(row: depth) != nil { depth += 1 }
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
-                            .info("scrollback reachable \(depth) lines")
+                            .info("scrollback reachable \(depth) lines, altScreen=\(self.lastAltScreen)")
                     }
                 case .output(let data):
                     tv.feed(text: data)
                 case .snapshot(let data, let alternateScreen, let cursorHidden):
                     self.snapshotLanded = true
+                    self.lastAltScreen = alternateScreen
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
                     // one duplicated history for shell sessions and let stale
@@ -897,6 +898,7 @@ struct TerminalScreen: UIViewRepresentable {
         /// tell "I fit this to the phone" from "I just reshaped the terminal
         /// someone is using at their desk".
         private var sizeAtJoin: (cols: Int, rows: Int)?
+        private(set) var lastAltScreen = false
 
         /// Resizes are held until this is true. Opening a session used to send
         /// TWO: the claim at the pre-keyboard height, then another when the
@@ -1084,28 +1086,69 @@ final class HopTermView: TerminalView {
         addGestureRecognizer(pan)
     }
 
+    /// A drag is a SCROLL, and what that means depends on who owns the screen.
+    /// This mirrors what SwiftTerm's macOS view does for a scroll wheel, which
+    /// the iOS view has no equivalent of:
+    ///
+    /// 1. App has mouse reporting on (claude does) — send WHEEL events, so the
+    ///    app scrolls its own transcript. Wheel is not a click: this doesn't
+    ///    reintroduce the phantom taps that #55 removed.
+    /// 2. No local scrollback and no mouse reporting (a pager on the alt
+    ///    screen) — send arrow keys, the conventional fallback.
+    /// 3. Otherwise — move our own viewport, with momentum.
+    ///
+    /// Only case 3 was implemented, which is why dragging did nothing at all on
+    /// an agent session: the alternate screen has NO scrollback by design, so
+    /// there was never anything local to move.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
         let terminal = getTerminal()
-        // Row height from the view itself: rows is what the terminal thinks it
-        // has and bounds is what it's drawn into, so the ratio is the cell
-        // height without reaching into SwiftTerm internals.
         let cellHeight = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
+        // Anything beyond the visible rows means real history to move.
+        let hasScrollback = terminal.getLine(row: terminal.rows) != nil
+        let appWantsMouse = terminal.mouseMode != .off
+
         switch g.state {
         case .began:
             stopMomentum()
             scrollAnchorRow = terminal.buffer.yDisp
+            dragRowsSent = 0
         case .changed:
             // Drag DOWN reveals older output, like every scroll view on iOS.
             let rows = Int(g.translation(in: self).y / cellHeight)
-            let target = max(0, scrollAnchorRow - rows)
-            if target != terminal.buffer.yDisp { scrollTo(row: target) }
+            if appWantsMouse || !hasScrollback {
+                // Incremental: these are events, not a position.
+                let delta = rows - dragRowsSent
+                guard delta != 0 else { return }
+                dragRowsSent = rows
+                sendScroll(lines: delta, mouse: appWantsMouse, terminal: terminal)
+            } else {
+                let target = max(0, scrollAnchorRow - rows)
+                if target != terminal.buffer.yDisp { scrollTo(row: target) }
+            }
         case .ended:
-            // Without inertia, reaching anything more than a screen back means
-            // swiping over and over. Every scroll view on the platform coasts;
-            // one that doesn't reads as broken rather than minimal.
-            startMomentum(rowsPerSecond: -g.velocity(in: self).y / cellHeight)
+            // Momentum only where we own the viewport. Flinging a burst of
+            // wheel events at an app it can't cancel is not inertia, it's spam.
+            if !appWantsMouse && hasScrollback {
+                startMomentum(rowsPerSecond: -g.velocity(in: self).y / cellHeight)
+            }
         default:
             break
+        }
+    }
+
+    private var dragRowsSent = 0
+
+    private func sendScroll(lines: Int, mouse: Bool, terminal: Terminal) {
+        let up = lines > 0                     // dragging down looks backwards
+        for _ in 0..<min(abs(lines), 12) {     // cap: one drag isn't a hundred notches
+            if mouse {
+                let flags = terminal.encodeButton(button: up ? 4 : 5, release: false,
+                                                  shift: false, meta: false, control: false)
+                terminal.sendEvent(buttonFlags: flags,
+                                   x: 0, y: max(0, terminal.rows / 2))
+            } else {
+                keyHandler?.accessoryKey(up ? .up : .down, isRepeat: true)
+            }
         }
     }
 
