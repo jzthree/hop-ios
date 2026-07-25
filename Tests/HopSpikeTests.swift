@@ -443,38 +443,64 @@ final class HopSpikeTests: XCTestCase {
         var m = ScrollMomentum()
         // Letting go of a slow, careful drag should stop where you left it.
         XCTAssertFalse(m.start(pointsPerSecond: 40))
-        XCTAssertNil(m.step())
+        XCTAssertNil(m.step(elapsed: 1.0 / 60))
         XCTAssertTrue(m.start(pointsPerSecond: 900))
-        XCTAssertNotNil(m.step())
+        XCTAssertNotNil(m.step(elapsed: 1.0 / 60))
     }
 
     func testCoastDecaysAndEnds() {
         var m = ScrollMomentum()
         _ = m.start(pointsPerSecond: 1200)
-        var frames = 0
+        var seconds = 0.0
         var last = Double.infinity
-        while let step = m.step() {
+        while let step = m.step(elapsed: 1.0 / 60) {
             XCTAssertLessThan(abs(step), abs(last), "coast must slow every frame")
             last = step
-            frames += 1
-            XCTAssertLessThan(frames, 600, "coast never ended")
+            seconds += 1.0 / 60
+            XCTAssertLessThan(seconds, 30, "coast never ended")
         }
-        // About a second at 60fps — long enough to feel like inertia, short
-        // enough that the screen isn't still moving when you look up.
-        XCTAssertGreaterThan(frames, 40)
-        XCTAssertLessThan(frames, 90)
+        // A couple of seconds — long enough to feel like inertia, short enough
+        // that the screen isn't still moving when you look up.
+        XCTAssertGreaterThan(seconds, 1.0)
+        XCTAssertLessThan(seconds, 3.0)
     }
 
-    func testCoastDistanceStaysOnTheSameScreenful() {
+    /// The one that matters on real hardware. CADisplayLink runs at 120Hz on a
+    /// ProMotion phone and 60Hz in the simulator, so a coast that decays per
+    /// FRAME is twice as fast and half as long on the device — while every
+    /// test and every simulator run says it's fine.
+    func testCoastIsTheSameAtAnyRefreshRate() {
+        func run(fps: Double) -> (distance: Double, seconds: Double) {
+            var m = ScrollMomentum()
+            _ = m.start(pointsPerSecond: 1500)
+            var distance = 0.0, seconds = 0.0
+            while let step = m.step(elapsed: 1 / fps) {
+                distance += step
+                seconds += 1 / fps
+            }
+            return (distance, seconds)
+        }
+        let sixty = run(fps: 60), oneTwenty = run(fps: 120)
+        XCTAssertEqual(sixty.distance, oneTwenty.distance, accuracy: 10)
+        XCTAssertEqual(sixty.seconds, oneTwenty.seconds, accuracy: 0.05)
+    }
+
+    func testCoastDistanceStaysWithinAFewScreenfuls() {
         // A hard flick on a phone is roughly 2000 pt/s. The coast that follows
         // should be measured in screens, not in thousands of lines: this is
         // sent to the remote app as wheel notches, and there is no taking it
         // back once it's gone.
         let hard = ScrollMomentum.coastDistance(pointsPerSecond: 2000)
-        XCTAssertGreaterThan(hard, 300)              // more than one screen
-        XCTAssertLessThan(hard, 1200)                // fewer than ~2 screens
+        XCTAssertGreaterThan(hard, 400)              // more than one screen
+        XCTAssertLessThan(hard, 1600)                // fewer than ~2 screens
         XCTAssertEqual(ScrollMomentum.coastDistance(pointsPerSecond: 10), 0)
         // Direction is preserved: flicking up coasts up.
         XCTAssertLessThan(ScrollMomentum.coastDistance(pointsPerSecond: -2000), 0)
+        // And the closed form agrees with actually stepping it.
+        var m = ScrollMomentum()
+        _ = m.start(pointsPerSecond: 2000)
+        var stepped = 0.0
+        while let step = m.step(elapsed: 1.0 / 60) { stepped += step }
+        XCTAssertEqual(stepped, hard, accuracy: hard * 0.05)
     }
 }

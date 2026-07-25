@@ -1225,15 +1225,20 @@ final class HopTermView: TerminalView {
     private func startMomentum(pointsPerSecond: CGFloat) {
         stopMomentum()
         guard momentum.start(pointsPerSecond: Double(pointsPerSecond)) else { return }
-        let link = CADisplayLink(target: self, selector: #selector(stepMomentum))
+        let link = CADisplayLink(target: self, selector: #selector(stepMomentum(_:)))
         link.add(to: .main, forMode: .common)
         momentumLink = link
     }
 
-    @objc private func stepMomentum() {
+    @objc private func stepMomentum(_ link: CADisplayLink) {
         let terminal = getTerminal()
         let wasAtTop = terminal.buffer.yDisp == 0
-        guard let points = momentum.step() else { return stopMomentum() }
+        // The frame's real duration, so the glide is the same length in
+        // SECONDS at 60Hz and at 120Hz. Clamped because a stalled frame — the
+        // main thread parsing a burst of output — would otherwise spend a
+        // quarter second of travel in one go.
+        let elapsed = min(max(link.targetTimestamp - link.timestamp, 1.0 / 240), 1.0 / 20)
+        guard let points = momentum.step(elapsed: elapsed) else { return stopMomentum() }
         scrollDebt += CGFloat(points)
         applyScrollDebt()
         // A local viewport already parked at the oldest line has nothing left

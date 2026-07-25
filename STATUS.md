@@ -257,6 +257,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The coast was wrong on the phone and right in the simulator (iteration 93)
+
+The momentum written an hour ago decayed per FRAME. CADisplayLink runs at up
+to 120Hz on a ProMotion phone — which is the phone this is for — and at 60Hz
+in the simulator. So the glide would have coasted twice as fast for half as
+long on the device, and every test and every simulator run would have kept
+saying it was fine. Found by reading it back rather than by running it, which
+is the only way this one could have been found: the hardware that shows it is
+the hardware that can't be tested here.
+
+Now decays per SECOND, taking each frame's real duration from the display
+link (clamped, so a stalled frame doesn't spend a quarter second of travel at
+once). The rate is UIScrollView's own 0.998-per-millisecond, since the ask was
+for scrolling to feel like the rest of iOS and that is the number the rest of
+iOS uses.
+
+The test that matters runs the same flick at 60Hz and at 120Hz and asserts
+both the distance and the duration match.
+
 ## A scroll is not a keystroke (iteration 92)
 
 Followed what actually happens to a wheel event after `sendScroll`, and it was
