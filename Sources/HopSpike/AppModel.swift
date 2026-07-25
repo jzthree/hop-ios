@@ -24,7 +24,12 @@ final class AppModel: ObservableObject {
         let cfg = URLSessionConfiguration.default
         cfg.httpCookieStorage = HTTPCookieStorage.shared // persists across launches
         cfg.httpCookieAcceptPolicy = .always
-        cfg.waitsForConnectivity = true
+        // waitsForConnectivity parks a request indefinitely when the server is
+        // unreachable — the app sat on its launch spinner forever with no way
+        // out. Fail fast instead and let the UI say what happened.
+        cfg.waitsForConnectivity = false
+        cfg.timeoutIntervalForRequest = 12
+        cfg.timeoutIntervalForResource = 25
         return URLSession(configuration: cfg)
     }()
 
@@ -73,6 +78,7 @@ final class AppModel: ObservableObject {
         guard let url = baseURL?.appendingPathComponent("api/login") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["password": password, "totp": totp])
         do {
@@ -93,6 +99,7 @@ final class AppModel: ObservableObject {
     func refreshSessions(silent: Bool = false) async {
         guard let url = baseURL?.appendingPathComponent("api/sessions") else { return }
         var listReq = URLRequest(url: url)
+        listReq.timeoutInterval = 12
         if let token = accessToken { listReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         do {
             let (data, resp) = try await urlSession.data(for: listReq)

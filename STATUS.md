@@ -189,6 +189,15 @@ LESSON: test against a REAL session with history, not a fresh probe.
    the terminal to size the text (persisted, same 8–24 bounds as the menu).
    9 tests green.
 
+9. **Unreachable-server hang + wasted polling + empty states** — found by
+   pointing the app at a dead host: it sat on the launch spinner FOREVER with
+   no escape (waitsForConnectivity parks the request indefinitely and no
+   timeouts were set). Now requests fail fast (12s request / 25s resource) and
+   you land on login with "Could not connect to the server." Previews no longer
+   poll while a terminal is pushed on top of the list (the daemon was rendering
+   screens nobody was looking at). Empty/unreachable/no-match states are real
+   views with an action (Try again / New session) instead of one line of prose.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

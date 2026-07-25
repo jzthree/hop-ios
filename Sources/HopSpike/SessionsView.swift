@@ -75,11 +75,18 @@ struct SessionsView: View {
                             .tint(.hopPurple)
                         }
                     }
-                } footer: {
-                    if visible.isEmpty {
-                        Text(filter.isEmpty
-                             ? "No \(scope == .agent ? "agent" : "") sessions. Start one with the + button or `hop` on your machine."
-                             : "No sessions match “\(filter)”.")
+                }
+                if visible.isEmpty {
+                    Section {
+                        EmptyStateView(
+                            filtering: !filter.isEmpty,
+                            filter: filter,
+                            unreachable: model.sessions.isEmpty && model.lastError != nil,
+                            server: model.normalizedServerURL,
+                            scope: scope,
+                            retry: { Task { await model.refreshSessions() } },
+                            create: { newName = ""; creating = true }
+                        )
                     }
                 }
             }
@@ -160,16 +167,62 @@ struct SessionsView: View {
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
-            .task(id: scenePhase) {
-                // Previews cost daemon work per call, so only while the list is
-                // on screen, only the top few, on a slower cadence than the list.
-                guard scenePhase == .active else { return }
+            .task(id: "\(scenePhase)-\(path.isEmpty)") {
+                // Previews cost the daemon a render per call: only while the
+                // list is FRONTMOST (path empty — a pushed terminal keeps this
+                // view alive), only the top few, slower than the list poll.
+                guard scenePhase == .active, path.isEmpty else { return }
                 while !Task.isCancelled {
                     await model.refreshPreviews(for: visible.filter(\.live).map(\.internalName))
                     try? await Task.sleep(for: .seconds(9))
                 }
             }
         }
+    }
+}
+
+/// What to say when the list has nothing in it — and what the user can do
+/// about it. Previously this was one line of prose with no action.
+struct EmptyStateView: View {
+    let filtering: Bool
+    let filter: String
+    let unreachable: Bool
+    let server: String
+    let scope: SessionScope
+    let retry: () -> Void
+    let create: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: unreachable ? "wifi.exclamationmark"
+                  : filtering ? "magnifyingglass" : "terminal")
+                .font(.system(size: 30))
+                .foregroundStyle(unreachable ? .orange : Color.hopPurple)
+            Text(title).font(.headline)
+            Text(detail).font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if unreachable {
+                Button("Try again", action: retry).buttonStyle(.borderedProminent)
+            } else if !filtering && scope != .agent {
+                Button("New session", action: create).buttonStyle(.borderedProminent)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var title: String {
+        if unreachable { return "Can't reach hop" }
+        if filtering { return "No matches" }
+        return scope == .agent ? "No agent sessions" : "No sessions yet"
+    }
+
+    private var detail: String {
+        if unreachable { return "\(server) didn't answer. Check that the daemon and tunnel are up." }
+        if filtering { return "Nothing matches “\(filter)”." }
+        return scope == .agent
+            ? "Sessions started by agents over MCP show up here."
+            : "Start one here, or run `hop` on your machine."
     }
 }
 
