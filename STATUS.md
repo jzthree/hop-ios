@@ -566,6 +566,27 @@ LESSON: test against a REAL session with history, not a fresh probe.
    the name now says exactly that, instead of a dialog that closes and appears
    to do nothing. 29 tests.
 
+33. **Soak test + a scrollback finding that came out smaller than it looked.**
+   - **Soak** (never done before): list view polling for 6 minutes — RSS flat at
+     234 MB, zero errors. Terminal open on a busy session for 3 minutes — flat
+     at 343 MB. No leak in either, which is the first real evidence for the
+     "left open in a pocket" case.
+   - **Scrollback**: SwiftTerm keeps 500 lines by default while hop replays up
+     to 20 MB of raw stream on reattach, so we were parsing far more history
+     than we kept. Raised to 5000 (matching the find walk's own limit); the
+     measured memory cost was nil.
+     BUT the honest result: measuring reachable depth on a claude session gave
+     **26 lines** — the visible screen. TUI apps run in the ALTERNATE screen
+     buffer, which by definition has no scrollback, so for agent sessions this
+     change does nothing and "find/copy all scrollback" can only ever see the
+     current screen. That's terminal semantics, not a bug — worth writing down
+     so it isn't re-investigated. The change helps plain shell sessions, where
+     the raw replay does fill the normal buffer and 500 was clipping it.
+   - Two SwiftTerm internals blocked measurement (`yBase` after `isWrapped`);
+     depth is now counted through the same public accessor find and copy-all
+     use, which is the number that actually matters. The reachable depth is
+     logged per session open.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

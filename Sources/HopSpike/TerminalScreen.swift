@@ -311,6 +311,12 @@ struct TerminalScreen: UIViewRepresentable {
 
     func makeUIView(context: Context) -> HopTermView {
         let tv = HopTermView(frame: .zero)
+        // SwiftTerm keeps 500 lines by default, but hop's join snapshot is a
+        // full client scrollback — up to 1.5 MB. We were downloading tens of
+        // thousands of lines and discarding all but the last 500, so "copy all
+        // scrollback" and find-in-scrollback couldn't reach what we'd already
+        // paid to fetch. 5000 matches the find walk's own limit.
+        tv.getTerminal().changeScrollback(5000)
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
         tv.installAccessoryBar()
@@ -460,6 +466,22 @@ struct TerminalScreen: UIViewRepresentable {
                     self.setStatus(.live)
                     self.claimSizeOnAttach()
                     self.replayPending()
+                    // How much history the snapshot actually delivered. This is
+                    // the number that decides whether find and copy-all can
+                    // reach anything, so it's worth being able to look it up
+                    // rather than assume.
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(3))
+                        guard let self, let t = self.view?.getTerminal() else { return }
+                        // yBase is internal in SwiftTerm, so count what the
+                        // public accessor will actually return — which is the
+                        // number that matters anyway, since find and copy-all
+                        // go through the same door.
+                        var depth = 0
+                        while depth < 6000, t.getLine(row: depth) != nil { depth += 1 }
+                        Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                            .info("scrollback reachable \(depth) lines")
+                    }
                 case .output(let data):
                     tv.feed(text: data)
                 case .presence(let list):
