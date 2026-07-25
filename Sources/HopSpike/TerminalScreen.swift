@@ -260,7 +260,29 @@ struct TerminalScreen: UIViewRepresentable {
         private var token_: String? { token }
         private let urlSession: URLSession
         private let room: String
-        private let setStatus: (TerminalHostView.ConnState) -> Void
+        private let pushStatus: (TerminalHostView.ConnState) -> Void
+        private var isLive = false
+        private var lastDeadToast = Date.distantPast
+
+        /// Keystrokes only reach a live socket. Dropping them silently reads
+        /// as a frozen terminal (nothing echoes back, because the echo comes
+        /// from the server), so say so — throttled, since a burst of typing
+        /// would otherwise be a burst of toasts. Deliberately NOT queued for
+        /// replay: a command landing 30s late, mid-something-else, is worse
+        /// than a command that plainly didn't happen.
+        private func canSend() -> Bool {
+            if isLive { return true }
+            if Date().timeIntervalSince(lastDeadToast) > 3 {
+                lastDeadToast = Date()
+                onToast("Not connected — reconnecting…")
+            }
+            return false
+        }
+
+        private func setStatus(_ state: TerminalHostView.ConnState) {
+            isLive = state == .live
+            pushStatus(state)
+        }
         private let onToast: (String) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
@@ -287,7 +309,7 @@ struct TerminalScreen: UIViewRepresentable {
             self.token = token
             self.urlSession = urlSession
             self.room = room
-            self.setStatus = setStatus
+            self.pushStatus = setStatus
         }
 
         func attach(view: HopTermView) {
@@ -425,6 +447,9 @@ struct TerminalScreen: UIViewRepresentable {
 
         // ── AccessoryKeyHandler ──
         func accessoryKey(_ key: AccessoryKey) {
+            // ctrl/alt arm locally and dismiss is pure UI; the rest are bytes
+            // on the wire and need a live socket.
+            if key.sendsInput, !canSend() { return }
             switch key {
             case .esc: client.sendInput("\u{1b}")
             case .tab: client.sendInput("\t")
@@ -467,6 +492,7 @@ struct TerminalScreen: UIViewRepresentable {
                 altArmed = false
                 view?.setAltArmed(false)
             }
+            guard canSend() else { return }
             client.sendInput(text)
         }
 
@@ -498,6 +524,15 @@ struct TerminalScreen: UIViewRepresentable {
 enum AccessoryKey {
     case esc, tab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
+
+    /// Keys that put bytes on the wire, as opposed to arming a modifier or
+    /// dismissing the keyboard.
+    var sendsInput: Bool {
+        switch self {
+        case .ctrl, .alt, .dismiss: return false
+        default: return true
+        }
+    }
 
     /// Keys that repeat while held, like a real keyboard. Navigation only:
     /// a stuck ^C or a repeating paste is destructive, and repeating a

@@ -259,6 +259,22 @@ LESSON: test against a REAL session with history, not a fresh probe.
    recount of what's still delivered; otherwise on the next refresh). Background
    refresh updates it too, so the badge stays honest with the app closed.
 
+16. **Typing into a dead socket now says so** — keystrokes sent while
+   disconnected went nowhere silently, and since a terminal's echo comes from
+   the SERVER, that reads as a frozen app. Input while down now raises
+   "Not connected — reconnecting…" (throttled to one per 3s so a burst of
+   typing isn't a burst of toasts). Deliberately not queued for replay: a
+   command landing 30s late, mid-something-else, is worse than one that plainly
+   didn't happen. ctrl/alt/dismiss keep working while down — they're local.
+   Also tried **time-sensitive notifications** (break through Focus, which is
+   right for a waiting agent). Worth knowing: the wildcard "iOS Team
+   Provisioning Profile: *" SILENTLY STRIPS the
+   com.apple.developer.usernotifications.time-sensitive entitlement — build
+   succeeds, no warning, and `codesign -d --entitlements -` shows it missing.
+   Removed the dead entitlements file; `interruptionLevel = .timeSensitive`
+   stays in code and starts working the moment the App ID carries the
+   capability (a portal action, no code change). relevanceScore works today.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

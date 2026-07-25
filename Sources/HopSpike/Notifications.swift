@@ -59,6 +59,15 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             content.title = s.name
             content.body = s.tagline.isEmpty ? "Session wants your attention" : s.tagline
             content.sound = .default
+            // A waiting agent is what time-sensitive exists for. NOTE: this
+            // currently degrades to .active on device — the wildcard team
+            // provisioning profile drops the time-sensitive entitlement with
+            // no build warning at all (verified via codesign -d
+            // --entitlements). It starts working the moment the App ID carries
+            // the capability; no code change needed. relevanceScore works
+            // regardless and floats a bell to the top of a summary.
+            content.interruptionLevel = .timeSensitive
+            content.relevanceScore = 1
             content.userInfo = ["session": s.internalName]
             content.threadIdentifier = s.internalName   // group per session
             UNUserNotificationCenter.current().add(

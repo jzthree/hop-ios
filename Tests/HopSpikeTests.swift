@@ -156,6 +156,15 @@ final class HopSpikeTests: XCTestCase {
         }
     }
 
+    func testLocalOnlyKeysNeverNeedASocket() {
+        // Arming ctrl or dismissing the keyboard must keep working while the
+        // connection is down; anything that writes bytes must not.
+        for key in [AccessoryKey.ctrl, .alt, .dismiss] { XCTAssertFalse(key.sendsInput) }
+        for key in [AccessoryKey.esc, .tab, .ctrlC, .up, .paste, .tilde, .pageDown] {
+            XCTAssertTrue(key.sendsInput)
+        }
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
