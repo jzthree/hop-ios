@@ -257,6 +257,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Adopting a peer's size hid claude's input box (iteration 96)
+
+Following the previous fix upstream: why was the local terminal ever a
+desktop's size? Because `active_size` was applied unconditionally. SwiftTerm
+draws the grid it's given into the bounds it has, so a 50-row desktop size on
+a phone drawing 23 rows puts the bottom 27 rows outside the view — and the
+bottom is exactly where claude's input box is.
+
+hop's web client refuses the same resize in auto-fit mode, and its comment
+names the symptom it was written for: "mobile snapping to a desktop/PTY
+80x24". This app is always auto-fit, so it now records the elected size and
+logs the mismatch instead of adopting it.
+
+The cost is reflow — output written for 80 columns wraps in a 51-column grid —
+and that is the better failure: wrapped is worse to READ, clipped means you
+can't see it at all. It self-heals as soon as our attach claim wins.
+
+Why this was never noticed: the attach claim usually DOES win (2.5s idle
+window), so the sizes match and nothing looks wrong. It bites exactly when
+someone is typing at a desk while you open the same session on your phone.
+
 ## Scroll speed was tied to the wrong row count (iteration 95)
 
 hop runs ONE PTY at one size for everyone, and this app resizes its local

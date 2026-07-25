@@ -623,8 +623,27 @@ struct TerminalScreen: UIViewRepresentable {
                     Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
                         .error("server rejected a message: \(message, privacy: .public)")
                 case .activeSize(let cols, let rows):
-                    if tv.getTerminal().cols != cols || tv.getTerminal().rows != rows {
-                        tv.getTerminal().resize(cols: cols, rows: rows)
+                    // Recorded, NOT applied. This terminal is sized to fit this
+                    // screen, and adopting a peer's size means drawing their
+                    // grid clipped into our view: a 50-row desktop leaves the
+                    // bottom 27 rows outside the bounds, which is exactly where
+                    // claude's input box is. hop's web client refuses the same
+                    // resize in auto-fit mode, and its comment names the
+                    // symptom — "mobile snapping to a desktop/PTY 80x24".
+                    //
+                    // The cost of refusing is reflow: output written for 80
+                    // columns wraps in a 51-column grid. Wrapped is worse to
+                    // read than clipped is to look at, but you can still SEE
+                    // all of it, and it self-heals the moment our claim wins.
+                    //
+                    // Logged rather than stored: "the room is 80x50 and we
+                    // draw 51x23" is the whole explanation for a screen that
+                    // looks reflowed on the phone, and Console is where the
+                    // README already sends you for that.
+                    let mine = tv.getTerminal()
+                    if mine.cols != cols || mine.rows != rows {
+                        Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
+                            .info("room elected \(cols)x\(rows), we draw \(mine.cols)x\(mine.rows) — output reflows until our claim wins")
                     }
                 case .ended(let message):
                     self.setStatus(.closed)
