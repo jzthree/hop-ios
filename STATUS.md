@@ -225,6 +225,36 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## TestFlight: everything done except one web form (iteration 63)
+
+Asked to push to TestFlight. Got most of the way; the last step is Apple's to
+refuse, not mine.
+
+**Done here:**
+- Found the credentials: an **Apple Distribution certificate** already exists,
+  and an App Store Connect API key sits at
+  `~/.appstoreconnect/private_keys/AuthKey_CCFL4WD4V4.p8`. The issuer ID was in
+  the **lightscope** repo (Jian's pointer) — `254072af-…`. Verified working
+  against the live API.
+- Diagnosed why plain `-allowProvisioningUpdates` fails: **"No Accounts"** —
+  Xcode has no Apple ID signed in, so it can't create a distribution profile.
+  Development builds only work because the wildcard profile is cached on disk.
+  The API key does that job instead, and `make testflight ISSUER=<uuid>` now
+  passes it to xcodebuild for both profile creation and upload.
+- **Registered `io.zhoulab.hop.spike` as an explicit App ID** (ID `JN2AVFVXZA`)
+  — it wasn't registered at all, which is why every build fell back to the
+  wildcard profile.
+- **Enabled Push Notifications on it.** That is the exact blocker #26 found for
+  APNs: Apple does not allow Push on a wildcard App ID. Apple's side is now
+  ready; what remains for push is the daemon endpoint and an APNs key.
+
+**What only Jian can do:** create the app record in App Store Connect. The API
+refuses it outright — `The resource 'apps' does not allow 'CREATE'` — so it is
+the web UI or nothing: App Store Connect → Apps → **+** → New App, platform
+iOS, bundle ID `io.zhoulab.hop.spike` (now in the dropdown), any SKU, and a
+name of your choosing. Then `make testflight ISSUER=254072af-7f14-4065-acd8-d09fe4924553`
+runs the whole loop, and the build installs over 5G with no cable.
+
 ## Attention had to be findable (iteration 62)
 
 The one state this app exists to surface was the quietest thing on screen: a
