@@ -21,7 +21,7 @@ VERSION_FLAGS = CURRENT_PROJECT_VERSION=$(BUILDNO) HOP_GIT_DESCRIBE=$(GITDESC)
 
 TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
 
-.PHONY: gen build test uitest sim install shot clean
+.PHONY: gen build test uitest sim install shot archive testflight clean
 
 gen:
 	xcodegen
@@ -58,6 +58,25 @@ install: build
 	  if echo "$$out" | grep -qE "App installed|installationURL|Complete!"; then echo "installed (attempt $$i)"; exit 0; fi; \
 	  echo "attempt $$i: $$(echo "$$out" | grep -oE 'DeviceLocked|disconnected immediately' | head -1)"; sleep 8; \
 	done; echo "install failed — unlock the phone or plug in a cable"; exit 1
+
+# Delivery over cellular. `make install` needs the phone on the Mac's network;
+# TestFlight installs from anywhere, including 5G, and is the same explicit App
+# ID that Push needs — so it unblocks APNs at the same time.
+#
+# REQUIRES, once, in Xcode or the developer portal (account-level, so not done
+# from here): register io.zhoulab.hop.spike as an explicit App ID, create the
+# app record in App Store Connect, and let Xcode make a distribution
+# certificate. After that `make testflight` is the whole loop; internal testers
+# get the build as soon as processing finishes, with no review.
+archive: gen
+	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
+	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+	  -archivePath build/HopSpike.xcarchive $(VERSION_FLAGS)
+
+testflight: archive
+	xcodebuild -exportArchive -archivePath build/HopSpike.xcarchive \
+	  -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates \
+	  -exportPath build/export
 
 sim: simbuild
 	-xcrun simctl boot $(SIM) 2>/dev/null

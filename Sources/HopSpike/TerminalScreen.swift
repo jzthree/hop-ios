@@ -37,6 +37,12 @@ struct TerminalHostView: View {
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
+    /// Height of the key bar while the keyboard is up. SwiftUI's keyboard
+    /// avoidance insets for the keyboard but NOT for an inputAccessoryView, so
+    /// the terminal's frame ran on underneath the strip and autofit sized rows
+    /// for space the user cannot see — the bottom of the session, including
+    /// claude's prompt line, sat behind the keys.
+    @State private var accessoryInset: CGFloat = 0
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.verticalSizeClass) private var verticalSize
 
@@ -86,7 +92,20 @@ struct TerminalHostView: View {
     var body: some View {
         screen
             .padding(.horizontal, 5)
+            .padding(.bottom, accessoryInset)
             .ignoresSafeArea(.container, edges: .bottom)
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                // The keyboard's own height is already handled; what's missing
+                // is the accessory riding on top of it. Zero when the keyboard
+                // is down, since the bar goes with it.
+                guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                      let screen = UIApplication.shared.connectedScenes
+                          .compactMap({ ($0 as? UIWindowScene)?.screen.bounds.height }).first
+                else { return }
+                let up = end.origin.y < screen
+                accessoryInset = up ? HopTermView.accessoryHeight : 0
+            }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
                 // screen and an endless action sheet is unusable.
@@ -829,6 +848,8 @@ struct TerminalScreen: UIViewRepresentable {
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             fittedCols = newCols
             fittedRows = newRows
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
+                .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)
         }
 
@@ -1127,8 +1148,10 @@ final class HopTermView: TerminalView {
         repeatTimer = nil
     }
 
+    static let accessoryHeight: CGFloat = 46
+
     private func makeAccessory() -> UIView {
-        let bar = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 46))
+        let bar = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: Self.accessoryHeight))
         bar.backgroundColor = .hopRaised
 
         let scroller = UIScrollView()

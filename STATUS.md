@@ -210,6 +210,39 @@ were never in it. Auditing interactions instead:
 | Hardware keyboard | unaudited |
 | Drag & drop text | unaudited |
 
+## Autofit ignored the key bar (iteration 60)
+
+Jian's report, and it was measurable: **fit 51x26 in a 404pt view, accessory
+46pt**. SwiftUI's keyboard avoidance insets for the KEYBOARD but not for an
+`inputAccessoryView` riding on top of it, so the terminal's frame ran on
+underneath the key strip. Autofit therefore sized ~3 rows of terminal into
+space the user cannot see — and since those are the BOTTOM rows, what was
+hidden was the live end of the session: claude's prompt line and its status
+footer, the two things you look at.
+
+Fixed by inseting the terminal by the bar's height while the keyboard is up
+(zero when it's down, since the bar goes with it). Now **fit 51x23 in 358pt**,
+and the last line sits directly above the keys. The fit is logged per layout
+change, so the same check works on a device.
+
+## Delivering over cellular (iteration 60)
+
+The signing profile says `TimeToLive = 365` (expires 2027-07-25) — a PAID
+Developer Program membership, not a free personal team, which would be 7 days.
+That matters: builds don't expire weekly, and both cellular delivery paths are
+available.
+
+- **Right now, no setup**: turn on Personal Hotspot and join the Mac to it. The
+  phone and Mac are then on one network and `make install` works over 5G.
+- **Properly**: TestFlight. `make archive` is verified working; `make
+  testflight` exports and uploads. Needs three one-time account actions that
+  are outward-facing and were NOT done from here — an explicit App ID, an App
+  Store Connect record, and a distribution certificate. Internal testers get
+  builds with no review. This is also exactly the explicit App ID that #26
+  found APNs blocked on, so it unblocks push at the same time.
+- Ad-hoc OTA from hop.zhoulab.io would also work over 5G, but it needs the same
+  certificate plus hosting a manifest, for less than TestFlight gives.
+
 ## Key bar conflict + one surface palette (iteration 59)
 
 **A conflict I introduced and caught before Jian did.** #54 put PgUp/PgDn on
