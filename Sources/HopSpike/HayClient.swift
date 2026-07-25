@@ -42,7 +42,10 @@ final class HayClient: NSObject {
     /// Enough to redraw a TUI screen and leave a little shell history, and
     /// small enough that opening a session on cellular is not an event.
     static let replayBytes = 200_000
-    private var replayBytes: Int { Self.replayBytes }
+    /// A fire-and-forget connection (quick reply) has no use for a join
+    /// snapshot, so it asks for the minimum instead of 200 KB.
+    var replayOverride: Int?
+    private var replayBytes: Int { replayOverride ?? Self.replayBytes }
     /// Set by the terminal before connecting so the room learns our real
     /// colours; dark is the app's default.
     var theme: TerminalTheme = .dark

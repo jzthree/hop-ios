@@ -64,7 +64,12 @@ be the scriptable route but needs admin, so Console is the practical one.
    → tap one → it should open THAT session. **Test it with the app fully
    closed**: that path was broken until #51 (onChange can't fire for a value
    set before the view exists) and is now verified only by proxy.
-5. **Badge.** Let an agent ring a bell with the app closed. A number should
+5. **Reply from the notification** (new). Long-press/swipe a bell notification,
+   type a reply, Send. **Do this first on a SHELL session, not an agent** — a
+   stray line in an agent session could approve something. Expect the text to
+   appear in that session; if it can't be delivered you should get a second
+   notification saying so, rather than silence.
+6. **Badge.** Let an agent ring a bell with the app closed. A number should
    appear on the icon and clear when you read the session.
 6. **Attach claim.** Open a session on the phone that a desktop also has open
    and typed in recently. Text should wrap at PHONE width immediately — if it
@@ -225,6 +230,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 (zero when it's down, since the bar goes with it). Now **fit 51x23 in 358pt**,
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
+
+## Reply to an agent from the lock screen (iteration 82)
+
+The most phone-shaped thing hop can do, and a browser tab cannot do it at all:
+an agent asks "proceed?", the notification carries the question (#81), and you
+answer it without opening the app.
+
+The bell notification now carries a Reply action. hop accepts input only over
+the WebSocket — there is no HTTP input endpoint — so a reply opens a throwaway
+connection, sends the line, and closes. It asks for `replay=1`, since a
+fire-and-forget send has no use for the 334 KB join snapshot.
+
+Failure is reported, not swallowed: if the socket never opens, times out (12s,
+so a sleeping tunnel can't hang a background launch), or the input is REJECTED
+because another client holds control, a follow-up notification says the reply
+didn't land. Believing you answered when you didn't is the worst outcome
+available here.
+
+**NOT verified end to end, deliberately.** Testing it means sending real input
+to a real session, and a stray newline in an agent session could approve
+something. On the device checklist with a safety note: **try it first on a
+shell session, not an agent.**
 
 ## A notification that says what the agent asked (iteration 81)
 

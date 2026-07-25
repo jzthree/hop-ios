@@ -18,8 +18,21 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
 
     private var notified: [String: Int] = [:]   // internalName -> bellSeq already notified
 
+    /// The category that carries the Reply action. Registered once at launch:
+    /// a notification without it shows no reply field, and the category has to
+    /// exist BEFORE any notification referencing it is posted.
+    static let bellCategory = "HOP_SESSION_BELL"
+
     func configure() {
         UNUserNotificationCenter.current().delegate = self
+        let reply = UNTextInputNotificationAction(
+            identifier: "HOP_REPLY", title: "Reply",
+            options: [], textInputButtonTitle: "Send",
+            textInputPlaceholder: "Answer this session…")
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: Self.bellCategory, actions: [reply],
+                                   intentIdentifiers: [], options: [])
+        ])
         // Enabled from a previous launch (or the dev flag) still needs the OS
         // grant — without it every post is silently dropped.
         if enabled {
@@ -96,6 +109,7 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             // floats a bell to the top of a summary.
             content.interruptionLevel = .timeSensitive
             content.relevanceScore = 1
+            content.categoryIdentifier = Self.bellCategory
             content.userInfo = ["session": s.internalName]
             content.threadIdentifier = s.internalName   // group per session
             try? await UNUserNotificationCenter.current().add(
@@ -145,6 +159,23 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse) async {
         let name = response.notification.request.content.userInfo["session"] as? String
-        await MainActor.run { if let name { HopNotifier.shared.pendingOpen = name } }
+        guard let name else { return }
+        // Typed a reply instead of tapping: answer the session where the user
+        // is standing, rather than dragging them into the app to type one word.
+        if let typed = (response as? UNTextInputNotificationResponse)?.userText,
+           !typed.trimmingCharacters(in: .whitespaces).isEmpty {
+            let ok = await QuickReply.send(typed, to: name, model: AppModel.shared)
+            if !ok {
+                // Never leave someone believing an answer was delivered.
+                let failed = UNMutableNotificationContent()
+                failed.title = name
+                failed.body = "Couldn't send that reply — open the session to check."
+                try? await UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: "\(name)-reply-failed",
+                                          content: failed, trigger: nil))
+            }
+            return
+        }
+        await MainActor.run { HopNotifier.shared.pendingOpen = name }
     }
 }
