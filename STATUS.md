@@ -258,6 +258,33 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The bell path, verified with an actual bell (iteration 106)
+
+Attention has only ever been exercised here through `HOP_DEV_ATTENTION=1`,
+which forces the state. The thing the app EXISTS for had never been driven end
+to end with a real BEL. It has now, on two scratch sessions, and both halves
+of the design hold:
+
+- **Rung after the device has seen it → attention.** `printf 'need you \a'`
+  into a session the app had already listed: the daemon counted `bellSeq: 1,
+  lastBellAt: true`, and the list raised "1 wants you".
+- **Rung before the device has ever seen it → silent.** A second session,
+  created and rung before the app ever listed it, appeared with a plain live
+  dot and no attention. That is `rebaselinedMarker` doing its job: a session's
+  history must not arrive as a pile of unread bells.
+
+A screenshot mid-run also confirmed two things no assertion was checking: the
+summary correctly said "1 of 21 · 1 wants you (1 not shown here)" — attention
+is fleet-wide even when the list is filtered — and the server-side content
+search found the term in a session's output.
+
+The throwaway UI assertions themselves were wrong twice (`staticTexts[name]`
+doesn't match how a row exposes its title, and the first "baseline" assertion
+assumed a session the app had in fact already seen). Both were harness
+errors; the screenshot and the daemon's own numbers were the evidence. Not
+kept as tests: they need scratch sessions rung from outside, and the pure
+logic underneath is already covered.
+
 ## Tidying what a day of edits left behind (iteration 105)
 
 Two things today's work introduced and didn't clean up:
