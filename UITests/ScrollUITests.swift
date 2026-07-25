@@ -165,6 +165,16 @@ final class ScrollUITests: XCTestCase {
                       "picking a session from the title did not switch to it")
     }
 
+    // Find and "Open link…" are deliberately NOT covered here. Both report
+    // through a 2-second toast (or, for links, a confirmation dialog in a
+    // separate presentation layer), and XCUITest sees neither reliably: the
+    // toast can clear before an assertion starts, and the dialog's title isn't
+    // a queryable staticText. Two attempts produced red tests against features
+    // whose wiring was fine — the find bar opened and accepted input both
+    // times. Flaky tests are worse than none, so these stay on the device
+    // checklist, and the pure logic under them (findMatchRow, extractLinks) is
+    // covered by unit tests instead.
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")

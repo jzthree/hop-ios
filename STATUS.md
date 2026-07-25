@@ -226,6 +226,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Where UI testing stops being worth it (iteration 74)
+
+Tried covering find-in-scrollback and "Open link…". Both failed, and the useful
+part is WHY: their feedback is a 2-second toast, and for links a confirmation
+dialog in a separate presentation layer. XCUITest sees neither reliably — the
+toast can clear before an assertion starts, and the dialog title isn't a
+queryable staticText. In both runs the wiring was demonstrably fine: the find
+bar opened and accepted typing.
+
+Reverted rather than shipped. A red test against working code is worse than no
+test — it trains you to ignore the suite, which is the one thing that makes the
+other seven worth having. Both features stay on the device checklist, and the
+logic beneath them (`findMatchRow`, `extractLinks`) is already unit-tested;
+what's unverified is only the last inch of UI wiring.
+
+That's now the boundary of this harness, drawn from evidence rather than guessed:
+- **Automatable**: navigation, rotation, sticky modifiers, sign-out, search
+  round trips, session switching, keyboard focus.
+- **Not**: anything whose only signal is a transient toast, a system dialog, a
+  SpringBoard surface (quick actions, badge), or a haptic.
+
 ## Two more flows covered; one refactor abandoned (iteration 73)
 
 Added, both read-only against the live daemon so they're safe to run:
