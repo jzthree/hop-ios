@@ -5,6 +5,10 @@ import SwiftUI
 // URLSession's cookie storage into wss:// automatically).
 @MainActor
 final class AppModel: ObservableObject {
+    /// One instance: the background-refresh handler runs outside the view
+    /// tree and must talk to the same model the UI uses.
+    static let shared = AppModel()
+
     @AppStorage("serverURL") var serverURL = "https://hop.zhoulab.io"
     @Published var authenticated = false
     @Published var checkingAuth = true

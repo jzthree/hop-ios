@@ -7,7 +7,13 @@ extension Color {
 
 @main
 struct HopApp: App {
-    @StateObject private var model = AppModel()
+    @StateObject private var model = AppModel.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // Must register before the app finishes launching.
+        BackgroundRefresh.register(model: AppModel.shared)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -18,6 +24,11 @@ struct HopApp: App {
                 .task {
                     HopNotifier.shared.configure()
                     await model.bootstrap()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    // Ask for a background slot whenever we leave the
+                    // foreground, so bells rung in a pocket still land.
+                    if phase == .background { BackgroundRefresh.schedule() }
                 }
         }
     }

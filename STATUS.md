@@ -117,7 +117,7 @@ LESSON: test against a REAL session with history, not a fresh probe.
 | **Still missing on iOS** | | |
 | Live session previews | ✓ (hero tiles) | ✓ (3-line live screen per row) |
 | Presence / take-release control | ✓ | ✓ (viewer count + list, lock/unlock typing, take/release) |
-| Bell notifications | ✓ (web push) | ✓ local (banner + tap-to-open); APNs pending |
+| Bell notifications | ✓ (web push) | ✓ local + background refresh; APNs pending for instant/closed |
 | Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
 | Agent-permission toggle | ✓ | ✓ (long-press a session) |
 | Passkey / share link | ✓ | ✗ (low value on phone) |
@@ -216,6 +216,18 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Both verified end-to-end (tests green, signed install to the phone on the
    first attempt). This is what makes the project genuinely droppable — and
    picked back up — rather than dependent on one session's memory.
+
+12. **Background bell polling** — local notifications only fired while the app
+   was running, so a bell rung with the phone in a pocket was simply missed.
+   Registered a BGAppRefreshTask (id io.zhoulab.hop.spike.refresh, scheduled
+   whenever the app backgrounds) that polls /api/sessions and posts the same
+   notifications. iOS decides the cadence (opportunistic, typically tens of
+   minutes) — this narrows the gap but does NOT replace APNs, which is still
+   the only way to be woken immediately with the app closed.
+   Required moving off GENERATE_INFOPLIST_FILE to an explicit Info.plist
+   (UIBackgroundModes / BGTaskSchedulerPermittedIdentifiers are arrays that
+   INFOPLIST_KEY_ settings can't express); display name, orientations and
+   launch screen carried over and verified in the built plist.
 
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the

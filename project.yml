@@ -15,18 +15,25 @@ targets:
       - Sources/HopSpike
     dependencies:
       - package: SwiftTerm
+    info:
+      path: Sources/HopSpike/Info.plist
+      properties:
+        CFBundleDisplayName: hop
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [io.zhoulab.hop.spike.refresh]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike
         DEVELOPMENT_TEAM: 5AD7QB9795
         CODE_SIGN_STYLE: Automatic
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_CFBundleDisplayName: hop
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "HopSpike connects to your hop daemon on the local network."
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
-        GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   HopSpikeTests:
     type: bundle.unit-test
