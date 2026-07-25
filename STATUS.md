@@ -257,6 +257,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Scrolling a session someone else is driving (iteration 100)
+
+hop's server rejects every input from a non-controller and answers each one
+with "Control is locked". Scrolling now sends one message per row of travel,
+so a single flick on a locked session fired ~15 doomed messages and got ~15
+rejections back — pinning that toast for the whole coast, for trying to READ.
+
+Scrolling now sends nothing when someone else holds control, and says so once
+per gesture. Local scrollback is unaffected: that path never touches the
+socket, so history in a shell session still reads fine while locked.
+
+Verified with a controlled experiment on a scratch session, since a guard that
+blocks everything would look identical to a guard that works:
+
+| | scroll sent | blocked |
+|---|---|---|
+| probe holds control | 0 | 15 |
+| control released | 15 | 0 |
+
+Same alt-screen pager, same flick, same count of travel — only the lock
+differs. The scratch session was created for this and deleted afterwards
+(fleet back to 19).
+
 ## Measured, then NOT built: capping the coast on Low Data (iteration 99)
 
 Every wheel notch makes the remote app repaint, so momentum has an INBOUND

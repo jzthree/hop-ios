@@ -448,6 +448,8 @@ struct TerminalScreen: UIViewRepresentable {
         private let room: String
         private let pushStatus: (TerminalHostView.ConnState) -> Void
         private var isLive = false
+        private var controlLocked = false
+        private var lastLockedToast = Date.distantPast
         private var lastDeadToast = Date.distantPast
 
         private var pending = PendingInput()
@@ -635,7 +637,8 @@ struct TerminalScreen: UIViewRepresentable {
                     self.onPresence(list)
                 case .collab(let everyone, let controllerId):
                     let mine = controllerId != nil && controllerId == self.client.clientId
-                    self.onCollab(everyone, mine, !everyone && !mine && controllerId != nil)
+                    self.controlLocked = !everyone && !mine && controllerId != nil
+                    self.onCollab(everyone, mine, self.controlLocked)
                 case .rejected(let reason):
                     self.onToast(reason)
                 case .joined(let cols, let rows):
@@ -917,6 +920,19 @@ struct TerminalScreen: UIViewRepresentable {
             guard !text.isEmpty else { return }
             let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
             guard isLive else { return log.info("scroll dropped, socket down") }
+            // Someone else is driving. The server rejects every input from a
+            // non-controller and answers each one with "Control is locked", so
+            // a single flick would fire fifty doomed messages and fifty
+            // rejections — pinning that toast for the whole coast, for trying
+            // to READ. Say it once per gesture instead, and send nothing.
+            guard !controlLocked else {
+                log.info("scroll dropped, control locked")
+                if Date().timeIntervalSince(lastLockedToast) > 2 {
+                    lastLockedToast = Date()
+                    onToast("Control is locked — take control to scroll")
+                }
+                return
+            }
             log.info("scroll sent \(text.count) bytes")
             client.sendInput(text)
         }
