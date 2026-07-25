@@ -328,6 +328,14 @@ struct SessionsView: View {
                     path = [want]
                     notifier.pendingOpen = nil
                 }
+                // The route changed, so the request in flight is already lost.
+                // The loop below would wait out a whole interval before trying
+                // again — up to 30 seconds in Low Data Mode, showing a list
+                // from the network you just left, including whether anything
+                // is waiting on you.
+                .onChange(of: network.pathGeneration) {
+                    Task { await model.refreshSessions(silent: true) }
+                }
                 .task(id: scenePhase) { await pollSessions() }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
                 .task { await openPendingSession() }
