@@ -202,11 +202,31 @@ were never in it. Auditing interactions instead:
 | Terminal colours | FIXED (#54) — hop's exact palette, was SwiftTerm's stock |
 | Landscape space | FIXED (#54) — chrome hidden, terminal takes the rest |
 | Dynamic Type | FIXED (#55) — names hyphenated mid-word at accessibility sizes ("Sol-/stice"); now shrink-then-truncate, and previews stop scaling so the list doesn't collapse to two rows |
+| Tap to re-raise the keyboard | FIXED as a side effect (#56) — see below |
+| Hardware keyboard | supported by SwiftTerm (pressesBegan maps ctrl/alt/shift/cmd + arrows); unverified on real hardware |
 | Long-press selection + menu | needs a device (trade: drag-to-extend is gone) |
 | Pinch zoom | needs a device (#27 fixed the state bug) |
 | Real rotation | needs a device |
 | Hardware keyboard | unaudited |
 | Drag & drop text | unaudited |
+
+## Tap-to-refocus was broken on every agent session (iteration 56)
+
+Checking whether #55's `allowMouseReporting = false` had broken tap-to-focus
+turned up the opposite: it FIXED a bug that had been there all along.
+
+SwiftTerm's tap handler is an if/else. The mouse branch — taken whenever the
+app has mouse tracking on, which claude does — sends a click and returns. Only
+the else branch calls `becomeFirstResponder()`. So on any claude session:
+dismiss the keyboard with ⌄, tap the terminal to get it back, and **nothing
+happened** — the tap went to claude as a stray click instead. The keyboard was
+only ever raised by opening the session in the first place.
+
+Now that taps and drags stay local, the else branch always runs: a tap focuses
+the terminal and raises the keyboard, and claude stops receiving phantom
+clicks. Same root cause as the scroll problem — SwiftTerm forwards touch to the
+app as mouse input, which is right for a desktop terminal and wrong for the
+only pointing device a phone has.
 
 ## Cold-launch navigation was broken (iteration 51)
 
