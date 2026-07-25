@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 // A web page polls at whatever rate it was written for. A native app can ask
 // what it's connected to, and a phone spends most of its life on a cellular
@@ -29,15 +30,39 @@ final class NetworkConditions: ObservableObject {
     /// render per visible session is exactly what that means.
     @Published private(set) var isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
+    /// Bumped whenever the route changes underneath us — wifi to cellular,
+    /// cellular to wifi, a dead path coming back. A socket does not survive
+    /// that, and `isOnline` cannot report it: walking out of wifi range onto 5G
+    /// leaves the path satisfied the whole way, so nothing else in the app ever
+    /// learns that every open connection just became dead weight.
+    ///
+    /// Without this the terminal waits out its backoff — up to 15 seconds of
+    /// dead screen while the phone has had a working route the entire time.
+    @Published private(set) var pathGeneration = 0
+
     private let monitor = NWPathMonitor()
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
+            let route = Route(satisfied: path.status == .satisfied,
+                              wifi: path.usesInterfaceType(.wifi),
+                              cellular: path.usesInterfaceType(.cellular),
+                              wired: path.usesInterfaceType(.wiredEthernet))
             Task { @MainActor in
-                self?.isExpensive = path.isExpensive
-                self?.isConstrained = path.isConstrained
+                guard let self else { return }
+                self.isExpensive = path.isExpensive
+                self.isConstrained = path.isConstrained
                 if ProcessInfo.processInfo.environment["HOP_DEV_OFFLINE"] != "1" {
-                    self?.isOnline = path.status == .satisfied
+                    self.isOnline = path.status == .satisfied
+                }
+                // Only a real route change counts. NWPathMonitor also fires for
+                // things that leave every existing connection working, and a
+                // reconnect costs a fresh snapshot on someone's cellular.
+                if route != self.route {
+                    self.route = route
+                    self.pathGeneration += 1
+                    Logger(subsystem: "io.zhoulab.hop.spike", category: "network")
+                        .info("route \(route.name, privacy: .public) (change \(self.pathGeneration))")
                 }
             }
         }
@@ -49,6 +74,16 @@ final class NetworkConditions: ObservableObject {
                 }
             }
     }
+
+    private struct Route: Equatable {
+        let satisfied: Bool, wifi: Bool, cellular: Bool, wired: Bool
+        var name: String {
+            guard satisfied else { return "none" }
+            return [wifi ? "wifi" : nil, cellular ? "cellular" : nil,
+                    wired ? "wired" : nil].compactMap { $0 }.joined(separator: "+")
+        }
+    }
+    private var route = Route(satisfied: false, wifi: false, cellular: false, wired: false)
 
     /// Low power folds into "expensive": a different signal, the same
     /// conclusion, so the interval table needs no extra branch.

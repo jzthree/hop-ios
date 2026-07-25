@@ -257,6 +257,32 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Reconnect when the route changes (iteration 98)
+
+A phone changes networks constantly, and the terminal only reconnected on two
+signals: coming back to the foreground, or the manual menu item. Walk out of
+wifi range onto 5G with the app open and the socket is dead, the backoff has
+grown to 15 seconds, and the screen stays dead for all of it while the phone
+has had a working route the whole time.
+
+`isOnline` cannot report this — that transition leaves the path SATISFIED the
+whole way, so nothing in the app ever learned that every open connection had
+become dead weight. NWPathMonitor knows the route itself changed, so
+NetworkConditions now publishes a generation that bumps only on a material
+route change (satisfied / wifi / cellular / wired), and the terminal
+reconnects on it under the same guard as the foreground case: only a CLOSED
+socket, because every reconnect pulls a fresh snapshot on someone's cellular.
+
+Verified as far as it can be from here: the monitor-to-view chain fires,
+`route wifi (change 1)`, exactly once at launch and not repeatedly. The
+transition that matters — wifi to cellular — needs a phone that moves, so it
+is unverified until this is used away from the desk.
+
+Also checked and found already correct, so it isn't re-checked: output
+arriving while you're scrolled back does NOT yank the view to the live edge.
+SwiftTerm's public scrollTo sets `terminal.userScrolling`, which is what its
+scroll routine consults, and the Live button clears it.
+
 ## Correction: what the size logs actually showed (iteration 97)
 
 The iteration-96 entry below claimed the log caught a 48-row grid being drawn

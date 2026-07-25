@@ -25,6 +25,7 @@ struct TerminalHostView: View {
     }
     @State private var findOpen = false
     @State private var reconnectToken = 0
+    @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
     @State private var viewers: [HayClient.Viewer] = []
@@ -323,6 +324,14 @@ struct TerminalHostView: View {
                 // flight tore it down and started over — and every connect
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
                 if phase == .active, status == .closed { reconnectToken += 1 }
+            }
+            // The route changed under us — wifi to 5G, or a dead path coming
+            // back. Every open socket is already dead; waiting out a backoff
+            // that has grown to 15 seconds is 15 seconds of dead screen with a
+            // working network. Same guard as the foreground case: only a closed
+            // socket, because each reconnect pulls a fresh snapshot.
+            .onChange(of: network.pathGeneration) {
+                if status == .closed { reconnectToken += 1 }
             }
             .onAppear {
                 model.openSession = session.internalName
