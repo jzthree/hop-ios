@@ -17,7 +17,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike
-        DEVELOPMENT_TEAM: 7U9ZU5QLGQ
+        DEVELOPMENT_TEAM: 5AD7QB9795
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "HopSpike connects to your hop daemon on the local network."
