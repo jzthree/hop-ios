@@ -23,6 +23,9 @@ targets:
         # editing Sources/HopSpike/Info.plist directly is silently discarded.
         # The Makefile passes both of these on the xcodebuild command line so
         # each install is identifiable on the device.
+        # Declared once so App Store Connect stops asking on every upload. The
+        # app uses only HTTPS/TLS, which is exempt.
+        ITSAppUsesNonExemptEncryption: false
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         HopGitDescribe: $(HOP_GIT_DESCRIBE)

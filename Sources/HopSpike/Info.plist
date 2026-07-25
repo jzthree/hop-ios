@@ -26,6 +26,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>HopGitDescribe</key>
 	<string>$(HOP_GIT_DESCRIBE)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>hop connects to your hop daemon on the local network.</string>
 	<key>UIBackgroundModes</key>
