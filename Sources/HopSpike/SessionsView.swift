@@ -145,6 +145,11 @@ struct SessionsView: View {
             } message: {
                 Text("\(killTarget?.name ?? "") and its running process end for everyone.")
             }
+            .onChange(of: model.requestedSession) { _, want in
+                guard let want else { return }
+                path = [want]                 // replaces the pushed terminal
+                model.requestedSession = nil
+            }
             .onChange(of: notifier.pendingOpen) { _, want in
                 // Tapped a bell notification: jump straight to that session.
                 guard let want else { return }

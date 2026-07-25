@@ -96,6 +96,14 @@ final class HopSpikeTests: XCTestCase {
 
     @MainActor
     func testServerURLNormalization() {
+        // AppModel.serverURL is @AppStorage-backed and the test host IS the
+        // app, so mutating it leaked into the installed app's real settings
+        // (a test run left the app pointed at 127.0.0.1:8080). Restore it.
+        let original = UserDefaults.standard.string(forKey: "serverURL")
+        defer {
+            if let original { UserDefaults.standard.set(original, forKey: "serverURL") }
+            else { UserDefaults.standard.removeObject(forKey: "serverURL") }
+        }
         let m = AppModel()
         m.serverURL = "hop.zhoulab.io"
         XCTAssertEqual(m.normalizedServerURL, "https://hop.zhoulab.io", "bare host gets https")

@@ -10,6 +10,9 @@ final class AppModel: ObservableObject {
     @Published var checkingAuth = true
     @Published var sessions: [HopSession] = []
     @Published var lastError: String?
+    /// Set by the terminal's title menu to jump straight to another session
+    /// without popping back to the list.
+    @Published var requestedSession: String?
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).
     @Published var previews: [String: String] = [:]

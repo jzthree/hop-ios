@@ -198,6 +198,17 @@ LESSON: test against a REAL session with history, not a fresh probe.
    screens nobody was looking at). Empty/unreachable/no-match states are real
    views with an action (Try again / New session) instead of one line of prose.
 
+10. **Switch sessions from inside a terminal** — the title is now a menu of
+   the other live sessions (attention marked, agent sessions flagged); picking
+   one swaps the terminal in place instead of popping back to the list. Also:
+   landscape orientations declared explicitly.
+   **Tooling bug found**: the unit tests run inside the app host and
+   AppModel.serverURL is @AppStorage-backed, so `testServerURLNormalization`
+   was writing 127.0.0.1:8080 into the INSTALLED app's real settings — a test
+   run left the app pointed at a dead server. The test now saves and restores
+   the value. (Simulator note: `simctl spawn defaults delete` doesn't reliably
+   clear an app's defaults; uninstall the app instead.)
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

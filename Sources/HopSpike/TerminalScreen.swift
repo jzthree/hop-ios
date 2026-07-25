@@ -86,6 +86,20 @@ struct TerminalHostView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
+                    Menu {
+                        Section("Switch session") {
+                            ForEach(model.sessions.filter {
+                                $0.internalName != session.internalName && $0.live && !$0.isPort
+                            }.prefix(12)) { other in
+                                Button {
+                                    model.requestedSession = other.internalName
+                                } label: {
+                                    Label(other.attention ? "\(other.name) ●" : other.name,
+                                          systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
+                                }
+                            }
+                        }
+                    } label: {
                     HStack(spacing: 7) {
                         Circle()
                             .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
@@ -108,7 +122,12 @@ struct TerminalHostView: View {
                                 .background(Color.hopPurple.opacity(0.22), in: Capsule())
                                 .foregroundStyle(Color.hopGlow)
                         }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.tertiary)
                     }
+                    }
+                    .tint(.primary)
                 }
             }
             .toolbar {
