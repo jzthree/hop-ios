@@ -34,6 +34,12 @@ final class HayClient: NSObject {
         }
 
         var req = URLRequest(url: url)
+        // `Cookie` is a RESERVED header: URLSession overwrites/strips a manually
+        // set one while it manages cookies itself — and for a wss:// URL its own
+        // jar lookup skips Secure cookies (scheme isn't https), so neither path
+        // sent it and the daemon 401'd the upgrade (502 through Cloudflare).
+        // Turning off automatic handling is what makes the explicit header stick.
+        req.httpShouldHandleCookies = false
         // URLSession does NOT attach Secure cookies to a wss:// URL — its scheme
         // isn't https, so the cookie jar skips it and the daemon 401s the
         // upgrade (while plain https REST calls succeed). Carry the session

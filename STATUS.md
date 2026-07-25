@@ -61,6 +61,18 @@ accepts it as Bearer/?token=) and optional `SIMCTL_CHILD_HOP_DEV_OPEN=<session>`
 to auto-open a terminal. Screenshot: `simctl io <udid> screenshot out.png`.
 Probe sessions: create with `X-Hop-Actor: agent`, delete in a finally.
 
+## ROOT CAUSE of "server refused the connection" (2026-07-25, fixed)
+`Cookie` is a RESERVED URLSession header: a manually set one is stripped while
+URLSession manages cookies itself — and its own jar skips Secure cookies for a
+`wss://` URL (scheme isn't https). So NEITHER path sent the session cookie and
+the daemon 401'd the upgrade (Cloudflare surfaces that raw 401 as **502**, which
+is why the app said "refused"). Fix: `req.httpShouldHandleCookies = false`
+before setting the explicit Cookie header. Verified in the simulator on the
+cookie-only path (HOP_DEV_COOKIE) against hop.zhoulab.io — full color terminal.
+Auth facts worth remembering: cookie name is `tunnel_session`; the daemon
+accepts cookie | `Authorization: Bearer` | `?token=`; all four of
+`/ws?room=` and `/s/<name>/ws` × cookie/bearer/token work through the tunnel.
+
 ## Fixes from the first on-device round (2026-07-25)
 - **WS connect failed while REST worked** — URLSession does not attach `Secure`
   cookies to `wss://` (scheme isn't https), so the daemon 401'd the upgrade.

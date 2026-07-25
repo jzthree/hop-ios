@@ -38,6 +38,16 @@ final class AppModel: ObservableObject {
     }
 
     func bootstrap() async {
+        // Dev/simulator: seed the session cookie so the cookie auth path (what
+        // the device uses after login) can be exercised without a TOTP code.
+        if let devCookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"],
+           let host = URL(string: serverURL)?.host,
+           let cookie = HTTPCookie(properties: [
+               .name: "tunnel_session", .value: devCookie, .domain: host,
+               .path: "/", .secure: "TRUE"
+           ]) {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
         checkingAuth = true
         await refreshSessions(silent: true)
         checkingAuth = false
