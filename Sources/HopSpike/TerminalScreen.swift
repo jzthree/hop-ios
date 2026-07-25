@@ -855,6 +855,28 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         // ── AccessoryKeyHandler ──
+
+        /// A scroll goes straight out or not at all, and never through the
+        /// keystroke path. Two reasons, both found by following what deliver()
+        /// does with it:
+        ///
+        /// It BUFFERS through an outage. A flick queues hundreds of wheel
+        /// events; fifteen seconds later the connection returns and dumps them
+        /// all at the agent, which scrolls off to somewhere you didn't ask for
+        /// while you're reading something else. Keystrokes are worth replaying
+        /// because you meant them; a scroll is about NOW, and a stale one is
+        /// just noise.
+        ///
+        /// It also MARKS TYPING, which tells every other client watching this
+        /// session that you're typing when you're only reading.
+        func scrollInput(_ text: String) {
+            guard !text.isEmpty else { return }
+            let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+            guard isLive else { return log.info("scroll dropped, socket down") }
+            log.info("scroll sent \(text.count) bytes")
+            client.sendInput(text)
+        }
+
         func accessoryKey(_ key: AccessoryKey, isRepeat: Bool) {
             switch key {
             case .ctrl:
@@ -1056,6 +1078,9 @@ enum AccessoryKey {
 }
 protocol AccessoryKeyHandler: AnyObject {
     func accessoryKey(_ key: AccessoryKey, isRepeat: Bool)
+    /// Scrolling, which is NOT typing — see the implementation for why that
+    /// distinction has to exist at all.
+    func scrollInput(_ text: String)
 }
 extension AccessoryKeyHandler {
     func accessoryKey(_ key: AccessoryKey) { accessoryKey(key, isRepeat: false) }
@@ -1153,8 +1178,8 @@ final class HopTermView: TerminalView {
             let rows = Int(scrollDebt / cell)          // truncates toward zero
             guard rows != 0 else { return }
             scrollDebt -= CGFloat(rows) * cell
-            log.info("scroll \(rows > 0 ? "back" : "forward") \(abs(rows)) via wheel")
-            terminal.sendResponse(text: wheelSequence(
+            log.debug("scroll \(rows > 0 ? "back" : "forward") \(abs(rows)) via wheel")
+            keyHandler?.scrollInput(wheelSequence(
                 rows: rows, cols: terminal.cols, screenRows: terminal.rows))
         } else if terminal.getLine(row: terminal.rows) == nil {
             // No local scrollback (a pager on the alt screen): coarse keys, so
@@ -1163,9 +1188,9 @@ final class HopTermView: TerminalView {
             let pages = Int(scrollDebt / pagePoints)
             guard pages != 0 else { return }
             scrollDebt -= CGFloat(pages) * pagePoints
-            log.info("scroll \(pages > 0 ? "back" : "forward") \(abs(pages)) pages")
-            for _ in 0..<min(abs(pages), 8) {
-                keyHandler?.accessoryKey(pages > 0 ? .pageUp : .pageDown, isRepeat: true)
+            log.debug("scroll \(pages > 0 ? "back" : "forward") \(abs(pages)) pages")
+            if let key = (pages > 0 ? AccessoryKey.pageUp : .pageDown).sequence {
+                keyHandler?.scrollInput(String(repeating: key, count: min(abs(pages), 8)))
             }
         } else {
             let rows = Int(scrollDebt / cell)

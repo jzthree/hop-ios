@@ -257,6 +257,30 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A scroll is not a keystroke (iteration 92)
+
+Followed what actually happens to a wheel event after `sendScroll`, and it was
+going down the keystroke path — which does two things to it that are wrong:
+
+- **It buffers through an outage.** A flick queues hundreds of wheel events;
+  fifteen seconds later the connection returns and dumps them all at the
+  agent, scrolling it somewhere you didn't ask for while you're reading
+  something else. Keystrokes are worth replaying because you meant them. A
+  scroll is about NOW.
+- **It marks typing**, telling every other client watching the session that
+  you're typing when you're only reading.
+
+Both fixed by giving scrolling its own path: straight out, or dropped.
+
+**Observed but NOT fixed, because it isn't ours to fix alone:** hop's server
+bumps `lastInputAt` on any input message, wheel events included, and the size
+election runs on typing recency. So scrolling on the phone makes it the most
+recent "typist", and a desktop resizing its window in the next 60s gets
+rejected (`RESIZE_CLAIM_IDLE_MS`). The web client sends wheel the same way, so
+this is hop-wide, not an iOS bug — a server-side fix would be to exclude
+sequences that are purely mouse reports from the election. Flagged for the
+hop2 side rather than changed unilaterally.
+
 ## Stopping the coast (iteration 91)
 
 Momentum created an interaction that didn't exist before: what a touch means
