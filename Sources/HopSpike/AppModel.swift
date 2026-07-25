@@ -172,6 +172,11 @@ final class AppModel: ObservableObject {
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
+            // Drop previews for sessions that are gone: otherwise a killed
+            // session's last screen sits in memory, and a name reused later
+            // would show it as if it were live.
+            let alive = Set(sessions.map(\.internalName))
+            previews = previews.filter { alive.contains($0.key) }
             HopNotifier.shared.report(attention: sessions.filter(\.attention))
             QuickActions.publish(sessions)
         } catch {

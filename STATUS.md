@@ -35,6 +35,43 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 3. First install will ask to trust the developer cert on-device
    (Settings → General → VPN & Device Management).
 
+
+## Device checklist (10 minutes, unblocks v1) ⚠ ONLY YOU CAN DO THESE
+
+Ordered by what's most likely to be wrong and what it costs if it is. Each was
+built and instrumented here but CANNOT be exercised without a hand on a phone.
+
+1. **Keyboard feel — the thesis the app rests on.** Type a real command with
+   dictation and autocorrect. If this doesn't beat the web client, nothing else
+   in this repo matters.
+2. **Hold-to-repeat.** Hold ↓ at a shell prompt: history should walk smoothly,
+   and it should buzz ONCE, not continuously. (A haptic-per-tick bug lived here
+   for five iterations — #19.)
+3. **Buffered input through a drop.** Start typing a command, flip Airplane
+   Mode on mid-command, keep typing, flip it off. Expect "Reconnecting — input
+   buffered", then the whole command lands on reconnect. Nothing typed >15s
+   before the reconnect should appear.
+4. **Quick actions.** Long-press the hop icon → four sessions, attention first
+   → tap one → it should open THAT session, cold launch included. The publish
+   is log-verified; the tap-through is not.
+5. **Badge.** Let an agent ring a bell with the app closed. A number should
+   appear on the icon and clear when you read the session.
+6. **Attach claim.** Open a session on the phone that a desktop also has open
+   and typed in recently. Text should wrap at PHONE width immediately — if it
+   arrives mis-wrapped and only fixes itself once you type, the claim (#21)
+   isn't landing.
+7. **Links.** In a session that printed a URL, `⋯ → Open link…` should list it
+   and open Safari.
+8. **Sign out.** `⋯ → Server & account → Sign out` should return to login and
+   NOT remember the password; relaunching must not walk back in.
+9. **Landscape.** Rotate inside a terminal. Watch for the Dynamic Island or
+   home indicator clipping text. Unverified here — simulator rotation needs
+   synthetic keystrokes that can hit other apps, so I stopped trying.
+10. **Low Data Mode** (Settings → Cellular): live previews should stop
+    appearing; the list should still update, just slower.
+11. **VoiceOver.** Swipe through the list: each row should read as one sentence
+    starting with the name and "wants attention", never raw box-drawing.
+
 ## Spike test script (once installed)
 1. On Mac: `node ~/Code/hop-ios/tools/lan-bridge.mjs` → note the ws:// URL.
 2. On iPhone: HopSpike → paste URL, session e.g. `Solstice` → Attach.
@@ -402,6 +439,21 @@ LESSON: test against a REAL session with history, not a fresh probe.
      "⇞"), toolbar buttons are labelled, the hare is marked decorative, and a
      session row is ONE utterance leading with attention — not a dot, a badge,
      and three lines of raw scrollback read aloud. Pinned by a test. 24 tests.
+
+25. **Preview correctness + the device checklist.** Two inconsistencies from my
+   own earlier work: with grouping on (#13) previews were fetched for the top 6
+   of the ATTENTION order while the list renders in GROUP order, so visible
+   rows could sit preview-less while off-screen ones stayed fresh — the fetch
+   now follows the rendered order. And the preview cache was never pruned, so a
+   killed session's last screen stayed in memory and would resurface if the
+   name were reused.
+   Also tried and abandoned simulator rotation: driving it needs synthetic
+   keystrokes through System Events, which land in whatever app is frontmost —
+   it hit a browser window instead of the Simulator. Not worth touching the
+   user's other apps for a screenshot; landscape moved to the device checklist.
+   Added that checklist at the top of this file: 11 ordered checks, each one
+   something built and instrumented here but impossible to exercise without a
+   phone in hand.
 
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the

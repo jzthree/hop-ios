@@ -206,7 +206,12 @@ struct SessionsView: View {
                 try? await Task.sleep(for: .seconds(20))
                 continue
             }
-            let names: [String] = visible.compactMap { $0.live ? $0.internalName : nil }
+            // Follow the order the list actually RENDERS, not the raw
+            // attention order: with grouping on they differ, and fetching the
+            // top 6 of the wrong order leaves visible rows preview-less while
+            // off-screen ones stay fresh.
+            let names: [String] = sections.flatMap(\.rows)
+                .compactMap { $0.live ? $0.internalName : nil }
             await model.refreshPreviews(for: names)
             try? await Task.sleep(for: .seconds(every))
         }
