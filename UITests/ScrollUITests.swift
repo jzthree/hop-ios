@@ -245,4 +245,17 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),
                       "tapping the terminal must bring the keyboard back")
     }
+
+    /// A flick has to keep scrolling after the finger leaves, or the terminal
+    /// feels like a document viewer from 2008. XCUITest can't see into the
+    /// terminal, so this asserts the session survives a hard flick; that the
+    /// coast reaches the remote app is verified in the log, where wheel events
+    /// keep arriving for about a second after the gesture ends.
+    func testFlickKeepsSessionUsable() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.swipeDown(velocity: .fast)
+        XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after a flick")
+        XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after a flick")
+    }
 }

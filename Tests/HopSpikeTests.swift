@@ -436,4 +436,45 @@ final class HopSpikeTests: XCTestCase {
         // Coordinates are 1-based: a tiny terminal must not report row 0.
         XCTAssertEqual(wheelSequence(rows: 1, cols: 1, screenRows: 1), "\u{1b}[<64;1;1M")
     }
+
+    // MARK: - The coast after a flick
+
+    func testOnlyAFlickCoasts() {
+        var m = ScrollMomentum()
+        // Letting go of a slow, careful drag should stop where you left it.
+        XCTAssertFalse(m.start(pointsPerSecond: 40))
+        XCTAssertNil(m.step())
+        XCTAssertTrue(m.start(pointsPerSecond: 900))
+        XCTAssertNotNil(m.step())
+    }
+
+    func testCoastDecaysAndEnds() {
+        var m = ScrollMomentum()
+        _ = m.start(pointsPerSecond: 1200)
+        var frames = 0
+        var last = Double.infinity
+        while let step = m.step() {
+            XCTAssertLessThan(abs(step), abs(last), "coast must slow every frame")
+            last = step
+            frames += 1
+            XCTAssertLessThan(frames, 600, "coast never ended")
+        }
+        // About a second at 60fps — long enough to feel like inertia, short
+        // enough that the screen isn't still moving when you look up.
+        XCTAssertGreaterThan(frames, 40)
+        XCTAssertLessThan(frames, 90)
+    }
+
+    func testCoastDistanceStaysOnTheSameScreenful() {
+        // A hard flick on a phone is roughly 2000 pt/s. The coast that follows
+        // should be measured in screens, not in thousands of lines: this is
+        // sent to the remote app as wheel notches, and there is no taking it
+        // back once it's gone.
+        let hard = ScrollMomentum.coastDistance(pointsPerSecond: 2000)
+        XCTAssertGreaterThan(hard, 300)              // more than one screen
+        XCTAssertLessThan(hard, 1200)                // fewer than ~2 screens
+        XCTAssertEqual(ScrollMomentum.coastDistance(pointsPerSecond: 10), 0)
+        // Direction is preserved: flicking up coasts up.
+        XCTAssertLessThan(ScrollMomentum.coastDistance(pointsPerSecond: -2000), 0)
+    }
 }

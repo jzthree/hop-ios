@@ -1066,7 +1066,6 @@ final class HopTermView: TerminalView {
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
     private var repeatTimer: Timer?
-    private var scrollAnchorRow = 0
 
     /// SwiftTerm's iOS view has no scroll gesture: one pan handler forwards
     /// mouse events (claude turns mouse mode on, so drags reach the app) and
@@ -1116,63 +1115,65 @@ final class HopTermView: TerminalView {
     /// client: arrows at a claude prompt recall previous PROMPTS. A fallback
     /// that rewrites what you were typing is worse than one that does nothing.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
-        let terminal = getTerminal()
-        let cellHeight = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
-        // Anything beyond the visible rows means real history to move.
-        let hasScrollback = terminal.getLine(row: terminal.rows) != nil
-
         switch g.state {
         case .began:
             stopMomentum()
-            scrollAnchorRow = terminal.buffer.yDisp
-            dragRowsSent = 0
-            pageRowsPending = 0
+            scrollDebt = 0
         case .changed:
-            // Drag DOWN reveals older output, like every scroll view on iOS.
-            let rows = Int(g.translation(in: self).y / cellHeight)
-            if appTakesWheel || !hasScrollback {
-                // Incremental: these are events, not a position.
-                let delta = rows - dragRowsSent
-                guard delta != 0 else { return }
-                dragRowsSent = rows
-                sendScroll(rows: delta, terminal: terminal)
-            } else {
-                let target = max(0, scrollAnchorRow - rows)
-                if target != terminal.buffer.yDisp { scrollTo(row: target) }
-            }
+            // Incremental: the debt engine consumes travel, so read the
+            // translation as a delta and reset it each time.
+            scrollDebt += g.translation(in: self).y
+            g.setTranslation(.zero, in: self)
+            applyScrollDebt()
         case .ended:
-            // Momentum only where we own the viewport. Flinging a burst of
-            // wheel events at an app it can't cancel is not inertia, it's spam.
-            if !appTakesWheel && hasScrollback {
-                startMomentum(rowsPerSecond: -g.velocity(in: self).y / cellHeight)
-            }
+            startMomentum(pointsPerSecond: g.velocity(in: self).y)
         default:
             break
         }
     }
 
-    private var dragRowsSent = 0
-    /// Page keys are coarse, so finger travel accumulates until it's worth one.
-    private var pageRowsPending = 0
+    /// Finger travel not yet spent, in POINTS, positive when dragging DOWN —
+    /// which reveals older output, like every scroll view on iOS.
+    ///
+    /// One accumulator for all three sinks is what makes this feel native. A
+    /// slow drag would otherwise round to zero rows every frame and never move
+    /// at all, and — the reason it's shaped this way — momentum can push into
+    /// the same debt the finger does, so a wheel app coasts exactly like our
+    /// own viewport rather than stopping dead the moment you let go. Same
+    /// design as hop's web client, whose fractional carry solved this first.
+    private var scrollDebt: CGFloat = 0
     private static let rowsPerPageKey = 3
 
-    private func sendScroll(rows: Int, terminal: Terminal) {
+    private func applyScrollDebt() {
+        let terminal = getTerminal()
+        let cell = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
         let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
-        let up = rows > 0                      // dragging down looks backwards
-        guard appTakesWheel else {
-            pageRowsPending += rows
-            let pages = pageRowsPending / Self.rowsPerPageKey
+
+        if appTakesWheel {
+            let rows = Int(scrollDebt / cell)          // truncates toward zero
+            guard rows != 0 else { return }
+            scrollDebt -= CGFloat(rows) * cell
+            log.info("scroll \(rows > 0 ? "back" : "forward") \(abs(rows)) via wheel")
+            terminal.sendResponse(text: wheelSequence(
+                rows: rows, cols: terminal.cols, screenRows: terminal.rows))
+        } else if terminal.getLine(row: terminal.rows) == nil {
+            // No local scrollback (a pager on the alt screen): coarse keys, so
+            // travel has to pile up before it's worth one.
+            let pagePoints = cell * CGFloat(Self.rowsPerPageKey)
+            let pages = Int(scrollDebt / pagePoints)
             guard pages != 0 else { return }
-            pageRowsPending -= pages * Self.rowsPerPageKey
+            scrollDebt -= CGFloat(pages) * pagePoints
             log.info("scroll \(pages > 0 ? "back" : "forward") \(abs(pages)) pages")
             for _ in 0..<min(abs(pages), 8) {
                 keyHandler?.accessoryKey(pages > 0 ? .pageUp : .pageDown, isRepeat: true)
             }
-            return
+        } else {
+            let rows = Int(scrollDebt / cell)
+            guard rows != 0 else { return }
+            scrollDebt -= CGFloat(rows) * cell
+            let target = max(0, terminal.buffer.yDisp - rows)
+            if target != terminal.buffer.yDisp { scrollTo(row: target) }
         }
-        let seq = wheelSequence(rows: rows, cols: terminal.cols, screenRows: terminal.rows)
-        log.info("scroll \(up ? "back" : "forward") \(min(abs(rows), 40)) via wheel")
-        terminal.sendResponse(text: seq)
     }
 
     private var remoteMouse = RemoteMouseState()
@@ -1184,15 +1185,12 @@ final class HopTermView: TerminalView {
 
     func noteRemoteModes(in chunk: String) { remoteMouse.note(chunk) }
 
-    /// Rows still to travel, carried as a Double so slow tails don't round to
-    /// zero and stall the glide a few rows early.
-    private var momentumRows = 0.0
+    private var momentum = ScrollMomentum()
     private var momentumLink: CADisplayLink?
 
-    private func startMomentum(rowsPerSecond: CGFloat) {
+    private func startMomentum(pointsPerSecond: CGFloat) {
         stopMomentum()
-        guard abs(rowsPerSecond) > 2 else { return }
-        momentumRows = Double(rowsPerSecond) / 60.0
+        guard momentum.start(pointsPerSecond: Double(pointsPerSecond)) else { return }
         let link = CADisplayLink(target: self, selector: #selector(stepMomentum))
         link.add(to: .main, forMode: .common)
         momentumLink = link
@@ -1200,19 +1198,23 @@ final class HopTermView: TerminalView {
 
     @objc private func stepMomentum() {
         let terminal = getTerminal()
-        let target = Double(terminal.buffer.yDisp) + momentumRows
-        let clamped = max(0, Int(target.rounded()))
-        if clamped != terminal.buffer.yDisp { scrollTo(row: clamped) }
-        // 0.94/frame ≈ UIScrollView's feel: a flick coasts for about a second.
-        momentumRows *= 0.94
-        // Stop at the top or when the glide is finer than a row.
-        if abs(momentumRows) < 0.15 || (clamped == 0 && momentumRows < 0) { stopMomentum() }
+        let wasAtTop = terminal.buffer.yDisp == 0
+        guard let points = momentum.step() else { return stopMomentum() }
+        scrollDebt += CGFloat(points)
+        applyScrollDebt()
+        // A local viewport already parked at the oldest line has nothing left
+        // to reveal, and the debt would grow without bound — enough of it and
+        // the flick back the other way would be swallowed doing nothing.
+        let stuckAtTop = wasAtTop && points > 0 && !appTakesWheel
+            && terminal.getLine(row: terminal.rows) != nil
+        if stuckAtTop { stopMomentum() }
     }
 
     private func stopMomentum() {
         momentumLink?.invalidate()
         momentumLink = nil
-        momentumRows = 0
+        momentum.stop()
+        scrollDebt = 0
     }
 
     private var installedTheme: Bool = false
