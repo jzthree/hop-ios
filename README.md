@@ -62,6 +62,7 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 | `SessionsView.swift` | session list, scope/filter, empty states |
 | `Notifications.swift` | bell → local notification, tap-to-open |
 | `Keychain.swift` | remembered password (device-only, never the TOTP secret) |
+| `NetworkConditions.swift` | NWPathMonitor: poll cadence, offline detection |
 | `SessionFilter.swift` | pure list shaping (unit-tested) |
 | `Links.swift` | URLs off the screen, wrap-aware (unit-tested) |
 | `QuickActions.swift` | Home Screen shortcuts + the scene delegate they need |

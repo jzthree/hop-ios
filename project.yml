@@ -19,6 +19,13 @@ targets:
       path: Sources/HopSpike/Info.plist
       properties:
         CFBundleDisplayName: hop
+        # NOTE: Info.plist is GENERATED from this block on every `make` —
+        # editing Sources/HopSpike/Info.plist directly is silently discarded.
+        # The Makefile passes both of these on the xcodebuild command line so
+        # each install is identifiable on the device.
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        HopGitDescribe: $(HOP_GIT_DESCRIBE)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

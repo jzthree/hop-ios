@@ -13,6 +13,12 @@ APP = build/Build/Products/Debug-iphoneos/HopSpike.app
 SIMAPP = build-sim/Build/Products/Debug-iphonesimulator/HopSpike.app
 # The daemon accepts its own session secret as a bearer token / cookie, which
 # is how the simulator gets past TOTP during development.
+# Every install should be identifiable on the device — "1.0 (1)" forever meant
+# you couldn't tell whether the phone had the build with the fix in it.
+BUILDNO = $(shell git rev-list --count HEAD)
+GITDESC = $(shell git describe --always --dirty)
+VERSION_FLAGS = CURRENT_PROJECT_VERSION=$(BUILDNO) HOP_GIT_DESCRIBE=$(GITDESC)
+
 TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
 
 .PHONY: gen build test sim install shot clean
@@ -23,7 +29,7 @@ gen:
 build: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
-	  -derivedDataPath build build
+	  -derivedDataPath build $(VERSION_FLAGS) build
 
 test: gen
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
@@ -33,7 +39,7 @@ test: gen
 simbuild: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
-	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO build
+	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) build
 
 # Wi-Fi installs are flaky (DeviceLocked / immediate disconnect): retry, and
 # use a cable for a one-shot install.

@@ -7,10 +7,14 @@ struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmSignOut = false
 
+    /// Shows the git description too, so "is the fix on my phone?" is a
+    /// question the Account sheet can answer.
     private var version: String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "\(v) (\(b))"
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = info?["CFBundleVersion"] as? String ?? "?"
+        let desc = info?["HopGitDescribe"] as? String ?? ""
+        return desc.isEmpty || desc.hasPrefix("$(") ? "\(v) (\(b))" : "\(v) (\(b)) · \(desc)"
     }
 
     var body: some View {
