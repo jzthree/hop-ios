@@ -305,6 +305,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    'subsystem == "io.zhoulab.hop.spike"'` showed "published 4 quick actions".
    **Still worth one long-press on your phone to confirm the tap-through.**
 
+19. **Audit of the last few iterations — two real defects in my own work.**
+   Adding features fast is how you ship bugs quietly, so this round added
+   nothing and went looking instead.
+   - **Haptic drill**: hold-to-repeat (#14) routed every repeat tick through
+     the same handler as a press, and that handler fires a haptic. Holding ↓
+     was ~18 taptic pulses a second — a drill, plus the battery cost. The
+     handler now knows whether it's a press or a tick; only the press buzzes.
+   - **Timer that outlives the screen**: the repeat Timer is owned by the run
+     loop, and capturing self weakly only makes its ticks HARMLESS, not
+     stopped. Leave mid-hold (session ends, interactive back gesture) and
+     nothing on the touch path ever calls endRepeat — it fires every 55ms for
+     the rest of the process. Now stopped in didMoveToWindow(nil) and deinit.
+   Also checked and found clean: HayClient's receive loop (weak self, recurses
+   only on success), the reconnect backoff task (cancelled in dismantle),
+   notification observers (removed in detach), preview polling (gated on the
+   list being frontmost).
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

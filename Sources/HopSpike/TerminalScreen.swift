@@ -496,7 +496,7 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         // ── AccessoryKeyHandler ──
-        func accessoryKey(_ key: AccessoryKey) {
+        func accessoryKey(_ key: AccessoryKey, isRepeat: Bool) {
             // ctrl/alt arm locally and dismiss is pure UI; the rest are bytes
             // on the wire and need a live socket.
             if key.sendsInput, !canSend() { return }
@@ -525,7 +525,9 @@ struct TerminalScreen: UIViewRepresentable {
             case .dismiss:
                 view?.resignFirstResponder()
             }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // Only the press buzzes. A held key repeats ~18x a second, and
+            // haptics on every tick is a drill, not feedback.
+            if !isRepeat { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         }
 
         // ── TerminalViewDelegate ──
@@ -594,7 +596,12 @@ enum AccessoryKey {
         }
     }
 }
-protocol AccessoryKeyHandler: AnyObject { func accessoryKey(_ key: AccessoryKey) }
+protocol AccessoryKeyHandler: AnyObject {
+    func accessoryKey(_ key: AccessoryKey, isRepeat: Bool)
+}
+extension AccessoryKeyHandler {
+    func accessoryKey(_ key: AccessoryKey) { accessoryKey(key, isRepeat: false) }
+}
 
 final class HopTermView: TerminalView {
     weak var keyHandler: AccessoryKeyHandler?
@@ -663,10 +670,21 @@ final class HopTermView: TerminalView {
         repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.42, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.055, repeats: true) { [weak self] _ in
-                self?.keyHandler?.accessoryKey(key)
+                self?.keyHandler?.accessoryKey(key, isRepeat: true)
             }
         }
     }
+
+    /// A scheduled Timer is owned by the run loop, and capturing self weakly
+    /// only makes its ticks harmless — it still fires every 55ms forever. Leave
+    /// the screen mid-hold (session ends, interactive back gesture) and nothing
+    /// on the touch path ever stops it.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { endRepeat() }
+    }
+
+    deinit { repeatTimer?.invalidate() }
 
     @objc private func endRepeat() {
         repeatTimer?.invalidate()
