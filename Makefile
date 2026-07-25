@@ -49,6 +49,7 @@ sim: simbuild
 	-xcrun simctl terminate $(SIM) $(BUNDLE) 2>/dev/null
 	xcrun simctl install $(SIM) $(SIMAPP)
 	SIMCTL_CHILD_HOP_DEV_COOKIE=$(TOKEN) $(if $(OPEN),SIMCTL_CHILD_HOP_DEV_OPEN=$(OPEN),) \
+	  $(if $(GROUP),SIMCTL_CHILD_HOP_DEV_GROUP=$(GROUP),) $(if $(SCOPE),SIMCTL_CHILD_HOP_DEV_SCOPE=$(SCOPE),) \
 	  xcrun simctl launch $(SIM) $(BUNDLE)
 
 shot:

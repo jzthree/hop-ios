@@ -117,6 +117,34 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(m.wsBase, "ws://127.0.0.1:8080")
     }
 
+    func testNumericFieldsSurviveIntOrDoubleJSON() {
+        // as? Double on an Int (or as? Int on a Double) silently yields nil,
+        // which would zero activity time and bell counts with no error.
+        let asInt = session(["name": "a", "lastActivityAt": 1_700_000_000, "bellSeq": 3])
+        let asDouble = session(["name": "b", "lastActivityAt": 1_700_000_000.0, "bellSeq": 3.0])
+        XCTAssertEqual(asInt.lastActivityAt, 1_700_000_000)
+        XCTAssertEqual(asDouble.lastActivityAt, 1_700_000_000)
+        XCTAssertEqual(asInt.bellSeq, 3)
+        XCTAssertEqual(asDouble.bellSeq, 3)
+    }
+
+    func testProjectGroupingBucketsByWorkdir() {
+        XCTAssertEqual(projectKey("/Users/jianzhou/Code/hop2/hay/apps"), "~/Code/hop2")
+        XCTAssertEqual(projectKey("/Users/jianzhou"), "~")
+        XCTAssertEqual(projectKey("/opt/data/things/deep"), "/opt/data/things")
+        XCTAssertEqual(projectKey(nil), "Other")
+
+        let list = [
+            session(["name": "a", "cwd": "/Users/j/Code/hop2", "lastActivityAt": 900]),
+            session(["name": "b", "cwd": "/Users/j/Code/hop2/hay", "lastActivityAt": 500]),
+            session(["name": "c", "cwd": "/Users/j/Notes", "lastActivityAt": 950])
+        ]
+        let groups = groupSessionsByProject(list)
+        XCTAssertEqual(groups.first?.label, "~/Notes", "most recent bucket leads")
+        let hop2 = groups.first { $0.label == "~/Code/hop2" }
+        XCTAssertEqual(hop2?.rows.map(\.name).sorted(), ["a", "b"], "root and subdir share a bucket")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

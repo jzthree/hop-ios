@@ -229,6 +229,21 @@ LESSON: test against a REAL session with history, not a fresh probe.
    INFOPLIST_KEY_ settings can't express); display name, orientations and
    launch screen carried over and verified in the built plist.
 
+13. **Project grouping + a JSON parsing bug the tests caught** — with ~30
+   sessions a flat list is a scroll, so `⋯ → Group by project` buckets rows by
+   the first couple of path segments under home (`~/Code/hop2` holds the repo
+   root AND its subdirs), most-recently-active bucket first. Filtering always
+   flattens — when you're hunting one thing you don't want buckets.
+   Writing the test for it exposed a real bug: `json["lastActivityAt"] as?
+   Double` silently yields nil when the value arrives as an integer, and the
+   same pattern guarded `bellSeq` — i.e. one encoder change away from ordering
+   and ATTENTION both quietly reading zero, with no error anywhere. Both now go
+   through Int/Double/NSNumber coercion, pinned by a test. 11 tests green.
+   Build note: three successive "unable to type-check this expression in
+   reasonable time" failures forced splitting SessionsView's body into small
+   computed pieces. That's a compile-time cliff, not a style preference — it's
+   commented in the file so it doesn't get "cleaned up" back into one chain.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

@@ -135,7 +135,7 @@ final class AppModel: ObservableObject {
             for s in raw {
                 guard let key = (s["internalName"] as? String) ?? (s["name"] as? String) else { continue }
                 if seen[key] == nil {
-                    seen[key] = (s["bellSeq"] as? Int) ?? 0
+                    seen[key] = jsonInt(s["bellSeq"]) ?? 0
                     seeded = true
                 }
             }
@@ -244,6 +244,24 @@ final class AppModel: ObservableObject {
     }
 }
 
+/// JSON numbers arrive as Int or Double depending on the encoder, and a
+/// straight `as? Double` / `as? Int` silently yields nil for the other form —
+/// which would zero out lastActivityAt (breaking ordering) or bellSeq
+/// (breaking attention) with no error anywhere. Coerce instead.
+private func jsonDouble(_ any: Any?) -> Double? {
+    if let d = any as? Double { return d }
+    if let i = any as? Int { return Double(i) }
+    if let n = any as? NSNumber { return n.doubleValue }
+    return nil
+}
+
+private func jsonInt(_ any: Any?) -> Int? {
+    if let i = any as? Int { return i }
+    if let d = any as? Double { return Int(d) }
+    if let n = any as? NSNumber { return n.intValue }
+    return nil
+}
+
 struct HopSession: Identifiable {
     let name: String
     let internalName: String
@@ -265,8 +283,8 @@ struct HopSession: Identifiable {
         internalName = (json["internalName"] as? String) ?? n
         cwd = (json["cwd"] as? String) ?? ""
         foregroundProcess = (json["foregroundProcess"] as? String) ?? ""
-        lastActivityAt = (json["lastActivityAt"] as? Double) ?? 0
-        bellSeq = (json["bellSeq"] as? Int) ?? 0
+        lastActivityAt = jsonDouble(json["lastActivityAt"]) ?? 0
+        bellSeq = jsonInt(json["bellSeq"]) ?? 0
         live = (json["live"] as? Bool) ?? false
         isPort = (json["type"] as? String) == "port"
         attention = bellSeq > (seenBellSeq[internalName] ?? bellSeq)

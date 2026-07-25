@@ -1,10 +1,18 @@
 import SwiftUI
 
 // Home screen: the fleet, attention-first — the native sibling of the web
-// switcher. Search, user/agent/all scope, create, rename, kill.
+// switcher. Search, user/agent/all scope, optional project grouping, and
+// create / rename / kill / agent-access.
+//
+// Structure note: this body is deliberately split into small computed pieces.
+// One flat `List { … }` carrying the whole modifier chain blew past SwiftUI's
+// type-checker budget ("unable to type-check this expression in reasonable
+// time") — a compile-time cliff, not a style preference.
 struct SessionsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var notifier = HopNotifier.shared
+
     @State private var path: [String] = []
     @State private var filter = ""
     @State private var scope: SessionScope = {
@@ -19,107 +27,197 @@ struct SessionsView: View {
     @State private var renaming: HopSession?
     @State private var renameText = ""
     @State private var killTarget: HopSession?
-    @StateObject private var notifier = HopNotifier.shared
+    @AppStorage("groupByProject") private var groupByProject = false
+
+    // MARK: data
 
     private var visible: [HopSession] {
         filterSessions(model.sessions, scope: scope, query: filter)
     }
 
+    /// One unlabelled section normally; project buckets when grouping is on.
+    /// Filtering always flattens — you're hunting one thing, not browsing.
+    private var sections: [(label: String, rows: [HopSession])] {
+        guard groupByProject, filter.isEmpty else { return [(label: "", rows: visible)] }
+        return groupSessionsByProject(visible)
+    }
+
+    // MARK: pieces
+
+    @ViewBuilder
+    private func row(for session: HopSession) -> some View {
+        NavigationLink(value: session.internalName) {
+            SessionRow(session: session, preview: model.previews[session.internalName])
+        }
+        .contextMenu {
+            Button {
+                Task { _ = await model.setAgentAccess(session, allowed: !session.agentPermitted) }
+            } label: {
+                Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
+                      systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+            }
+            Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive) { killTarget = session } label: {
+                Label("Kill", systemImage: "xmark.circle")
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { killTarget = session } label: {
+                Label("Kill", systemImage: "xmark.circle")
+            }
+            Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+                .tint(.hopPurple)
+        }
+    }
+
+    private var listView: some View {
+        List {
+            if let err = model.lastError {
+                Section {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Section {
+                Picker("Scope", selection: $scope) {
+                    ForEach(SessionScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            }
+            ForEach(sections, id: \.label) { section in
+                Section {
+                    ForEach(section.rows) { row(for: $0) }
+                } header: {
+                    if !section.label.isEmpty { Text(section.label) }
+                }
+            }
+            if visible.isEmpty {
+                Section {
+                    EmptyStateView(
+                        filtering: !filter.isEmpty,
+                        filter: filter,
+                        unreachable: model.sessions.isEmpty && model.lastError != nil,
+                        server: model.normalizedServerURL,
+                        scope: scope,
+                        retry: { Task { await model.refreshSessions() } },
+                        create: { newName = ""; creating = true }
+                    )
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Toggle(isOn: Binding(get: { notifier.enabled },
+                                     set: { on in Task { await notifier.setEnabled(on) } })) {
+                    Label("Bell notifications", systemImage: "bell.badge")
+                }
+                Toggle(isOn: $groupByProject) {
+                    Label("Group by project", systemImage: "folder")
+                }
+            } label: { Image(systemName: "ellipsis.circle") }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { newName = ""; creating = true } label: { Image(systemName: "plus") }
+        }
+    }
+
+    // MARK: body
+
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                if let err = model.lastError {
-                    Section {
-                        Label(err, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
+            listView
+                .searchable(text: $filter, prompt: "Filter sessions")
+                .navigationTitle("hop")
+                .toolbar { toolbar }
+                .navigationDestination(for: String.self) { name in
+                    if let session = model.sessions.first(where: { $0.internalName == name }) {
+                        TerminalHostView(session: session)
                     }
                 }
-                Section {
-                    Picker("Scope", selection: $scope) {
-                        ForEach(SessionScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                .refreshable { await model.refreshSessions() }
+                .modifier(SessionDialogs(
+                    creating: $creating, newName: $newName,
+                    renaming: $renaming, renameText: $renameText,
+                    killTarget: $killTarget, path: $path
+                ))
+                .onChange(of: model.requestedSession) { _, want in
+                    guard let want else { return }
+                    path = [want]                    // replaces the pushed terminal
+                    model.requestedSession = nil
                 }
-                Section {
-                    ForEach(visible) { session in
-                        NavigationLink(value: session.internalName) {
-                            SessionRow(session: session, preview: model.previews[session.internalName])
-                        }
-                        .contextMenu {
-                            Button {
-                                Task { _ = await model.setAgentAccess(session, allowed: !session.agentPermitted) }
-                            } label: {
-                                Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
-                                      systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
-                            }
-                            Button {
-                                renameText = session.name
-                                renaming = session
-                            } label: { Label("Rename", systemImage: "pencil") }
-                            Button(role: .destructive) { killTarget = session } label: {
-                                Label("Kill", systemImage: "xmark.circle")
-                            }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) { killTarget = session } label: {
-                                Label("Kill", systemImage: "xmark.circle")
-                            }
-                            Button {
-                                renameText = session.name
-                                renaming = session
-                            } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                            .tint(.hopPurple)
-                        }
-                    }
+                .onChange(of: notifier.pendingOpen) { _, want in
+                    guard let want else { return }   // tapped a bell notification
+                    path = [want]
+                    notifier.pendingOpen = nil
                 }
-                if visible.isEmpty {
-                    Section {
-                        EmptyStateView(
-                            filtering: !filter.isEmpty,
-                            filter: filter,
-                            unreachable: model.sessions.isEmpty && model.lastError != nil,
-                            server: model.normalizedServerURL,
-                            scope: scope,
-                            retry: { Task { await model.refreshSessions() } },
-                            create: { newName = ""; creating = true }
-                        )
-                    }
-                }
+                .task(id: scenePhase) { await pollSessions() }
+                .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
+                .task { await openDevSessionIfRequested() }
+        }
+    }
+
+    // MARK: actions
+
+    private func startRename(_ session: HopSession) {
+        renameText = session.name
+        renaming = session
+    }
+
+    private func pollSessions() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled {
+            await model.refreshSessions(silent: true)
+            try? await Task.sleep(for: .seconds(5))
+        }
+    }
+
+    /// Previews cost the daemon a render each: only while the list is
+    /// FRONTMOST (a pushed terminal keeps this view alive), only the top few.
+    private func pollPreviews() async {
+        guard scenePhase == .active, path.isEmpty else { return }
+        while !Task.isCancelled {
+            let names: [String] = visible.compactMap { $0.live ? $0.internalName : nil }
+            await model.refreshPreviews(for: names)
+            try? await Task.sleep(for: .seconds(9))
+        }
+    }
+
+    private func openDevSessionIfRequested() async {
+        guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
+        for _ in 0..<20 where path.isEmpty {
+            if let hit = model.sessions.first(where: { $0.name == want || $0.internalName == want }) {
+                path = [hit.internalName]
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $filter, prompt: "Filter sessions")
-            .navigationTitle("hop")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Toggle(isOn: Binding(
-                            get: { notifier.enabled },
-                            set: { on in Task { await notifier.setEnabled(on) } }
-                        )) {
-                            Label("Bell notifications", systemImage: "bell.badge")
-                        }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { newName = ""; creating = true } label: { Image(systemName: "plus") }
-                }
-            }
-            .navigationDestination(for: String.self) { internalName in
-                if let session = model.sessions.first(where: { $0.internalName == internalName }) {
-                    TerminalHostView(session: session)
-                }
-            }
-            .refreshable { await model.refreshSessions() }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+    }
+}
+
+/// The create/rename/kill prompts, lifted out of the main body so the
+/// type-checker only ever sees a handful of modifiers at a time.
+private struct SessionDialogs: ViewModifier {
+    @EnvironmentObject var model: AppModel
+    @Binding var creating: Bool
+    @Binding var newName: String
+    @Binding var renaming: HopSession?
+    @Binding var renameText: String
+    @Binding var killTarget: HopSession?
+    @Binding var path: [String]
+
+    func body(content: Content) -> some View {
+        content
             .alert("New session", isPresented: $creating) {
-                TextField("name", text: $newName)
-                    .textInputAutocapitalization(.never)
+                TextField("name", text: $newName).textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
                     let name = newName.trimmingCharacters(in: .whitespaces)
@@ -127,16 +225,19 @@ struct SessionsView: View {
                     Task { if await model.createSession(name: name) { path = [name] } }
                 }
             } message: { Text("Letters, numbers, - and _") }
-            .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-                TextField("name", text: $renameText)
-                    .textInputAutocapitalization(.never)
+            .alert("Rename session",
+                   isPresented: Binding(get: { renaming != nil },
+                                        set: { if !$0 { renaming = nil } })) {
+                TextField("name", text: $renameText).textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) { renaming = nil }
                 Button("Rename") {
                     if let s = renaming { Task { _ = await model.renameSession(s, to: renameText) } }
                     renaming = nil
                 }
             }
-            .alert("Kill session?", isPresented: Binding(get: { killTarget != nil }, set: { if !$0 { killTarget = nil } })) {
+            .alert("Kill session?",
+                   isPresented: Binding(get: { killTarget != nil },
+                                        set: { if !$0 { killTarget = nil } })) {
                 Button("Cancel", role: .cancel) { killTarget = nil }
                 Button("Kill", role: .destructive) {
                     if let s = killTarget { Task { _ = await model.killSession(s) } }
@@ -145,49 +246,10 @@ struct SessionsView: View {
             } message: {
                 Text("\(killTarget?.name ?? "") and its running process end for everyone.")
             }
-            .onChange(of: model.requestedSession) { _, want in
-                guard let want else { return }
-                path = [want]                 // replaces the pushed terminal
-                model.requestedSession = nil
-            }
-            .onChange(of: notifier.pendingOpen) { _, want in
-                // Tapped a bell notification: jump straight to that session.
-                guard let want else { return }
-                path = [want]
-                notifier.pendingOpen = nil
-            }
-            .task {
-                guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
-                for _ in 0..<20 where path.isEmpty {
-                    if let hit = model.sessions.first(where: { $0.name == want || $0.internalName == want }) {
-                        path = [hit.internalName]
-                    }
-                    try? await Task.sleep(for: .milliseconds(400))
-                }
-            }
-            .task(id: scenePhase) {
-                guard scenePhase == .active else { return }
-                while !Task.isCancelled {
-                    await model.refreshSessions(silent: true)
-                    try? await Task.sleep(for: .seconds(5))
-                }
-            }
-            .task(id: "\(scenePhase)-\(path.isEmpty)") {
-                // Previews cost the daemon a render per call: only while the
-                // list is FRONTMOST (path empty — a pushed terminal keeps this
-                // view alive), only the top few, slower than the list poll.
-                guard scenePhase == .active, path.isEmpty else { return }
-                while !Task.isCancelled {
-                    await model.refreshPreviews(for: visible.filter(\.live).map(\.internalName))
-                    try? await Task.sleep(for: .seconds(9))
-                }
-            }
-        }
     }
 }
 
-/// What to say when the list has nothing in it — and what the user can do
-/// about it. Previously this was one line of prose with no action.
+/// What to say when the list has nothing in it — and what to do about it.
 struct EmptyStateView: View {
     let filtering: Bool
     let filter: String
@@ -259,7 +321,8 @@ struct SessionRow: View {
                     if session.createdBy == "agent" {
                         Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
                     } else if session.agentPermitted {
-                        Image(systemName: "cpu").font(.caption2).foregroundStyle(Color.hopGlow.opacity(0.8))
+                        Image(systemName: "cpu").font(.caption2)
+                            .foregroundStyle(Color.hopGlow.opacity(0.8))
                     }
                     if session.attention {
                         Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.red)

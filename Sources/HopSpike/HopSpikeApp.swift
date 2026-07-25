@@ -13,6 +13,11 @@ struct HopApp: App {
     init() {
         // Must register before the app finishes launching.
         BackgroundRefresh.register(model: AppModel.shared)
+        // Dev-only: let `make sim GROUP=1` land on the grouped list without
+        // hand-toggling a menu the screenshot loop can't reach.
+        if ProcessInfo.processInfo.environment["HOP_DEV_GROUP"] == "1" {
+            UserDefaults.standard.register(defaults: ["groupByProject": true])
+        }
     }
 
     var body: some Scene {
