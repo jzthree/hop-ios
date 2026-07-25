@@ -187,6 +187,27 @@ one-tap one.
 The sheet's `.medium` detent clipped the new row, so it's sized to the content
 now — caught by screenshot, not by the compiler.
 
+## Interaction audit (iteration 55) — the lens the parity matrix missed
+
+Jian's point stands: the matrix tracked FEATURES (menu items, endpoints,
+buttons) and reported "parity complete" while the app could not scroll. Scroll,
+selection, colour fidelity, rotation and text size are not features, so they
+were never in it. Auditing interactions instead:
+
+| Interaction | State |
+|---|---|
+| Touch scrolling | FIXED (#54) — SwiftTerm has no scroll gesture at all |
+| Drag while selecting | FIXED — drag no longer scrolls out from under a selection |
+| Drag sending stray input | FIXED — SwiftTerm's pans sent a CLICK (mouse mode) or ARROW KEYS during a scroll; both disabled |
+| Terminal colours | FIXED (#54) — hop's exact palette, was SwiftTerm's stock |
+| Landscape space | FIXED (#54) — chrome hidden, terminal takes the rest |
+| Dynamic Type | FIXED (#55) — names hyphenated mid-word at accessibility sizes ("Sol-/stice"); now shrink-then-truncate, and previews stop scaling so the list doesn't collapse to two rows |
+| Long-press selection + menu | needs a device (trade: drag-to-extend is gone) |
+| Pinch zoom | needs a device (#27 fixed the state bug) |
+| Real rotation | needs a device |
+| Hardware keyboard | unaudited |
+| Drag & drop text | unaudited |
+
 ## Cold-launch navigation was broken (iteration 51)
 
 Applying #50's lesson — *the thing new code hooks into may have several entry

@@ -415,6 +415,11 @@ struct SessionRow: View {
                 HStack(spacing: 6) {
                     Text(session.name)
                         .font(.system(.body, design: .monospaced).weight(.semibold))
+                        // At accessibility sizes a name wrapped mid-word
+                        // ("Sol-" / "stice"), which reads as a broken row.
+                        // Shrink first, truncate second, never hyphenate.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                     if !session.runningApp.isEmpty {
                         Text(session.runningApp)
                             .font(.caption2.weight(.semibold))
@@ -442,6 +447,12 @@ struct SessionRow: View {
                 if let preview, !preview.isEmpty {
                     Text(preview)
                         .font(.system(size: 9, design: .monospaced))
+                        // The preview is a glance aid, not body text. Letting
+                        // it scale to accessibility sizes pushed the list down
+                        // to two visible sessions, which costs more than the
+                        // legibility gains — the name and tagline above still
+                        // scale all the way.
+                        .dynamicTypeSize(...DynamicTypeSize.large)
                         .foregroundStyle(.secondary.opacity(0.85))
                         .lineLimit(3)
                         .multilineTextAlignment(.leading)

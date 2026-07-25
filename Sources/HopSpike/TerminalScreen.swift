@@ -951,6 +951,20 @@ final class HopTermView: TerminalView {
     /// Drags the buffer 1:1 with the finger, alongside SwiftTerm's own
     /// recognizers so long-press selection and its menu keep working.
     func installScrollGesture() {
+        // On a phone a drag scrolls. That has to be exclusive, because
+        // SwiftTerm's own pans do two things we don't want during a scroll:
+        // with mouse mode on (claude turns it on) a drag sends a CLICK at the
+        // start point, which in a TUI can activate whatever is under your
+        // finger; with it off, the same handler sends ARROW KEYS. Neither is
+        // an acceptable side effect of scrolling, so its pans are disabled and
+        // mouse reporting with them.
+        //
+        // Traded away: drag-to-extend a selection. Long-press still selects a
+        // word and opens the menu, which is how iOS does selection anyway.
+        allowMouseReporting = false
+        for existing in gestureRecognizers ?? [] where existing is UIPanGestureRecognizer {
+            existing.isEnabled = false
+        }
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
@@ -1174,9 +1188,16 @@ final class HopTermView: TerminalView {
 }
 
 extension HopTermView: UIGestureRecognizerDelegate {
-    /// Coexist with SwiftTerm's pan recognizers rather than replacing them:
-    /// selection only engages after a long-press has started one, and mouse
-    /// reporting is a separate concern from moving our own viewport.
+    /// Don't scroll out from under a selection: once one exists, dragging
+    /// belongs to its handles.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        // Only gate OUR pan; leave UIView's own answer for everything else.
+        guard g is UIPanGestureRecognizer else { return super.gestureRecognizerShouldBegin(g) }
+        return !selectionActive
+    }
+
+    /// Coexist with the long-press and tap recognizers, which are how
+    /// selection and focus still work.
     func gestureRecognizer(_ g: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
