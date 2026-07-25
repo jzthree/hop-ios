@@ -257,6 +257,36 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Why scrolling did nothing on agent sessions (iteration 88)
+
+Jian: "still cannot scroll, number one issue." It was not the gesture — that
+worked from the day it was added. Measured on a live session:
+**`altScreen=true, scrollback reachable 23 lines`**, exactly the screen height.
+Claude runs in the ALTERNATE screen buffer, which has no scrollback by design,
+so a gesture that moves a local viewport had nothing to move. Every session in
+this fleet is claude, so it looked entirely broken.
+
+Scrolling means three different things depending on who owns the screen.
+SwiftTerm's macOS view encodes all three for its scroll wheel; the iOS view has
+no equivalent, and only the last was implemented here:
+
+1. **mouse reporting on** (claude) → send WHEEL events; the app scrolls itself
+2. **no scrollback, no mouse** (a pager) → arrow keys
+3. **otherwise** → move our viewport, with momentum
+
+Verified by driving a real drag through XCUITest and reading the log:
+`scroll back 1 via wheel`, one notch per row of drag.
+
+That exposed a second bug immediately: #37 deliberately did NOT restore mouse
+reporting after the snapshot reset, so on a fresh connection `mouseMode` could
+be off and the code would fall back to ARROWS — which claude reads as "recall
+the previous prompt", not "scroll". Mouse mode is now seeded from the snapshot
+flags. It does not bring back taps-as-clicks: SwiftTerm's own tap and pan
+handlers remain disabled via `allowMouseReporting`, and only our scroll code
+reads the mode.
+
+A wheel event is also not a click, so #55's fix stands.
+
 ## What the app actually costs on cellular — and a measurement I got wrong
 
 Measured against the live daemon:

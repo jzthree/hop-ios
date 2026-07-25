@@ -10,7 +10,8 @@ final class HayClient: NSObject {
         // Full replay. The mode flags travel BESIDE the data because the
         // replayed bytes don't re-emit the DECSETs that turned them on — the
         // app enabled alt-screen once, long before this tail begins.
-        case snapshot(String, alternateScreen: Bool, cursorHidden: Bool)          // raw terminal bytes (snapshot or live)
+        case snapshot(String, alternateScreen: Bool, cursorHidden: Bool,
+                      mouseReporting: Bool, mouseSgr: Bool)          // raw terminal bytes (snapshot or live)
         case activeSize(Int, Int)    // cols, rows
         case presence([Viewer])      // who else is attached
         case collab(Bool, String?)   // everyone-can-type, controllerId
@@ -242,7 +243,9 @@ final class HayClient: NSObject {
                 if type == "snapshot" {
                     onEvent?(.snapshot(payload,
                                        alternateScreen: (obj["alternateScreen"] as? Bool) ?? false,
-                                       cursorHidden: (obj["cursorHidden"] as? Bool) ?? false))
+                                       cursorHidden: (obj["cursorHidden"] as? Bool) ?? false,
+                                       mouseReporting: (obj["mouseReporting"] as? Bool) ?? false,
+                                       mouseSgr: (obj["mouseSgr"] as? Bool) ?? false))
                 } else {
                     onEvent?(.output(payload))
                 }

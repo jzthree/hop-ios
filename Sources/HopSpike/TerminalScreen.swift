@@ -572,7 +572,8 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                 case .output(let data):
                     tv.feed(text: data)
-                case .snapshot(let data, let alternateScreen, let cursorHidden):
+                case .snapshot(let data, let alternateScreen, let cursorHidden,
+                               let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
                     self.lastAltScreen = alternateScreen
                     // A snapshot is the whole session replayed, so it has to
@@ -594,6 +595,15 @@ struct TerminalScreen: UIViewRepresentable {
                     // deciding on a device, not guessing at here.
                     if alternateScreen { tv.feed(text: "\u{1b}[?1049h") }
                     if cursorHidden { tv.feed(text: "\u{1b}[?25l") }
+                    // Mouse reporting IS restored now, for one reason: it is
+                    // how the terminal knows a drag should become wheel events
+                    // rather than arrow keys — and arrows sent to claude recall
+                    // previous prompts instead of scrolling. This does NOT
+                    // bring back taps-as-clicks: SwiftTerm's own tap and pan
+                    // handlers stay disabled via allowMouseReporting, and only
+                    // our scroll code reads the mode.
+                    if mouseReporting { tv.feed(text: "\u{1b}[?1000h") }
+                    if mouseSgr { tv.feed(text: "\u{1b}[?1006h") }
                     tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
@@ -1140,6 +1150,8 @@ final class HopTermView: TerminalView {
 
     private func sendScroll(lines: Int, mouse: Bool, terminal: Terminal) {
         let up = lines > 0                     // dragging down looks backwards
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+            .info("scroll \(up ? "back" : "forward") \(abs(lines)) via \(mouse ? "wheel" : "arrows")")
         for _ in 0..<min(abs(lines), 12) {     // cap: one drag isn't a hundred notches
             if mouse {
                 let flags = terminal.encodeButton(button: up ? 4 : 5, release: false,

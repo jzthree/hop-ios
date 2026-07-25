@@ -217,6 +217,20 @@ final class ScrollUITests: XCTestCase {
                        "Cancel left the dialog up")
     }
 
+    /// An agent session has no local scrollback, so this asserts the only thing
+    /// visible from here: that a drag doesn't crash and the session stays
+    /// usable. What it actually sends (wheel events) is verified in the log —
+    /// `scroll back N via wheel` — since XCUITest cannot see into a terminal.
+    func testDragOnAgentSessionKeepsSessionUsable() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        let low = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        top.press(forDuration: 0.05, thenDragTo: low)
+        XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after a drag")
+        XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after a drag")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")
