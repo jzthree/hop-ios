@@ -1,8 +1,30 @@
 import SwiftUI
+import UIKit
 
 extension Color {
     static let hopPurple = Color(red: 0x7c / 255, green: 0x3a / 255, blue: 0xed / 255)
     static let hopGlow = Color(red: 0xa8 / 255, green: 0x55 / 255, blue: 0xf7 / 255)
+
+    /// One surface palette instead of ad-hoc greys. The base is the terminal's
+    /// own background (#0d1117, hop's web colour), and the raised tones are the
+    /// values that go with it — so chrome reads as the same material as the
+    /// terminal rather than three unrelated darks sitting next to each other.
+    static let hopSurface = Color(hex: 0x0d1117)      // terminal, page
+    static let hopRaised = Color(hex: 0x161b22)       // nav bar, key bar
+    static let hopKey = Color(hex: 0x272e38)          // key caps
+    static let hopKeyArmed = Color(hex: 0x9d7bf5)     // armed modifier
+
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xff) / 255,
+                  green: Double((hex >> 8) & 0xff) / 255,
+                  blue: Double(hex & 0xff) / 255)
+    }
+}
+
+extension UIColor {
+    static let hopSurface = UIColor(red: 0x0d / 255, green: 0x11 / 255, blue: 0x17 / 255, alpha: 1)
+    static let hopRaised = UIColor(red: 0x16 / 255, green: 0x1b / 255, blue: 0x22 / 255, alpha: 1)
+    static let hopKey = UIColor(red: 0x27 / 255, green: 0x2e / 255, blue: 0x38 / 255, alpha: 1)
 }
 
 @main

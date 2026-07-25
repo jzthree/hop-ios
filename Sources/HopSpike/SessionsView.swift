@@ -458,7 +458,7 @@ struct SessionRow: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(6)
-                        .background(Color(white: 0.10), in: RoundedRectangle(cornerRadius: 7))
+                        .background(Color.hopSurface, in: RoundedRectangle(cornerRadius: 7))
                         .padding(.top, 3)
                 }
             }

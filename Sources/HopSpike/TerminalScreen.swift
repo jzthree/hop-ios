@@ -149,13 +149,13 @@ struct TerminalHostView: View {
                         Button("Done") { findOpen = false; findText = "" }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color(white: 0.12))
+                    .background(Color.hopRaised)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(landscapePhone ? .hidden : .visible, for: .navigationBar)
             .statusBarHidden(landscapePhone)
-            .toolbarBackground(Color(white: 0.07), for: .navigationBar)
+            .toolbarBackground(Color.hopRaised, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -277,7 +277,7 @@ struct TerminalHostView: View {
                 // disappear, and a blind clear would wipe the new one.
                 if model.openSession == session.internalName { model.openSession = nil }
             }
-            .background(Color.black)
+            .background(Color.hopSurface)
     }
 }
 
@@ -1063,7 +1063,7 @@ final class HopTermView: TerminalView {
     func setAltArmed(_ armed: Bool) {
         altButton?.configuration?.baseForegroundColor = armed ? .black : .white
         altButton?.configuration?.background.backgroundColor =
-            armed ? UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1) : UIColor(white: 0.22, alpha: 1)
+            armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey
     }
 
     // SwiftTerm exposes inputAccessoryView as a settable var — assign, don't override.
@@ -1074,7 +1074,7 @@ final class HopTermView: TerminalView {
     func setCtrlArmed(_ armed: Bool) {
         ctrlButton?.configuration?.baseForegroundColor = armed ? .black : .white
         ctrlButton?.configuration?.background.backgroundColor =
-            armed ? UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1) : UIColor(white: 0.22, alpha: 1)
+            armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey
     }
 
     private var holdKeys: [ObjectIdentifier: AccessoryKey] = [:]
@@ -1129,7 +1129,7 @@ final class HopTermView: TerminalView {
 
     private func makeAccessory() -> UIView {
         let bar = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 46))
-        bar.backgroundColor = UIColor(white: 0.11, alpha: 1)
+        bar.backgroundColor = .hopRaised
 
         let scroller = UIScrollView()
         scroller.showsHorizontalScrollIndicator = false
@@ -1163,24 +1163,36 @@ final class HopTermView: TerminalView {
         // the arrows off-screen. `hold` is a second key on a long press —
         // shift+tab, PgUp and PgDn are real keys with no room of their own,
         // and each sits on the key it belongs to.
+        // Only keys an iOS keyboard cannot produce. |, / , - and ~ are one
+        // layer away on the system keyboard and were eating a third of the bar.
+        //
+        // Long-press alternates are ONLY on keys that don't repeat: putting
+        // PgUp/PgDn on the arrows collided with hold-to-repeat, so holding ↓ to
+        // walk shell history fired a page-down instead. The arrows repeat; tab
+        // doesn't, so shift+tab lives there.
+        //
+        // Widths are tuned so esc…→ — the nine you reach for constantly — fit
+        // without scrolling; paging, paste and dismiss sit just past the edge.
         let keys: [(String, AccessoryKey, CGFloat, String, AccessoryKey?)] = [
-            ("esc", .esc, 44, "escape", nil),
+            ("esc", .esc, 40, "escape", nil),
             ("tab", .tab, 44, "tab", .shiftTab),
-            ("ctrl", .ctrl, 46, "control", nil),
-            ("alt", .alt, 42, "alt", nil),
-            ("^C", .ctrlC, 42, "control C", nil),
-            ("←", .left, 36, "left arrow", nil),
-            ("↓", .down, 36, "down arrow", .pageDown),
-            ("↑", .up, 36, "up arrow", .pageUp),
-            ("→", .right, 36, "right arrow", nil),
-            ("paste", .paste, 52, "paste", nil),
-            ("⌄", .dismiss, 36, "hide keyboard", nil)
+            ("ctrl", .ctrl, 42, "control", nil),
+            ("alt", .alt, 38, "alt", nil),
+            ("^C", .ctrlC, 38, "control C", nil),
+            ("←", .left, 34, "left arrow", nil),
+            ("↓", .down, 34, "down arrow", nil),
+            ("↑", .up, 34, "up arrow", nil),
+            ("→", .right, 34, "right arrow", nil),
+            ("⇞", .pageUp, 38, "page up", nil),
+            ("⇟", .pageDown, 38, "page down", nil),
+            ("paste", .paste, 50, "paste", nil),
+            ("⌄", .dismiss, 34, "hide keyboard", nil)
         ]
         for (label, key, width, spoken, hold) in keys {
             var cfg = UIButton.Configuration.filled()
             cfg.title = label
             cfg.baseForegroundColor = .white
-            cfg.background.backgroundColor = UIColor(white: 0.22, alpha: 1)
+            cfg.background.backgroundColor = .hopKey
             cfg.background.cornerRadius = 9
             cfg.contentInsets = .zero
             cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in

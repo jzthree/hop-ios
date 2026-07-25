@@ -210,6 +210,25 @@ were never in it. Auditing interactions instead:
 | Hardware keyboard | unaudited |
 | Drag & drop text | unaudited |
 
+## Key bar conflict + one surface palette (iteration 59)
+
+**A conflict I introduced and caught before Jian did.** #54 put PgUp/PgDn on
+long-presses of ↑/↓ — but those keys already had hold-to-repeat from #14. The
+long press fires at 0.35s, the repeat at 0.42s, so holding ↓ to walk shell
+history sent a page-down and never repeated: #14's whole point, undone by #54.
+Long-press alternates now live ONLY on keys that don't repeat, which means tab
+(⇧tab) and nothing else. PgUp/PgDn are visible keys again, and widths are tuned
+so the nine you reach for constantly — esc…→ — fit without scrolling, with
+paging, paste and dismiss just past the edge.
+
+**Surface palette.** The chrome was ad-hoc greys — `white: 0.07` nav bar,
+`white: 0.11` key bar, `white: 0.22` key caps — sitting against a terminal at
+#0d1117. Neutral darks next to a blue-tinted one read as three unrelated
+materials. Now one family derived from the terminal's own background: surface
+#0d1117, raised #161b22 (nav bar, key bar, find bar), keys #272e38, armed
+modifier #9d7bf5. Defined once in `Color`/`UIColor` extensions rather than
+inline per call site, so the next surface can't drift.
+
 ## Touch was breaking THREE interactions, not one (iteration 58)
 
 Writing a UI test for selection turned up the full extent of the mouse-reporting
