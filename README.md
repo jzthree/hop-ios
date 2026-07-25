@@ -37,12 +37,16 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
   at once (hop scans server-side and returns snippets). Scope to You / Agents
   / All. Create, rename, kill, and toggle
   agent (MCP) access.
+- **Fast opens** — the session's current screen paints immediately over HTTP
+  while the (much larger) WebSocket snapshot downloads.
 - **Terminal** — SwiftTerm over hop's WebSocket, with the native keyboard plus
   a key bar (esc, tab, sticky ctrl, alt/meta, ^C, arrows, `| / - ~`, PgUp/PgDn,
   paste). Find in scrollback, copy screen/all, font size (menu or pinch),
   light/dark, jump-to-live, and session switching from the title.
 - **Attention** — a session that rings the terminal bell raises a dot, a
-  haptic, and (opt-in) a local notification that opens straight to it.
+  haptic, an app-icon badge, and (opt-in) a local notification that opens
+  straight to it. Long-press the icon for the four sessions most likely to want
+  you. Never for the session you're currently watching.
 - **Good pocket citizen** — polling follows the network: 5s on Wi-Fi, backed
   off on cellular, and Low Data Mode drops live previews entirely.
 - **Resilience** — input typed during an outage is buffered and replayed

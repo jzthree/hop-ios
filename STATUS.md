@@ -3,6 +3,11 @@
 Division of labor: **Orion** (this repo, mobile) · **Solstice** (hop2, desktop).
 Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 
+> **Start here:** what needs *you* is in the three sections immediately below —
+> the device checklist, then the decisions. Everything from "Reference" down is
+> history: how things were built and why, kept because the reasoning is the
+> useful part. The change log at the bottom is append-only.
+
 ## Mandate
 1. **Spike first**: SwiftTerm + WS attach to a live hop session + native keyboard,
    built to Jian's iPhone. Keyboard-feel thesis validated on hardware before v1.
@@ -34,7 +39,6 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
    Settings → Privacy & Security → Developer Mode).
 3. First install will ask to trust the developer cert on-device
    (Settings → General → VPN & Device Management).
-
 
 ## Device checklist (10 minutes, unblocks v1) ⚠ ONLY YOU CAN DO THESE
 
@@ -81,23 +85,72 @@ be the scriptable route but needs admin, so Console is the practical one.
 12. **VoiceOver.** Swipe through the list: each row should read as one sentence
     starting with the name and "wants attention", never raw box-drawing.
 
+## Remaining (needs your call)
+- **APNs background delivery**: device-token endpoint + push-on-bell in the
+  hop2 daemon. Client work is done; this is the only thing between us and
+  "phone buzzes while locked". Needs a greenlight to touch hop2 + coordination
+  with Solstice.
+- Split panes / wall zoom: deliberately skipped — desktop-shaped.
+
+## Next (Orion)
+- [x] Code compiles clean (simulator build green, no API drift)
+- [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle
+  io.zhoulab.hop.spike. (Wi-Fi install flaky: took ~12 retries through
+  DeviceLocked/disconnect; USB cable makes it one-shot.)
+- [ ] **AWAITING JAIN'S KEYBOARD VERDICT** — the gate for v1
+- [ ] PWA push prototype branch plan (daemon: VAPID + subscribe endpoint + push on
+  bellSeq increment; web: manifest + SW). Will be a small separate hop2 commit — 
+  coordinating with Solstice before touching shared files.
+
+## Web-mobile parity matrix (re-audited 2026-07-25, after iteration 48)
+
+| Feature | web mobile | iOS |
+|---|---|---|
+| Attach / live terminal | ✓ | ✓ |
+| Session list, attention-first | ✓ | ✓ |
+| Taglines / cwd / app badge / relative time | ✓ | ✓ |
+| Filter by name/cwd/app/tagline | ✓ | ✓ |
+| **Search session OUTPUT** (`/api/sessions/search`) | ✓ (palette) | ✓ (#40) |
+| Origin scope user/agent/all | ✓ | ✓ |
+| Create / rename / kill session | ✓ | ✓ |
+| Find in scrollback | ✓ | ✓ + step older/newer (#26) |
+| Copy screen / copy all | ✓ | ✓ |
+| Font size | ✓ | ✓ (menu ± / pinch, #27) |
+| Light/dark terminal | ✓ | ✓ |
+| Reconnect in place | ✓ | ✓ + auto on foreground |
+| Accessory keys | ✓ | ✓ + hold-to-repeat (#14) |
+| Native keyboard (dictation/autocorrect) | via KB button | ✓ always — the native win |
+| Live session previews | ✓ (hero tiles) | ✓ (3-line live screen per row) |
+| Presence / take-release control | ✓ | ✓ |
+| **Typing indicator sent** | ✓ | ✓ (#22) |
+| **Attach size claim** (`claim:"attach"`) | ✓ | ✓ (#21) |
+| **Fast first paint** (`/api/sessions/screen`) | ✓ | ✓ (#41) |
+| **Input buffered through outages** | ✓ (15s cap) | ✓ (#22, same cap) |
+| **Terminal reset before snapshot replay** | ✓ | ✓ (#36) + mode reseed (#37) |
+| Open links from output | ✓ | ✓ (#17 menu, #44 OSC 8 http/https only) |
+| Bell → notification | ✓ (web push) | ✓ local + background; APNs blocked (see Needs) |
+| Bell → haptic | ✗ (no haptics in iOS Safari) | ✓ |
+| Agent-permission toggle | ✓ | ✓ |
+| Saved password (keychain) | ✗ | ✓ (device-only; TOTP still required) |
+| **App-icon badge** | ✗ (impossible) | ✓ (#15) |
+| **Home Screen quick actions** | ✗ (impossible) | ✓ (#18) |
+| **Network-aware polling / Low Data Mode** | ✗ | ✓ (#23) |
+| **Offline detection + stale-list banner** | ✗ | ✓ (#43) |
+| **Smaller replay request** (`replayBytes`) | ✗ | ✓ sent (#37) — inert until hop reads it |
+| Split/secondary pane, wall zoom | ✓ | ✗ deliberately (desktop-shaped) |
+| Passkey / share link | ✓ | ✗ (low value on a phone) |
+
+Parity is complete except the two deliberate omissions. Everything in **bold**
+was added after the first matrix was written, most of it found by reading hop's
+server and web client rather than by inspecting our own UI.
+
+# Reference — how it got here
+
 ## Spike test script (once installed)
 1. On Mac: `node ~/Code/hop-ios/tools/lan-bridge.mjs` → note the ws:// URL.
 2. On iPhone: HopSpike → paste URL, session e.g. `Solstice` → Attach.
 3. Judge: keyboard feel (real keys, autocorrect/dictation, key repeat),
    scroll physics, latency vs the web client. That verdict gates v1.
-
-## v1 (2026-07-25): remote + native polish — ON DEVICE PENDING VERDICT
-- Direct hop.zhoulab.io: native login (POST /api/login, password+TOTP) → 7-day
-  session cookie in the app's URLSession → carried by REST + wss automatically.
-  No LAN bridge needed (tools/lan-bridge.mjs stays as dev fallback).
-- Native UI: hop-branded login (hare + wordmark, purple), sessions home screen
-  (attention-first sort, live dots, bell ring+icon, app capsules, ~cwd, relative
-  time, pull-to-refresh, 5s auto-refresh), terminal with nav state dot, key
-  accessory bar (esc/tab/sticky-ctrl/arrows/paste) above the iOS keyboard,
-  distinct haptics for bells vs keys. Display name: "hop".
-- Not yet: app icon asset, Face ID/keychain credential save, reconnect-in-place,
-  session create/rename/kill, push notifications (next big rock).
 
 ## Simulator review loop (Orion can SEE the UI now)
 `xcodebuild -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build-sim
@@ -143,31 +196,17 @@ LESSON: test against a REAL session with history, not a fresh probe.
 - Dark appearance app-wide; purple capsule showed claude's VERSION string
   ("2.1.220") → version-looking values now render as "claude".
 
-## Web-mobile parity matrix (audited from hay/apps/web, 2026-07-25)
-| Feature | web mobile | iOS |
-|---|---|---|
-| Attach / live terminal | ✓ | ✓ |
-| Session list, attention-first | ✓ | ✓ |
-| Taglines / cwd / app badge / relative time | ✓ | ✓ |
-| Filter sessions | ✓ | ✓ (searchable) |
-| Origin scope user/agent/all | ✓ | ✓ (segmented) |
-| Create / rename / kill session | ✓ | ✓ (+ button, swipe actions) |
-| Find in scrollback | ✓ | ✓ (menu → Find) |
-| Copy screen / copy all | ✓ | ✓ (menu) |
-| Font size | ✓ | ✓ (menu ± ) |
-| Light/dark terminal | ✓ | ✓ (menu toggle) |
-| Reconnect in place | ✓ | ✓ (menu) |
-| Accessory keys esc/tab/ctrl/alt/arrows | ✓ | ✓ + ^C, \| / - ~, PgUp/PgDn, paste, dismiss |
-| Native keyboard (dictation/autocorrect) | via KB button | ✓ always (this is the native win) |
-| Bell → haptic | ✗ (iOS Safari has no haptics) | ✓ |
-| **Still missing on iOS** | | |
-| Live session previews | ✓ (hero tiles) | ✓ (3-line live screen per row) |
-| Presence / take-release control | ✓ | ✓ (viewer count + list, lock/unlock typing, take/release) |
-| Bell notifications | ✓ (web push) | ✓ local + background refresh; APNs pending for instant/closed |
-| Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
-| Agent-permission toggle | ✓ | ✓ (long-press a session) |
-| Passkey / share link | ✓ | ✗ (low value on phone) |
-| Saved password (keychain) | ✗ | ✓ (device-only; TOTP still required) |
+## v1 (2026-07-25): remote + native polish — ON DEVICE PENDING VERDICT
+- Direct hop.zhoulab.io: native login (POST /api/login, password+TOTP) → 7-day
+  session cookie in the app's URLSession → carried by REST + wss automatically.
+  No LAN bridge needed (tools/lan-bridge.mjs stays as dev fallback).
+- Native UI: hop-branded login (hare + wordmark, purple), sessions home screen
+  (attention-first sort, live dots, bell ring+icon, app capsules, ~cwd, relative
+  time, pull-to-refresh, 5s auto-refresh), terminal with nav state dot, key
+  accessory bar (esc/tab/sticky-ctrl/arrows/paste) above the iOS keyboard,
+  distinct haptics for bells vs keys. Display name: "hop".
+- Not yet: app icon asset, Face ID/keychain credential save, reconnect-in-place,
+  session create/rename/kill, push notifications (next big rock).
 
 ## Loop iterations (autonomous, every 10 min)
 1. **App icon** — hop's purple prompt chevron, CoreGraphics-rendered 1024 opaque
@@ -856,20 +895,3 @@ LESSON: test against a REAL session with history, not a fresh probe.
    already applies. Fixing it there fixes every consumer: the web switcher
    tiles, the iOS row previews, and the iOS fast paint, which all read the same
    grid.
-
-## Remaining (needs your call)
-- **APNs background delivery**: device-token endpoint + push-on-bell in the
-  hop2 daemon. Client work is done; this is the only thing between us and
-  "phone buzzes while locked". Needs a greenlight to touch hop2 + coordination
-  with Solstice.
-- Split panes / wall zoom: deliberately skipped — desktop-shaped.
-
-## Next (Orion)
-- [x] Code compiles clean (simulator build green, no API drift)
-- [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle
-  io.zhoulab.hop.spike. (Wi-Fi install flaky: took ~12 retries through
-  DeviceLocked/disconnect; USB cable makes it one-shot.)
-- [ ] **AWAITING JAIN'S KEYBOARD VERDICT** — the gate for v1
-- [ ] PWA push prototype branch plan (daemon: VAPID + subscribe endpoint + push on
-  bellSeq increment; web: manifest + SW). Will be a small separate hop2 commit — 
-  coordinating with Solstice before touching shared files.
