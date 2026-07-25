@@ -50,7 +50,9 @@ struct TerminalHostView: View {
         UserDefaults.standard.set(fontSize, forKey: "termFontSize")
     }
 
-    var body: some View {
+    /// Split out of `body` for the same reason SessionsView is: the whole
+    /// chain in one expression blows the SwiftUI type-checker's budget.
+    private var screen: some View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
                        find: findRequest, reconnectToken: reconnectToken,
@@ -59,12 +61,17 @@ struct TerminalHostView: View {
                            links = found
                            if found.isEmpty { toast = "No links on screen" } else { showLinks = true }
                        },
+                       onFontChange: { setFont($0) },
                        onPresence: { viewers = $0 },
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
                        },
                        control: $controlAction,
                        onScroll: { scrolledUp = $0 })
+    }
+
+    var body: some View {
+        screen
             .padding(.horizontal, 5)
             .ignoresSafeArea(.container, edges: .bottom)
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
@@ -276,6 +283,7 @@ struct TerminalScreen: UIViewRepresentable {
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
     var onLinks: ([String]) -> Void = { _ in }
+    var onFontChange: (Double) -> Void = { _ in }
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
@@ -284,6 +292,7 @@ struct TerminalScreen: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
+                    onFontChange: onFontChange,
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
     }
 
@@ -392,6 +401,7 @@ struct TerminalScreen: UIViewRepresentable {
         }
         private let onToast: (String) -> Void
         private let onLinks: ([String]) -> Void
+        private let onFontChange: (Double) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
         private let onScroll: (Bool) -> Void
@@ -405,6 +415,7 @@ struct TerminalScreen: UIViewRepresentable {
         init(wsBase: String, httpBase: String, token: String?, urlSession: URLSession, room: String,
              onToast: @escaping (String) -> Void,
              onLinks: @escaping ([String]) -> Void,
+             onFontChange: @escaping (Double) -> Void,
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
              onScroll: @escaping (Bool) -> Void,
@@ -412,6 +423,7 @@ struct TerminalScreen: UIViewRepresentable {
             self.onScroll = onScroll
             self.onToast = onToast
             self.onLinks = onLinks
+            self.onFontChange = onFontChange
             self.onPresence = onPresence
             self.onCollab = onCollab
             self.wsBase = wsBase
@@ -476,8 +488,13 @@ struct TerminalScreen: UIViewRepresentable {
             let next = min(24, max(8, current + (g.scale > 1 ? 1 : -1)))
             g.scale = 1
             guard next != current else { return }
-            tv.font = UIFont.monospacedSystemFont(ofSize: next, weight: .regular)
-            UserDefaults.standard.set(Double(next), forKey: "termFontSize")
+            // Report it UP rather than setting the font here. updateUIView
+            // rewrites the font from SwiftUI's fontSize on every update, so a
+            // local-only change was silently reverted by the next toast,
+            // presence change or list refresh — pinch appeared to work and
+            // then snapped back, with the new size only showing up the next
+            // time the terminal was opened.
+            onFontChange(Double(next))
         }
 
         func apply(_ action: ControlAction) {

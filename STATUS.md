@@ -478,6 +478,17 @@ LESSON: test against a REAL session with history, not a fresh probe.
      is a couple of minutes and is a prerequisite for any client work, so it's
      worth doing before the greenlight rather than after.
 
+27. **Pinch-to-zoom was silently reverted.** The gesture set the font on the
+   UIView and persisted it, but never told SwiftUI — and `updateUIView`
+   rewrites the font from `fontSize` on EVERY update. So pinching worked for a
+   moment and then snapped back at the next toast, presence change or list
+   refresh, with the new size only appearing the next time the terminal was
+   opened. It now reports the size up through a callback, which is the single
+   source of truth. (Checked the same class of bug across the rest of
+   updateUIView — font was the only prop the coordinator also wrote.)
+   Extracting the fix hit the SwiftUI type-checker cliff a fourth time; the
+   terminal's body is now split like SessionsView's, for the same reason.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
