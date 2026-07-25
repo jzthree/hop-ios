@@ -115,6 +115,8 @@ final class HayClient: NSObject {
         task?.send(.string(str)) { _ in }
     }
 
+    private var connectedAt: Date?
+
     private func receiveLoop() {
         task?.receive { [weak self] result in
             guard let self else { return }
@@ -160,6 +162,7 @@ final class HayClient: NSObject {
               let type = obj["type"] as? String else { return }
         switch type {
         case "hello":
+            connectedAt = Date()
             clientId = obj["clientId"] as? String
             onEvent?(.connected)
             if let collabMode = obj["collabMode"] as? Bool {
@@ -177,6 +180,15 @@ final class HayClient: NSObject {
         case "input_rejected":
             onEvent?(.rejected((obj["reason"] as? String) ?? "Input rejected"))
         case "snapshot", "output":
+            if type == "snapshot" {
+                // What reattaching actually costs. hop replays its whole
+                // buffer on join and offers no way to ask for less, so this is
+                // the number that decides how an open feels on cellular.
+                let bytes = text.utf8.count
+                let ms = connectedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
+                Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                    .info("snapshot \(bytes / 1024) KB after \(ms) ms")
+            }
             if let payload = obj["data"] as? String { onEvent?(.output(payload)) }
         case "active_size":
             // Coerced rather than `as? Int`: a JSON number arriving as a

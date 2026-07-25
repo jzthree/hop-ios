@@ -606,6 +606,29 @@ LESSON: test against a REAL session with history, not a fresh probe.
      SwiftUI Label won't wrap without fixedSize. Three screenshots to get one
      sentence on screen correctly.
 
+35. **Measured what opening a session actually costs: 2.4 MB for one screen.**
+   Instrumented the join snapshot. Opening a claude session pulls a
+   **2439 KB** WebSocket message (98 ms on Wi-Fi) — and #33 measured what
+   survives it: **26 reachable lines**. On cellular that's several seconds and
+   real money per open, for one screenful.
+   Where it comes from, read from hop's own source:
+   - The server already bounds join replay — `HAY_SNAPSHOT_REPLAY_BYTES`,
+     default 1_500_000 — and its comment names this exact case ("a phone on a
+     tunnel downloads and parses all of it before first paint").
+   - But the wire cost is ~60% ABOVE that bound, because the snapshot is JSON
+     and every ESC byte becomes `\u001b`. Escape-dense TUI output escapes
+     badly: 1.5 MB of raw stream → 2.4 MB of JSON.
+   - `ws` is constructed with no perMessageDeflate, so nothing is compressed.
+     Enabling it would help the browser a lot; it would NOT help this app,
+     since URLSessionWebSocketTask doesn't negotiate permessage-deflate.
+   **The cheap win is yours and needs no code**: lowering
+   `HAY_SNAPSHOT_REPLAY_BYTES` (say to 300_000) would cut mobile opens roughly
+   5–8× and cost agent sessions NOTHING — alt-screen apps redraw in full, which
+   is why the reachable depth is 26 lines either way. It shortens restored
+   scrollback for plain shell sessions, which is the whole tradeoff.
+   The snapshot size and latency are now logged per open, so any change to that
+   env var can be verified from the phone rather than assumed.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
