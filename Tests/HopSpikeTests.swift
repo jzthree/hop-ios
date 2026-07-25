@@ -311,6 +311,18 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(findMatchRow(from: 9, direction: -1, needle: "", line: line))
     }
 
+    func testTheSessionYouAreWatchingNeverAlertsYou() {
+        // A banner over the terminal you're reading, for that terminal, is
+        // noise — and it inflates the badge for something already seen.
+        let list = [
+            session(["name": "watching", "bellSeq": 7], seen: ["watching": 6]),
+            session(["name": "elsewhere", "bellSeq": 3], seen: ["elsewhere": 2])
+        ]
+        XCTAssertEqual(list.filter(\.attention).count, 2, "both want attention")
+        XCTAssertEqual(alertable(list, openSession: "watching").map(\.name), ["elsewhere"])
+        XCTAssertEqual(alertable(list, openSession: nil).count, 2, "in the list, both still count")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

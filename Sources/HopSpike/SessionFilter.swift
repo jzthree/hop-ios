@@ -56,3 +56,11 @@ func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String
             || s.tagline.lowercased().contains(q)
     }
 }
+
+/// Sessions that should raise a notification or badge: those wanting attention,
+/// minus the one being watched right now. Notifying someone about the terminal
+/// they are looking at is noise, and it inflates the badge for a session they
+/// have already seen.
+func alertable(_ sessions: [HopSession], openSession: String?) -> [HopSession] {
+    sessions.filter { $0.attention && $0.internalName != openSession }
+}

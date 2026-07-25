@@ -32,6 +32,7 @@ struct HopApp: App {
                     await model.bootstrap()
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    model.foreground = phase == .active
                     // Ask for a background slot whenever we leave the
                     // foreground, so bells rung in a pocket still land.
                     if phase == .background { BackgroundRefresh.schedule() }

@@ -253,7 +253,15 @@ struct TerminalHostView: View {
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
                 if phase == .active, status == .closed { reconnectToken += 1 }
             }
-            .onAppear { model.markSeen(session) }
+            .onAppear {
+                model.openSession = session.internalName
+                model.markSeen(session)
+            }
+            .onDisappear {
+                // Guard the identity: switching sessions can appear-then-
+                // disappear, and a blind clear would wipe the new one.
+                if model.openSession == session.internalName { model.openSession = nil }
+            }
             .background(Color.black)
     }
 }

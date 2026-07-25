@@ -489,6 +489,20 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Extracting the fix hit the SwiftUI type-checker cliff a fourth time; the
    terminal's body is now split like SessionsView's, for the same reason.
 
+28. **Notified about the terminal you're looking at.** A bell rung while you
+   were watching a session produced a banner and a haptic OVER that session —
+   and then, because the seen marker was only written `.onAppear`, backing out
+   left a stale attention dot for something you'd just watched happen. Now the
+   marker stays current while the session is on screen, and alerts skip the
+   watched session (badge included).
+   The obvious fix has a trap worth naming: "watched" must mean watched RIGHT
+   NOW. Locking the phone with a terminal open leaves the session marked open,
+   so a naive version would suppress background notifications for precisely the
+   session you were waiting on — silencing the app's whole reason to exist.
+   Suppression is therefore gated on the app being in front, and the identity
+   is re-checked on disappear because switching sessions can appear-then-
+   disappear and a blind clear would wipe the new one. 28 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

@@ -177,7 +177,14 @@ final class AppModel: ObservableObject {
             // would show it as if it were live.
             let alive = Set(sessions.map(\.internalName))
             previews = previews.filter { alive.contains($0.key) }
-            HopNotifier.shared.report(attention: sessions.filter(\.attention))
+            // Watching a session counts as seeing its bells: keep the marker
+            // current so backing out doesn't leave a stale attention dot, and
+            // never banner the terminal that's on screen.
+            if let open = watching, let shown = sessions.first(where: { $0.internalName == open }),
+               seenBells[open] != shown.bellSeq {
+                markSeen(shown)
+            }
+            HopNotifier.shared.report(attention: alertable(sessions, openSession: watching))
             QuickActions.publish(sessions)
         } catch {
             // Network failure: keep the user where they are, surface the reason.
@@ -270,6 +277,19 @@ final class AppModel: ObservableObject {
             }
         return kept.suffix(wanted).joined(separator: "\n")
     }
+
+    /// The session currently on screen, if any. A bell from the terminal
+    /// you're staring at is not news.
+    var openSession: String?
+
+    /// Whether the app is actually in front. Without this, locking the phone
+    /// with a terminal open would keep suppressing that session's
+    /// notifications — silencing the exact session you were waiting on, which
+    /// is the app's whole reason to exist.
+    var foreground = true
+
+    /// The session being watched RIGHT NOW: only counts while in front.
+    private var watching: String? { foreground ? openSession : nil }
 
     func markSeen(_ session: HopSession) {
         var seen = seenBells
