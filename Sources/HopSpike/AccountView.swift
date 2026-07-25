@@ -50,7 +50,10 @@ struct AccountView: View {
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Sessions") {
-                        Text("\(model.sessions.count)").foregroundStyle(.secondary)
+                        // Excluding ports, because that is what "sessions"
+                        // means everywhere else in the app — a count here that
+                        // disagrees with the list is worse than no count.
+                        Text("\(model.terminalSessions.count)").foregroundStyle(.secondary)
                     }
                     if let err = model.lastError {
                         Label(err, systemImage: "exclamationmark.triangle.fill")

@@ -368,6 +368,10 @@ final class AppModel: ObservableObject {
     /// value keeps the terminal (and its "[session ended]" line) on screen.
     private(set) var lastKnown: [String: HopSession] = [:]
 
+    /// What the app means by "a session" everywhere the user can see: port
+    /// forwards are rows in hop's model but not terminals you open.
+    var terminalSessions: [HopSession] { sessions.filter { !$0.isPort } }
+
     /// The session currently on screen, if any. A bell from the terminal
     /// you're staring at is not news.
     var openSession: String?

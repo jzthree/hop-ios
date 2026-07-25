@@ -338,6 +338,12 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(list.filter(\.attention).count, 2, "both want attention")
         XCTAssertEqual(alertable(list, openSession: "watching").map(\.name), ["elsewhere"])
         XCTAssertEqual(alertable(list, openSession: nil).count, 2, "in the list, both still count")
+
+        // A port forward has no terminal and cannot ring; counting one would
+        // inflate a badge with nothing behind it to clear.
+        let withPort = list + [session(["name": "web", "type": "port", "bellSeq": 9],
+                                       seen: ["web": 0])]
+        XCTAssertEqual(alertable(withPort, openSession: nil).count, 2, "ports never alert")
     }
 
     func testAuthenticatorCodeIsCleanedAndBounded() {

@@ -226,6 +226,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Two more counts that disagreed with the list (iteration 76)
+
+Audited every place the app shows a number, using the lesson from #75 —
+displays get written against the data nearest to hand rather than the question
+being asked. Two more:
+
+- The Account sheet's **"Sessions"** row and Copy Diagnostics both counted
+  `sessions.count`, which INCLUDES port forwards, while the list excludes them.
+  A sheet saying 20 while the list shows 19 is worse than no number, because it
+  looks like something is missing. Both now use `terminalSessions` — what the
+  app means by "a session" everywhere the user can see.
+- `alertable` counted attention on ports too. A forwarded port has no terminal
+  to open and cannot ring, so a badge counting one would be uncleanable.
+  Excluded, with a test.
+
+Clean: the badge, quick actions and presence counts were already asking the
+right question.
+
 ## The summary agreed with whatever you'd filtered to (iteration 75)
 
 The fleet summary counted attention across the VISIBLE rows. So filtering to

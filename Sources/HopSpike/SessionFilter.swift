@@ -62,7 +62,9 @@ func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String
 /// they are looking at is noise, and it inflates the badge for a session they
 /// have already seen.
 func alertable(_ sessions: [HopSession], openSession: String?) -> [HopSession] {
-    sessions.filter { $0.attention && $0.internalName != openSession }
+    // Ports are excluded: a forwarded port has no terminal to open and cannot
+    // ring, so counting one would inflate a badge nobody could clear.
+    sessions.filter { $0.attention && !$0.isPort && $0.internalName != openSession }
 }
 
 /// A 6-digit authenticator code, cleaned. Authenticator apps and password
