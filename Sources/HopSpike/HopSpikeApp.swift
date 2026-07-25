@@ -13,6 +13,9 @@ extension Color {
     static let hopRaised = Color(hex: 0x161b22)       // nav bar, key bar
     static let hopKey = Color(hex: 0x272e38)          // key caps
     static let hopKeyArmed = Color(hex: 0x9d7bf5)     // armed modifier
+    /// Attention. Amber rather than red: red in a list of agent sessions reads
+    /// as "something failed", and a session wanting you usually hasn't.
+    static let hopAttention = Color(hex: 0xf0a53a)
 
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xff) / 255,

@@ -64,6 +64,10 @@ struct SessionsView: View {
                 Label("Kill", systemImage: "xmark.circle")
             }
         }
+        // On the ROW, not inside it: listRowBackground only takes effect on the
+        // element the List owns. A wash the width of the row is what makes the
+        // one that wants you findable while scrolling past nineteen.
+        .listRowBackground(session.attention ? Color.hopAttention.opacity(0.13) : nil)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { killTarget = session } label: {
                 Label("Kill", systemImage: "xmark.circle")
@@ -403,14 +407,22 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // The dot said two things at once — running/stopped AND wants-you —
+            // by ringing a green dot in red, which is easy to miss when you're
+            // scanning nineteen rows. Attention now OWNS the dot: amber, filled,
+            // with a soft halo. Liveness keeps green, and anything not wanting
+            // you stays quiet.
             ZStack {
-                Circle()
-                    .fill(session.live ? Color.green : Color.secondary.opacity(0.35))
-                    .frame(width: 9, height: 9)
                 if session.attention {
-                    Circle().stroke(Color.red, lineWidth: 2).frame(width: 15, height: 15)
+                    Circle().fill(Color.hopAttention.opacity(0.22)).frame(width: 22, height: 22)
+                    Circle().fill(Color.hopAttention).frame(width: 11, height: 11)
+                } else {
+                    Circle()
+                        .fill(session.live ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 9, height: 9)
                 }
             }
+            .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(session.name)
@@ -433,9 +445,7 @@ struct SessionRow: View {
                         Image(systemName: "cpu").font(.caption2)
                             .foregroundStyle(Color.hopGlow.opacity(0.8))
                     }
-                    if session.attention {
-                        Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.red)
-                    }
+
                 }
                 if !session.tagline.isEmpty {
                     Text(session.tagline).font(.caption).foregroundStyle(.secondary).lineLimit(1)

@@ -225,6 +225,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Attention had to be findable (iteration 62)
+
+The one state this app exists to surface was the quietest thing on screen: a
+green dot ringed in red, plus a small bell. Scanning nineteen rows, that is
+easy to miss — and if you miss it, the app has failed at its only job.
+
+- Attention now OWNS the status dot: filled amber with a soft halo, instead of
+  a red ring around a green dot that was trying to say two things at once.
+  Liveness keeps plain green; the redundant bell icon is gone.
+- The whole row carries a faint amber wash, so it is findable while scrolling
+  rather than only when you stop and look.
+- Amber, not red: red in a list of agent sessions reads as "something failed",
+  and a session wanting you usually hasn't.
+
+`listRowBackground` has to go on the element the List owns, not inside the row
+— applied nested it silently did nothing, which cost a screenshot to notice.
+
+Added `HOP_DEV_ATTENTION=1` (`make sim ATTN=1`) to force the state. Reviewing
+the design of the app's central state should not require waiting for an agent
+to ring.
+
 ### Same bug, other strip (iteration 61)
 
 The keyboard-down case had it too: the terminal ignored the bottom safe area,
