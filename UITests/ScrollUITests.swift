@@ -191,6 +191,32 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after reconnect")
     }
 
+    /// Swipe-to-reply, verified up to the point of sending — the dialog opens
+    /// and cancels. Deliberately does NOT send: input to a live agent session
+    /// could approve something, and no test is worth that.
+    func testSwipeToReplyOpensAndCancels() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        // The CELL containing the label, not the label: swipe actions belong
+        // to the row, and swiping a text element inside it does nothing.
+        let label = app.staticTexts["Orion"].firstMatch
+        XCTAssertTrue(label.waitForExistence(timeout: 25), "session list never loaded")
+        let row = app.cells.containing(.staticText, identifier: "Orion").element
+        row.swipeRight()
+        let reply = app.buttons["Reply"].firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 5), "leading swipe offered no Reply")
+        reply.tap()
+        XCTAssertTrue(app.textFields["Answer"].waitForExistence(timeout: 5),
+                      "Reply did not open a compose field")
+        app.buttons["Cancel"].tap()
+        XCTAssertFalse(app.textFields["Answer"].waitForExistence(timeout: 2),
+                       "Cancel left the dialog up")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")

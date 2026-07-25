@@ -257,6 +257,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Swipe to reply, and a lesson about discriminating tests (iteration 83)
+
+Swiping a session from the leading edge now offers **Reply** — the in-app twin
+of the lock-screen reply, sharing its send path, so a rejection or dead socket
+is reported rather than vanishing, and a success marks the session seen.
+
+Covered by a UI test that opens the compose field and CANCELS. It deliberately
+never sends: input to a live agent session could approve something, and no test
+is worth that.
+
+Getting there took three runs and the middle one is the useful lesson. When the
+swipe found nothing, the question was "harness or product?" — so I added a
+discriminator that swiped for the long-standing Kill/Rename actions. It
+reported false, which looked like "the harness can't see swipe actions"… except
+I'd swiped a staticText, which isn't the row. Swiping the CELL made the
+discriminator say true, proving the harness was fine — and then the leading
+swipe still failed, which turned out to be my test leaving the row already
+swiped open from the discriminator itself.
+
+A discriminating test that shares the flaw it's meant to rule out is worse than
+no discriminator: it produced a confident wrong answer ("harness limitation")
+that would have shipped an unverified feature.
+
 ## Reply to an agent from the lock screen (iteration 82)
 
 The most phone-shaped thing hop can do, and a browser tab cannot do it at all:
