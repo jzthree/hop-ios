@@ -6,7 +6,8 @@ import os
 final class HayClient: NSObject {
     enum Event {
         case connected
-        case output(String)          // raw terminal bytes (snapshot or live)
+        case output(String)
+        case snapshot(String)        // full replay: the terminal must be reset first          // raw terminal bytes (snapshot or live)
         case activeSize(Int, Int)    // cols, rows
         case presence([Viewer])      // who else is attached
         case collab(Bool, String?)   // everyone-can-type, controllerId
@@ -189,7 +190,9 @@ final class HayClient: NSObject {
                 Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                     .info("snapshot \(bytes / 1024) KB after \(ms) ms")
             }
-            if let payload = obj["data"] as? String { onEvent?(.output(payload)) }
+            if let payload = obj["data"] as? String {
+                onEvent?(type == "snapshot" ? .snapshot(payload) : .output(payload))
+            }
         case "active_size":
             // Coerced rather than `as? Int`: a JSON number arriving as a
             // Double silently yields nil, which is exactly the bug that once

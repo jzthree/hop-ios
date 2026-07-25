@@ -484,6 +484,18 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                 case .output(let data):
                     tv.feed(text: data)
+                case .snapshot(let data):
+                    // A snapshot is the whole session replayed, so it has to
+                    // land on a clean terminal. Feeding it into the existing
+                    // one duplicated history for shell sessions and let stale
+                    // state bleed across the reconnect — cursor column, SGR
+                    // attributes, alt-screen and mouse-reporting modes. hop's
+                    // web client resets for exactly this reason; the symptom it
+                    // records is mouse reports arriving as junk input
+                    // ("35;197;31M") at a prompt that never asked for them.
+                    // This path runs on EVERY return from background.
+                    tv.getTerminal().resetToInitialState()
+                    tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
                 case .collab(let everyone, let controllerId):

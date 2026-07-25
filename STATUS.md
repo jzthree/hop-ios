@@ -69,7 +69,11 @@ built and instrumented here but CANNOT be exercised without a hand on a phone.
    synthetic keystrokes that can hit other apps, so I stopped trying.
 10. **Low Data Mode** (Settings → Cellular): live previews should stop
     appearing; the list should still update, just slower.
-11. **VoiceOver.** Swipe through the list: each row should read as one sentence
+11. **Reconnect after a real suspend.** Open a shell session (not claude),
+    lock the phone for a minute, come back. History must not appear twice and
+    no junk like "35;197;31M" should land at the prompt. The simulator can't
+    reproduce this — it never truly suspends.
+12. **VoiceOver.** Swipe through the list: each row should read as one sentence
     starting with the name and "wants attention", never raw box-drawing.
 
 ## Spike test script (once installed)
@@ -628,6 +632,23 @@ LESSON: test against a REAL session with history, not a fresh probe.
    scrollback for plain shell sessions, which is the whole tradeoff.
    The snapshot size and latency are now logged per open, so any change to that
    env var can be verified from the phone rather than assumed.
+
+36. **Snapshots were replayed into a dirty terminal.** hop's web client calls
+   `term.reset()` before writing a snapshot and says why in a comment: stale
+   cursor column, SGR attributes, and leftover alt-screen / mouse-reporting
+   modes otherwise bleed across the reconnect — the symptom it records is mouse
+   reports landing as junk input ("35;197;31M") at a prompt that never asked
+   for them. We reset nothing: the replay was fed straight into the existing
+   terminal, which also DUPLICATES history for normal-buffer (shell) sessions,
+   since the tail gets appended a second time.
+   That path runs on every return from background, which on a phone is
+   constantly. Snapshots are now distinguished from ordinary output and land on
+   a terminal reset first (`resetToInitialState`, which rebuilds from options
+   and so keeps the 5000-line scrollback from #33).
+   Verification limit worth recording: the simulator does NOT truly suspend a
+   backgrounded app, so the socket survives and no reconnect happens — I
+   confirmed the first-snapshot path renders correctly but could not exercise
+   the reconnect one here. Added to the device checklist.
 
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
