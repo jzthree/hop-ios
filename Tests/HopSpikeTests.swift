@@ -259,6 +259,17 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(AccessoryKey.dismiss.sequence)
     }
 
+    func testPollingBacksOffOnCellularAndStopsPreviewsInLowDataMode() {
+        XCTAssertEqual(pollInterval(expensive: false, constrained: false), 5, "Wi-Fi keeps attention immediate")
+        XCTAssertGreaterThan(pollInterval(expensive: true, constrained: false), 5, "cellular costs the user money")
+        XCTAssertGreaterThan(pollInterval(expensive: true, constrained: true),
+                             pollInterval(expensive: true, constrained: false),
+                             "Low Data Mode is an explicit instruction, not a hint")
+        XCTAssertNotNil(previewInterval(expensive: true, constrained: false))
+        XCTAssertNil(previewInterval(expensive: false, constrained: true),
+                     "previews are a nicety and cost a render each — drop them in Low Data Mode")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

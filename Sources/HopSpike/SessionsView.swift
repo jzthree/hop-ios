@@ -12,6 +12,7 @@ struct SessionsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var notifier = HopNotifier.shared
+    @StateObject private var network = NetworkConditions.shared
 
     @State private var path: [String] = []
     @State private var filter = ""
@@ -185,7 +186,7 @@ struct SessionsView: View {
         guard scenePhase == .active else { return }
         while !Task.isCancelled {
             await model.refreshSessions(silent: true)
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: .seconds(network.sessionPollInterval))
         }
     }
 
@@ -194,9 +195,17 @@ struct SessionsView: View {
     private func pollPreviews() async {
         guard scenePhase == .active, path.isEmpty else { return }
         while !Task.isCancelled {
+            // nil = Low Data Mode: skip previews entirely. They're a nicety,
+            // and the only part of the list that costs a render per session.
+            // Idle rather than return, so switching Low Data Mode back off
+            // resumes them instead of waiting for the app to be backgrounded.
+            guard let every = network.previewPollInterval else {
+                try? await Task.sleep(for: .seconds(20))
+                continue
+            }
             let names: [String] = visible.compactMap { $0.live ? $0.internalName : nil }
             await model.refreshPreviews(for: names)
-            try? await Task.sleep(for: .seconds(9))
+            try? await Task.sleep(for: .seconds(every))
         }
     }
 

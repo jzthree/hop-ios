@@ -41,7 +41,11 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
   light/dark, jump-to-live, and session switching from the title.
 - **Attention** — a session that rings the terminal bell raises a dot, a
   haptic, and (opt-in) a local notification that opens straight to it.
-- **Resilience** — auto-reconnect on foreground and after drops with backoff;
+- **Good pocket citizen** — polling follows the network: 5s on Wi-Fi, backed
+  off on cellular, and Low Data Mode drops live previews entirely.
+- **Resilience** — input typed during an outage is buffered and replayed
+  (15s cap, so nothing stale lands late); auto-reconnect on foreground and
+  after drops with backoff;
   a network blip never logs you out; unreachable servers fail fast with a
   readable error instead of hanging.
 

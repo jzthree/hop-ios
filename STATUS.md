@@ -372,6 +372,19 @@ LESSON: test against a REAL session with history, not a fresh probe.
    .sequence`, so ESC[A/B/C/D and friends are pinned by a test rather than
    trusted. 22 tests.
 
+23. **Polling that knows what it's connected to.** The list refreshed every 5s
+   and previews every 9s regardless of network — on a cellular radio someone is
+   paying for, with a render per visible session, that's the app being a bad
+   guest in a pocket. NWPathMonitor now drives the cadence: Wi-Fi keeps 5s (so
+   attention still feels immediate), cellular backs off to 12s/25s, and Low
+   Data Mode goes to 30s and drops previews entirely — it's an explicit
+   instruction from the user, not a hint, and previews are the nicety half.
+   The intervals are a pure function with a test. Preview polling idles rather
+   than returns when suppressed, so switching Low Data Mode off resumes it
+   without needing the app backgrounded. 23 tests.
+   This is a native-only capability: a web page polls at whatever rate it was
+   written for.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
