@@ -68,15 +68,31 @@ install: build
 # app record in App Store Connect, and let Xcode make a distribution
 # certificate. After that `make testflight` is the whole loop; internal testers
 # get the build as soon as processing finishes, with no review.
+# The App Store Connect API key does double duty: it lets xcodebuild CREATE the
+# distribution profile (Xcode itself has no account signed in — "No Accounts" is
+# why plain -allowProvisioningUpdates fails) and then upload the build.
+#
+#   make testflight ISSUER=<issuer-uuid>
+#
+# ISSUER comes from App Store Connect -> Users and Access -> Integrations ->
+# App Store Connect API, shown as "Issuer ID" above the key list. The key
+# itself (AuthKey_CCFL4WD4V4.p8) is already in ~/.appstoreconnect/private_keys.
+ASC_KEY_ID ?= CCFL4WD4V4
+ASC_KEY_PATH ?= $(HOME)/.appstoreconnect/private_keys/AuthKey_$(ASC_KEY_ID).p8
+ASC_AUTH = -authenticationKeyPath $(ASC_KEY_PATH) \
+           -authenticationKeyID $(ASC_KEY_ID) \
+           -authenticationKeyIssuerID $(ISSUER)
+
 archive: gen
 	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
 	  -archivePath build/HopSpike.xcarchive $(VERSION_FLAGS)
 
 testflight: archive
+	@test -n "$(ISSUER)" || (echo "ISSUER=<uuid> required — see the comment above this target"; exit 1)
 	xcodebuild -exportArchive -archivePath build/HopSpike.xcarchive \
 	  -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates \
-	  -exportPath build/export
+	  $(ASC_AUTH) -exportPath build/export
 
 sim: simbuild
 	-xcrun simctl boot $(SIM) 2>/dev/null
