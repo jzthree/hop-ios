@@ -107,3 +107,22 @@ func wheelSequence(rows: Int, cols: Int, screenRows: Int, cap: Int = 40) -> Stri
     return String(repeating: "\u{1b}[<\(code);\(col);\(row)M",
                   count: min(abs(rows), cap))
 }
+
+/// The height of one DRAWN row.
+///
+/// Not `viewHeight / terminal.rows`: the local terminal is resized to whatever
+/// size the room elected, which is often a desktop peer's — hop runs one PTY
+/// at one size for everyone. A 50-row desktop leaves this phone drawing 23
+/// rows of that grid, and dividing by 50 makes every row of finger travel
+/// count as two. Scrolling then runs at twice the speed of the finger for as
+/// long as the desktop holds the size, which on a shared session is most of
+/// the time.
+///
+/// `drawnRows` comes from SwiftTerm's own sizeChanged, which reports what the
+/// view fits; it is 0 only before the first layout, when the terminal's own
+/// row count is the best guess available.
+func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> CGFloat {
+    let rows = drawnRows > 0 ? drawnRows : terminalRows
+    return max(1, viewHeight / CGFloat(max(1, rows)))
+}
+

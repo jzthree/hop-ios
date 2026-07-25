@@ -532,4 +532,21 @@ final class HopSpikeTests: XCTestCase {
         m.note("\u{1b}[?1047l")
         XCTAssertFalse(m.altScreen)
     }
+
+    func testScrollSpeedUsesTheROWSWEDRAW() {
+        // hop runs ONE PTY at one size for everyone, so this phone's terminal
+        // is often sized by a desktop peer. Dividing the view height by the
+        // terminal's row count then makes every row of finger travel count as
+        // two, and scrolling runs at double speed for as long as the desktop
+        // holds the size.
+        let phone = drawnCellHeight(viewHeight: 460, drawnRows: 23, terminalRows: 50)
+        XCTAssertEqual(phone, 20, accuracy: 0.01)
+        // Before the first layout there is nothing better than the terminal.
+        XCTAssertEqual(drawnCellHeight(viewHeight: 460, drawnRows: 0, terminalRows: 23),
+                       20, accuracy: 0.01)
+        // Degenerate sizes must not divide by zero or return zero: a zero cell
+        // turns one point of travel into an infinite number of rows.
+        XCTAssertEqual(drawnCellHeight(viewHeight: 0, drawnRows: 0, terminalRows: 0), 1)
+        XCTAssertGreaterThan(drawnCellHeight(viewHeight: 10, drawnRows: 1000, terminalRows: 0), 0)
+    }
 }

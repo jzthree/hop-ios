@@ -257,6 +257,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Scroll speed was tied to the wrong row count (iteration 95)
+
+hop runs ONE PTY at one size for everyone, and this app resizes its local
+terminal to whatever size the room elected — often a desktop peer's, since the
+election follows whoever typed last. The scroll math divided the view's height
+by `terminal.rows` to get a cell height. When a 50-row desktop holds the size
+and the phone is drawing 23 rows of that grid, that division is wrong by more
+than 2x, and every row of finger travel counts as two: scrolling runs at double
+speed for as long as the desktop holds the size.
+
+Now divides by what the view actually DRAWS, which SwiftTerm already reports
+through sizeChanged (the same number the attach claim is built from).
+
+Reasoned from the code and pinned by a unit test rather than observed live:
+reproducing it means having a peer actively type on a shared session while the
+phone attaches, and the only sessions available to do that with are other
+agents' real work.
+
 ## Who owns the screen, not what we happen to have (iteration 94)
 
 The three-way scroll rule was branching on "do we have local scrollback yet",

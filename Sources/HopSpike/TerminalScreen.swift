@@ -973,6 +973,7 @@ struct TerminalScreen: UIViewRepresentable {
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             fittedCols = newCols
             fittedRows = newRows
+            view?.drawnRows = newRows
             // Before the claim, record only. Sending now would reshape the PTY
             // at a height the keyboard is about to take away.
             guard claimed else { return }
@@ -1174,7 +1175,8 @@ final class HopTermView: TerminalView {
 
     private func applyScrollDebt() {
         let terminal = getTerminal()
-        let cell = max(1, bounds.height / CGFloat(max(1, terminal.rows)))
+        let cell = drawnCellHeight(viewHeight: bounds.height,
+                                   drawnRows: drawnRows, terminalRows: terminal.rows)
         let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
 
         switch sink {
@@ -1203,6 +1205,10 @@ final class HopTermView: TerminalView {
             if target != terminal.buffer.yDisp { scrollTo(row: target) }
         }
     }
+
+    /// What the view actually draws, which is not always what the terminal
+    /// says — see drawnCellHeight. Pushed in from SwiftTerm's sizeChanged.
+    var drawnRows = 0
 
     private var remote = RemoteModes()
     private var sink: ScrollSink {
