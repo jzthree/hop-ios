@@ -236,7 +236,7 @@ were never in it. Auditing interactions instead:
 | Landscape space | FIXED (#54) — chrome hidden, terminal takes the rest |
 | Dynamic Type | FIXED (#55) — names hyphenated mid-word at accessibility sizes ("Sol-/stice"); now shrink-then-truncate, and previews stop scaling so the list doesn't collapse to two rows |
 | Tap to re-raise the keyboard | FIXED as a side effect (#56) — see below |
-| Hardware keyboard | supported by SwiftTerm (pressesBegan maps ctrl/alt/shift/cmd + arrows); unverified on real hardware |
+| Hardware keyboard | plain keys + arrows VERIFIED via simulator key events (#104); ctrl combos unverifiable from XCUITest — it delivers mods=0 — so they stay on the device checklist |
 | Long-press selection + menu | needs a device (trade: drag-to-extend is gone) |
 | Pinch zoom | needs a device (#27 fixed the state bug) |
 | Real rotation | needs a device |
@@ -257,6 +257,37 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 (zero when it's down, since the bar goes with it). Now **fit 51x23 in 358pt**,
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
+
+## Hardware keyboard: half verified, and why only half (iteration 104)
+
+The interaction audit has listed hardware-keyboard support as "supported by
+SwiftTerm, unverified" since #55. The simulator delivers real key events, so
+this looked closable from here. Half of it was.
+
+**Verified against a live scratch session**: plain typing arrives (typed text
+reached the shell), and Up recalls shell history. Both go through the same
+`pressesBegan` path a Bluetooth keyboard would use.
+
+**Not verifiable from here**: control combos. `app.typeKey("c", modifierFlags:
+.control)` produced a literal `c` at the prompt, which looked exactly like a
+real bug — ctrl+C leaving a stray character is precisely what a keyboard case
+would suffer. Logging the raw UIPress settled it:
+
+```
+press keyCode=6 chars=c ignoring=c mods=0
+view sent bytes 99
+```
+
+`mods=0`: XCUITest never delivered the control modifier, so the app received a
+plain `c` and handled it correctly. **No bug — the harness was the bug.**
+
+Worth recording because the first run of this experiment DID interrupt a
+`sleep 300` with what looked like a real ^C, and I nearly wrote it up as
+"hardware ctrl+C verified". Then the same gesture produced a stray character
+twice running. Neither result was trustworthy; the byte-level log was.
+
+Control combos stay on the device checklist, now with the reason attached
+rather than just "unverified".
 
 ## The room was told the wrong background (iteration 103)
 
