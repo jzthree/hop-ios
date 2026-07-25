@@ -1,45 +1,113 @@
 import SwiftUI
 
+extension Color {
+    static let hopPurple = Color(red: 0x7c / 255, green: 0x3a / 255, blue: 0xed / 255)
+    static let hopGlow = Color(red: 0xa8 / 255, green: 0x55 / 255, blue: 0xf7 / 255)
+}
+
 @main
-struct HopSpikeApp: App {
+struct HopApp: App {
+    @StateObject private var model = AppModel()
+
     var body: some Scene {
         WindowGroup {
-            ConnectView()
+            RootView()
+                .environmentObject(model)
+                .tint(.hopPurple)
+                .task { await model.bootstrap() }
         }
     }
 }
 
-// Connection form: bridge URL + session name, persisted for quick relaunch.
-struct ConnectView: View {
-    @AppStorage("bridgeUrl") private var bridgeUrl = "ws://192.168.1.10:9877/ws"
-    @AppStorage("room") private var room = "Solstice"
-    @State private var connected = false
+struct RootView: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        if model.checkingAuth {
+            VStack(spacing: 12) {
+                Image(systemName: "hare.fill")
+                    .font(.system(size: 42))
+                    .foregroundStyle(Color.hopPurple)
+                ProgressView()
+            }
+        } else if model.authenticated {
+            SessionsView()
+        } else {
+            LoginView()
+        }
+    }
+}
+
+struct LoginView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var password = ""
+    @State private var totp = ""
+    @State private var busy = false
+    @FocusState private var focus: Field?
+    enum Field { case password, totp }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("hop bridge (tools/lan-bridge.mjs on the Mac)") {
-                    TextField("ws://mac-ip:9877/ws", text: $bridgeUrl)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
+            VStack(spacing: 28) {
+                Spacer()
+                VStack(spacing: 10) {
+                    Image(systemName: "hare.fill")
+                        .font(.system(size: 56))
+                        .foregroundStyle(Color.hopPurple.gradient)
+                        .shadow(color: .hopGlow.opacity(0.45), radius: 18)
+                    Text("hop")
+                        .font(.system(size: 40, weight: .bold, design: .monospaced))
+                    Text("terminals for humans + agents")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(spacing: 12) {
+                    TextField("server", text: $model.serverURL)
+                        .textContentType(.URL)
                         .keyboardType(.URL)
-                    TextField("session name", text: $room)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
+                        .padding(12)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                    SecureField("password", text: $password)
+                        .textContentType(.password)
+                        .focused($focus, equals: .password)
+                        .padding(12)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                    TextField("authenticator code", text: $totp)
+                        .textContentType(.oneTimeCode)
+                        .keyboardType(.numberPad)
+                        .focused($focus, equals: .totp)
+                        .padding(12)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
                 }
-                Section {
-                    Button("Attach") { connected = true }
-                        .frame(maxWidth: .infinity)
-                        .font(.headline)
+                .font(.system(.body, design: .monospaced))
+
+                if let err = model.lastError {
+                    Text(err).font(.footnote).foregroundStyle(.red)
                 }
+
+                Button {
+                    busy = true
+                    Task {
+                        await model.login(password: password, totp: totp)
+                        busy = false
+                    }
+                } label: {
+                    if busy {
+                        ProgressView().frame(maxWidth: .infinity).padding(6)
+                    } else {
+                        Text("Connect").font(.headline).frame(maxWidth: .infinity).padding(6)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(busy || totp.isEmpty)
+
+                Spacer()
+                Spacer()
             }
-            .navigationTitle("hop spike")
-            .navigationDestination(isPresented: $connected) {
-                TerminalScreen(url: bridgeUrl, room: room)
-                    .navigationTitle(room)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .ignoresSafeArea(.container, edges: .bottom)
-            }
+            .padding(.horizontal, 28)
         }
     }
 }

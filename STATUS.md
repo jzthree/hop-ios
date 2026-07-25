@@ -41,6 +41,18 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 3. Judge: keyboard feel (real keys, autocorrect/dictation, key repeat),
    scroll physics, latency vs the web client. That verdict gates v1.
 
+## v1 (2026-07-25): remote + native polish — ON DEVICE PENDING VERDICT
+- Direct hop.zhoulab.io: native login (POST /api/login, password+TOTP) → 7-day
+  session cookie in the app's URLSession → carried by REST + wss automatically.
+  No LAN bridge needed (tools/lan-bridge.mjs stays as dev fallback).
+- Native UI: hop-branded login (hare + wordmark, purple), sessions home screen
+  (attention-first sort, live dots, bell ring+icon, app capsules, ~cwd, relative
+  time, pull-to-refresh, 5s auto-refresh), terminal with nav state dot, key
+  accessory bar (esc/tab/sticky-ctrl/arrows/paste) above the iOS keyboard,
+  distinct haptics for bells vs keys. Display name: "hop".
+- Not yet: app icon asset, Face ID/keychain credential save, reconnect-in-place,
+  session create/rename/kill, push notifications (next big rock).
+
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)
 - [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle

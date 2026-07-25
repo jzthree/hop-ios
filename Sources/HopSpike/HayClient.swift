@@ -1,10 +1,9 @@
 import Foundation
 
 // Minimal client for the hay room protocol (see hop2/hay/README.md):
-// connect ws://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
-// Server->client: hello, snapshot, output, presence, collab, active_size,
-// session_ended... Client->server: input, resize, typing, ping.
-final class HayClient: NSObject, URLSessionWebSocketDelegate {
+// connect wss://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
+// Auth rides the URLSession's cookie storage (login sets the session cookie).
+final class HayClient: NSObject {
     enum Event {
         case connected
         case output(String)          // raw terminal bytes (snapshot or live)
@@ -14,35 +13,25 @@ final class HayClient: NSObject, URLSessionWebSocketDelegate {
     }
 
     private var task: URLSessionWebSocketTask?
-    private var session: URLSession?
     var onEvent: ((Event) -> Void)?
 
-    func connect(base: String, room: String, cols: Int, rows: Int) {
-        var comps = URLComponents(string: base)
+    func connect(base: String, room: String, cols: Int, rows: Int, using session: URLSession) {
+        var comps = URLComponents(string: base + "/ws")
         comps?.queryItems = [
             .init(name: "room", value: room),
-            .init(name: "name", value: "iphone"),
+            .init(name: "name", value: "iPhone"),
             .init(name: "cols", value: String(cols)),
             .init(name: "rows", value: String(rows))
         ]
         guard let url = comps?.url else { return }
-        let cfg = URLSessionConfiguration.default
-        cfg.waitsForConnectivity = true
-        let s = URLSession(configuration: cfg, delegate: self, delegateQueue: .main)
-        session = s
-        let t = s.webSocketTask(with: url)
+        let t = session.webSocketTask(with: url)
         task = t
         t.resume()
         receiveLoop()
     }
 
-    func sendInput(_ text: String) {
-        sendJSON(["type": "input", "data": text])
-    }
-
-    func sendResize(cols: Int, rows: Int) {
-        sendJSON(["type": "resize", "cols": cols, "rows": rows])
-    }
+    func sendInput(_ text: String) { sendJSON(["type": "input", "data": text]) }
+    func sendResize(cols: Int, rows: Int) { sendJSON(["type": "resize", "cols": cols, "rows": rows]) }
 
     func close() {
         task?.cancel(with: .goingAway, reason: nil)
@@ -60,9 +49,11 @@ final class HayClient: NSObject, URLSessionWebSocketDelegate {
             guard let self else { return }
             switch result {
             case .failure:
-                self.onEvent?(.closed)
+                DispatchQueue.main.async { self.onEvent?(.closed) }
             case .success(let message):
-                if case .string(let text) = message { self.handle(text) }
+                if case .string(let text) = message {
+                    DispatchQueue.main.async { self.handle(text) }
+                }
                 self.receiveLoop()
             }
         }
@@ -78,18 +69,11 @@ final class HayClient: NSObject, URLSessionWebSocketDelegate {
         case "snapshot", "output":
             if let payload = obj["data"] as? String { onEvent?(.output(payload)) }
         case "active_size":
-            if let c = obj["cols"] as? Int, let r = obj["rows"] as? Int {
-                onEvent?(.activeSize(c, r))
-            }
+            if let c = obj["cols"] as? Int, let r = obj["rows"] as? Int { onEvent?(.activeSize(c, r)) }
         case "session_ended":
             onEvent?(.ended((obj["message"] as? String) ?? "Session ended"))
         default:
             break
         }
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
-                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        onEvent?(.closed)
     }
 }
