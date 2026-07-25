@@ -225,6 +225,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Sticky modifiers: announced, and finally pressed (iteration 70)
+
+Continuing the "unexecuted code is where the bugs are" pass. ctrl and alt are
+the key bar's least visible feature and its most load-bearing — ctrl+something
+is how you interrupt, clear or search a terminal — and nothing had ever pressed
+them. Their armed state was communicated only by a background tint, which is
+invisible to VoiceOver AND to any test.
+
+They now set `accessibilityValue = "armed"`, which fixes both at once: a screen
+reader says it, and a UI test can assert it. `testCtrlArmsAndDisarms` passes —
+sticky ctrl arms on one tap and disarms on a second.
+
+Harness note for next time: XCUITest reports a nil `accessibilityValue` as `""`,
+not nil, so `XCTAssertNil` fails against working code. The first run failed on
+exactly that while the middle assertion — the one that mattered — passed.
+
 ## Push registered only once, ever (iteration 69)
 
 The registration added two iterations ago fired from `setEnabled` — the moment

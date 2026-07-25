@@ -1166,6 +1166,10 @@ final class HopTermView: TerminalView {
     var liveEdgeRow: Int { getTerminal().buffer.yDisp + getTerminal().rows }
 
     func setAltArmed(_ armed: Bool) {
+        // Announce the state, don't just colour it: a sticky modifier whose
+        // only signal is a background tint is invisible to VoiceOver, and to
+        // any test that would catch it silently breaking.
+        altButton?.accessibilityValue = armed ? "armed" : nil
         altButton?.configuration?.baseForegroundColor = armed ? .black : .white
         altButton?.configuration?.background.backgroundColor =
             armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey
@@ -1177,6 +1181,7 @@ final class HopTermView: TerminalView {
     }
 
     func setCtrlArmed(_ armed: Bool) {
+        ctrlButton?.accessibilityValue = armed ? "armed" : nil
         ctrlButton?.configuration?.baseForegroundColor = armed ? .black : .white
         ctrlButton?.configuration?.background.backgroundColor =
             armed ? UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1) : .hopKey

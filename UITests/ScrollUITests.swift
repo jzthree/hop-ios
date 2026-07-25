@@ -56,6 +56,21 @@ final class ScrollUITests: XCTestCase {
     // fails whatever the app does. Testing the OS's menu presentation isn't
     // this suite's job; selection stays on the device checklist.
 
+    /// Sticky modifiers are the key bar's least visible feature and its most
+    /// load-bearing: ctrl+something is how you interrupt, clear, or search a
+    /// terminal. Nothing had ever pressed this key.
+    func testCtrlArmsAndDisarms() throws {
+        let app = launchIntoSession("Orion")
+        let ctrl = app.buttons["control"]
+        XCTAssertTrue(ctrl.waitForExistence(timeout: 25))
+        // XCUITest reports a nil accessibilityValue as "", not nil.
+        XCTAssertEqual(ctrl.value as? String, "", "starts unarmed")
+        ctrl.tap()
+        XCTAssertEqual(ctrl.value as? String, "armed", "one tap arms it")
+        ctrl.tap()
+        XCTAssertEqual(ctrl.value as? String, "", "tapping again disarms rather than sticking")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")
