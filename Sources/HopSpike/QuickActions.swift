@@ -67,7 +67,7 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
 
     func windowScene(_ windowScene: UIWindowScene,
                      performActionFor shortcutItem: UIApplicationShortcutItem) async -> Bool {
-        await QuickActions.handle(shortcutItem)
+        QuickActions.handle(shortcutItem)
         return true
     }
 }

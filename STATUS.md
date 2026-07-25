@@ -144,6 +144,31 @@ Parity is complete except the two deliberate omissions. Everything in **bold**
 was added after the first matrix was written, most of it found by reading hop's
 server and web client rather than by inspecting our own UI.
 
+## Crash-safety + concurrency audit (iteration 49)
+
+Force-unwrap sweep: one `try!` (a literal regex in Links.swift, exercised by
+five tests) and one `Int.max / 2` passed to SwiftTerm's `scrollTo`, which clamps
+with `min(row, maxScrollback)` before any arithmetic. Every `removeLast`,
+`removeFirst` and `dropFirst` is guarded by the check immediately above it, and
+`prefix`/`suffix` clamp by definition. No unchecked indexing anywhere. Clean.
+
+Then built with `SWIFT_STRICT_CONCURRENCY=complete`, which found **a real race
+I introduced in #33**: the scrollback-depth diagnostic ran in a bare `Task`, so
+it walked SwiftTerm's buffer — plain arrays, main-actor-isolated — from a
+background thread while the feed was writing into it. A logging line quietly
+reading a live data structure from the wrong thread; the kind of thing that
+crashes on a device under load and never in a simulator. Now `@MainActor`.
+
+**67 warnings remain and are deliberately left.** Nearly all are one pattern:
+HayClient's event callback is nonisolated while calling main-actor UIKit, having
+been dispatched through `DispatchQueue.main.async`. That is correct at runtime
+but unprovable to the compiler. The obvious "fix" — switching to
+`Task { @MainActor in }` — would **break FIFO ordering of terminal output**,
+because separate Tasks carry no ordering guarantee, and out-of-order output
+corrupts the display. The right fix is `MainActor.assumeIsolated` at each
+dispatch site plus a `@MainActor` callback type; it buys Swift 6 readiness and
+nothing at runtime, so it's debt recorded rather than churn taken.
+
 # Reference — how it got here
 
 ## Spike test script (once installed)

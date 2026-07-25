@@ -327,7 +327,7 @@ struct TerminalScreen: UIViewRepresentable {
                                              action: #selector(Coordinator.handlePinch(_:)))
         tv.addGestureRecognizer(pinch)
         context.coordinator.attach(view: tv)
-        tv.becomeFirstResponder()
+        _ = tv.becomeFirstResponder()
         return tv
     }
 
@@ -470,7 +470,13 @@ struct TerminalScreen: UIViewRepresentable {
                     // the number that decides whether find and copy-all can
                     // reach anything, so it's worth being able to look it up
                     // rather than assume.
-                    Task { [weak self] in
+                    // @MainActor, not a bare Task: SwiftTerm's Terminal is
+                    // main-actor-isolated and its buffer is plain arrays, so
+                    // walking it off the main thread races the feed writing
+                    // into it. Strict-concurrency checking caught this; it was
+                    // a diagnostic log quietly reading a live data structure
+                    // from the wrong thread.
+                    Task { @MainActor [weak self] in
                         try? await Task.sleep(for: .seconds(3))
                         guard let self, let t = self.view?.getTerminal() else { return }
                         // yBase is internal in SwiftTerm, so count what the
