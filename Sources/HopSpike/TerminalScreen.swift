@@ -46,9 +46,13 @@ struct TerminalHostView: View {
     /// Set when the session is gone for good — ended, or a room the server no
     /// longer has. A red line buried in the scrollback is easy to miss when
     /// you've just tapped in expecting a live terminal.
-    @State private var goneReason: String? =
-        ProcessInfo.processInfo.environment["HOP_DEV_GONE"] == "1"
-        ? "Session terminated" : nil
+    @State private var goneReason: String? = {
+#if DEBUG
+        ProcessInfo.processInfo.environment["HOP_DEV_GONE"] == "1" ? "Session terminated" : nil
+#else
+        nil
+#endif
+    }()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.verticalSizeClass) private var verticalSize
     @Environment(\.dismiss) private var dismiss

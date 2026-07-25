@@ -26,7 +26,13 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             Task {
                 let granted = (try? await UNUserNotificationCenter.current()
                     .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-                if !granted { enabled = false }
+                if !granted { enabled = false; return }
+                // EVERY launch, not just the first opt-in. APNs tokens change
+                // on reinstall, restore-from-backup and some iOS updates, and
+                // Apple's guidance is to re-register each launch and refresh
+                // the server's copy. Registering only on the toggle meant the
+                // token silently went stale the moment the app was relaunched.
+                PushRegistry.shared.register()
             }
         }
     }

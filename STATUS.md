@@ -225,6 +225,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Push registered only once, ever (iteration 69)
+
+The registration added two iterations ago fired from `setEnabled` — the moment
+you toggle notifications on — and nowhere else. So the device token was
+obtained exactly once and never refreshed. APNs tokens change on reinstall,
+restore-from-backup and some iOS updates, and Apple's guidance is to register
+on EVERY launch and refresh the server's copy each time. As written, push would
+have worked once and then silently stopped, with a stale token nobody could see
+was stale — the same shape as every other failure this project has hit.
+Registration now runs at launch whenever notifications are granted.
+
+Also gated the two dev flags that fake app state (`HOP_DEV_ATTENTION` invents
+attention, `HOP_DEV_GONE` invents an ended session) behind `#if DEBUG`, joining
+the dev cookie. Flags that only pick a screen or a filter are inert and stay.
+
 ## The app icon would have failed TestFlight (iteration 68)
 
 Chasing Release-build warnings before the first upload found a blocker, not a

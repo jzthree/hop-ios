@@ -199,11 +199,14 @@ final class AppModel: ObservableObject {
             if seeded { seenBells = seen }
             // HOP_DEV_ATTENTION=1 forces the first session into the attention
             // state: otherwise the design of the thing the app is FOR can only
-            // be reviewed by waiting for an agent to ring.
+            // be reviewed by waiting for an agent to ring. DEBUG-only — it
+            // fakes app state, which has no place in a shipping build.
+#if DEBUG
             if ProcessInfo.processInfo.environment["HOP_DEV_ATTENTION"] == "1", let first = raw.first,
                let key = (first["internalName"] as? String) ?? (first["name"] as? String) {
                 seen[key] = (jsonInt(first["bellSeq"]) ?? 0) - 1   // -1 is fine: any bellSeq beats it
             }
+#endif
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             authenticated = true
