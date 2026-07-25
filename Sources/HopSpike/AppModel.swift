@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 // One shared model: server URL, auth state, cookie-carrying URLSession used by
 // BOTH the REST calls and the terminal WebSocket (login's Set-Cookie rides
@@ -14,6 +15,10 @@ final class AppModel: ObservableObject {
     @Published var checkingAuth = true
     @Published var sessions: [HopSession] = []
     @Published var lastError: String?
+    /// Set when a cookie we HAD was rejected — i.e. the 7-day session ran out,
+    /// as opposed to never having signed in. The difference is the difference
+    /// between "did something break?" and "ah, it's been a week".
+    @Published var sessionExpired = false
     /// Set by the terminal's title menu to jump straight to another session
     /// without popping back to the list.
     @Published var requestedSession: String?
@@ -115,6 +120,7 @@ final class AppModel: ObservableObject {
             let (data, resp) = try await urlSession.data(for: req)
             let ok = (resp as? HTTPURLResponse)?.statusCode == 200
             if ok {
+                sessionExpired = false
                 authenticated = true
                 await refreshSessions(silent: true)
             } else {
@@ -133,6 +139,13 @@ final class AppModel: ObservableObject {
     func refreshSessions(silent: Bool = false) async {
         guard let url = baseURL?.appendingPathComponent("api/sessions") else { return }
         let epoch = authEpoch
+        // Whether we're presenting a session cookie must be read BEFORE the
+        // request: a rejected one comes back with a Set-Cookie that clears it,
+        // so by the time we handle the failure the jar is already empty and
+        // "expired" is indistinguishable from "never signed in".
+        let hadSessionCookie = baseURL
+            .flatMap { HTTPCookieStorage.shared.cookies(for: $0) }?
+            .contains { $0.name == "tunnel_session" } ?? false
         var listReq = URLRequest(url: url)
         listReq.timeoutInterval = 12
         if let token = accessToken { listReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
@@ -146,6 +159,16 @@ final class AppModel: ObservableObject {
             // session and hid the real error.
             let isJSON = (http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("json")
             if http.statusCode == 401 || http.statusCode == 403 || (!isJSON && http.statusCode == 200) {
+                // Distinguish "expired" from "never signed in" by whether we
+                // actually presented a cookie, and drop the dead one so it
+                // can't keep failing quietly in the jar.
+                if hadSessionCookie {
+                    sessionExpired = true
+                    if let url = baseURL, let stale = HTTPCookieStorage.shared.cookies(for: url)?
+                        .first(where: { $0.name == "tunnel_session" }) {
+                        HTTPCookieStorage.shared.deleteCookie(stale)   // dead, don't keep presenting it
+                    }
+                }
                 authenticated = false
                 return
             }

@@ -154,6 +154,16 @@ struct LoginView: View {
                 }
                 .toggleStyle(.switch)
 
+                if model.sessionExpired && model.lastError == nil {
+                    // fixedSize, or a Label silently truncates to one line
+                    // and eats the explanation it exists to give.
+                    Label("Session expired — hop signs you out after 7 days.",
+                          systemImage: "clock.arrow.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let err = model.lastError {
                     Text(err).font(.footnote).foregroundStyle(.red)
                 }

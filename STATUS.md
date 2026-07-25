@@ -587,6 +587,25 @@ LESSON: test against a REAL session with history, not a fresh probe.
      use, which is the number that actually matters. The reachable depth is
      logged per session open.
 
+34. **Exercised the 7-day expiry — the one failure you're guaranteed to hit.**
+   Fed the app a garbage session cookie. Good news first: it lands cleanly on
+   the login screen, keyboard up, no hang, no spinner, no confusing error.
+   But it arrived with NO explanation, which reads as "something broke" rather
+   than "it's been a week", so the login screen now says so — and only when a
+   cookie we HELD was rejected, never on a first run.
+   Two things that took measurement rather than reasoning:
+   - hop answers an invalid token with **200 and an HTML login page**, not 401
+     (confirmed by curl). The client already handled that; worth knowing.
+   - The obvious implementation didn't work, and the log said why: the rejected
+     response carries a Set-Cookie that CLEARS the cookie, so by the time the
+     failure is handled the jar is empty and "expired" is indistinguishable
+     from "never signed in". The check now reads cookie state BEFORE the
+     request. General lesson: test a precondition before the operation that
+     destroys it.
+   - And the first working version silently TRUNCATED to "…7 da…", because a
+     SwiftUI Label won't wrap without fixedSize. Three screenshots to get one
+     sentence on screen correctly.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
