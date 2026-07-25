@@ -226,6 +226,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The headline feature shipped off, three taps deep (iteration 80)
+
+Bell notifications are the reason to have this on a phone instead of a browser
+tab — and they defaulted to OFF, behind `⋯ → Bell notifications`. Anyone who
+didn't already know they existed would never find them, which for the first
+TestFlight install means the app's whole point is invisible.
+
+It now asks once, ever, and asks IN CONTEXT: after the session list has actually
+loaded, so the offer arrives with your sessions behind it rather than against an
+empty screen at launch. `@AppStorage` remembers the asking, not the answer, so
+declining is respected permanently and there's no nagging. Skipped entirely if
+notifications are already on.
+
+Verified from a clean install (uninstalled the simulator app first, since
+first-run is another state that can't be reached on demand once it's past).
+
 ## Every reconnect cost two connections (iteration 79)
 
 Reviewing HayClient's socket lifecycle: `close()` cancelled the task but left

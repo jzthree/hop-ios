@@ -31,6 +31,11 @@ struct SessionsView: View {
     @AppStorage("groupByProject") private var groupByProject = false
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var contentMatches: [ContentMatch] = []
+    /// Asked once, ever. The whole point of this app is being told when an
+    /// agent wants you, and that shipped OFF and three taps deep in a menu —
+    /// so the one person who'd benefit had to already know it existed.
+    @AppStorage("askedAboutNotifications") private var askedAboutNotifications = false
+    @State private var offerNotifications = false
 
     // MARK: data
 
@@ -219,6 +224,12 @@ struct SessionsView: View {
                     }
                 }
                 .refreshable { await model.refreshSessions() }
+                .alert("Get told when a session wants you?", isPresented: $offerNotifications) {
+                    Button("Turn on") { Task { await notifier.setEnabled(true) } }
+                    Button("Not now", role: .cancel) {}
+                } message: {
+                    Text("A bell from an agent raises a notification, a badge, and a haptic — the reason to have this on a phone rather than a tab.")
+                }
                 .sheet(isPresented: $showAccount) {
                     // .medium clipped the last row once diagnostics arrived;
                     // sized to the content instead of a fixed half-sheet.
@@ -242,6 +253,18 @@ struct SessionsView: View {
                 .task(id: scenePhase) { await pollSessions() }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
                 .task { await openPendingSession() }
+                .task {
+                    // Once the list is up, not at launch: asking before there's
+                    // anything on screen is asking about nothing. Waits for
+                    // real sessions so the offer lands in context.
+                    guard !askedAboutNotifications, !notifier.enabled else { return }
+                    for _ in 0..<20 where model.sessions.isEmpty {
+                        try? await Task.sleep(for: .milliseconds(400))
+                    }
+                    guard !model.sessions.isEmpty else { return }
+                    askedAboutNotifications = true
+                    offerNotifications = true
+                }
                 .task(id: filter) { await searchContent() }
         }
     }
