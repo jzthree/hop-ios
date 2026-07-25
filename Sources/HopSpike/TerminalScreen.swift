@@ -93,7 +93,11 @@ struct TerminalHostView: View {
         screen
             .padding(.horizontal, 5)
             .padding(.bottom, accessoryInset)
-            .ignoresSafeArea(.container, edges: .bottom)
+            // Deliberately NOT ignoring the bottom safe area. Doing so let the
+            // terminal run under the home indicator with the keyboard down, and
+            // autofit counted those rows too — the same defect as the key bar,
+            // a different strip. Last lines behind a system control is worse
+            // than a 34pt margin.
             .onReceive(NotificationCenter.default.publisher(
                 for: UIResponder.keyboardWillChangeFrameNotification)) { note in
                 // The keyboard's own height is already handled; what's missing

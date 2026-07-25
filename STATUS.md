@@ -225,6 +225,19 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+### Same bug, other strip (iteration 61)
+
+The keyboard-down case had it too: the terminal ignored the bottom safe area,
+so autofit counted rows under the HOME INDICATOR. Measured before/after by
+dismissing the keyboard from the UI test and reading the layout log:
+**724pt now, ~775pt before** — about two rows that were sitting behind a system
+control. Keyboard-up is unchanged at 358pt/23 rows, since the keyboard covers
+that strip anyway.
+
+The pattern in both: a terminal autofits to its FRAME, so anything overlapping
+the frame silently steals the bottom rows — which are the live end of the
+session. Worth checking whenever chrome is added near the bottom edge.
+
 ## Delivering over cellular (iteration 60)
 
 The signing profile says `TimeToLive = 365` (expires 2027-07-25) — a PAID
