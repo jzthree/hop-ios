@@ -34,6 +34,9 @@ struct TerminalHostView: View {
     @State private var scrolledUp = false
     @State private var links: [String] = []
     @State private var showLinks = false
+    /// Renaming happens on the desktop too; without this the title here stays
+    /// wrong until the next list refresh.
+    @State private var renamedTitle: String?
     @Environment(\.scenePhase) private var scenePhase
     enum ConnState { case connecting, live, closed }
 
@@ -62,6 +65,7 @@ struct TerminalHostView: View {
                            if found.isEmpty { toast = "No links on screen" } else { showLinks = true }
                        },
                        onFontChange: { setFont($0) },
+                       onRenamed: { renamedTitle = $0 },
                        onPresence: { viewers = $0 },
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
@@ -162,7 +166,7 @@ struct TerminalHostView: View {
                         Circle()
                             .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
                             .frame(width: 8, height: 8)
-                        Text(session.name)
+                        Text(renamedTitle ?? session.name)
                             .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                         if lockedByOther {
                             Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
@@ -292,6 +296,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onToast: (String) -> Void = { _ in }
     var onLinks: ([String]) -> Void = { _ in }
     var onFontChange: (Double) -> Void = { _ in }
+    var onRenamed: (String) -> Void = { _ in }
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
@@ -300,7 +305,7 @@ struct TerminalScreen: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
-                    onFontChange: onFontChange,
+                    onFontChange: onFontChange, onRenamed: onRenamed,
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
     }
 
@@ -410,6 +415,7 @@ struct TerminalScreen: UIViewRepresentable {
         private let onToast: (String) -> Void
         private let onLinks: ([String]) -> Void
         private let onFontChange: (Double) -> Void
+        private let onRenamed: (String) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
         private let onScroll: (Bool) -> Void
@@ -424,6 +430,7 @@ struct TerminalScreen: UIViewRepresentable {
              onToast: @escaping (String) -> Void,
              onLinks: @escaping ([String]) -> Void,
              onFontChange: @escaping (Double) -> Void,
+             onRenamed: @escaping (String) -> Void,
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
              onScroll: @escaping (Bool) -> Void,
@@ -432,6 +439,7 @@ struct TerminalScreen: UIViewRepresentable {
             self.onToast = onToast
             self.onLinks = onLinks
             self.onFontChange = onFontChange
+            self.onRenamed = onRenamed
             self.onPresence = onPresence
             self.onCollab = onCollab
             self.wsBase = wsBase
@@ -461,6 +469,12 @@ struct TerminalScreen: UIViewRepresentable {
                     self.onCollab(everyone, mine, !everyone && !mine && controllerId != nil)
                 case .rejected(let reason):
                     self.onToast(reason)
+                case .renamed(let name):
+                    self.onRenamed(name)
+                case .serverError(let message):
+                    self.onToast(message)
+                    Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
+                        .error("server rejected a message: \(message, privacy: .public)")
                 case .activeSize(let cols, let rows):
                     if tv.getTerminal().cols != cols || tv.getTerminal().rows != rows {
                         tv.getTerminal().resize(cols: cols, rows: rows)

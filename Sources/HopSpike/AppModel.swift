@@ -307,18 +307,21 @@ final class AppModel: ObservableObject {
     }
 }
 
+/// Shared with HayClient: the same coercion applies to every JSON number the
+/// app reads, over HTTP or over the socket.
+///
 /// JSON numbers arrive as Int or Double depending on the encoder, and a
 /// straight `as? Double` / `as? Int` silently yields nil for the other form —
 /// which would zero out lastActivityAt (breaking ordering) or bellSeq
 /// (breaking attention) with no error anywhere. Coerce instead.
-private func jsonDouble(_ any: Any?) -> Double? {
+func jsonDouble(_ any: Any?) -> Double? {
     if let d = any as? Double { return d }
     if let i = any as? Int { return Double(i) }
     if let n = any as? NSNumber { return n.doubleValue }
     return nil
 }
 
-private func jsonInt(_ any: Any?) -> Int? {
+func jsonInt(_ any: Any?) -> Int? {
     if let i = any as? Int { return i }
     if let d = any as? Double { return Int(d) }
     if let n = any as? NSNumber { return n.intValue }

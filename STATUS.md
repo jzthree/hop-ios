@@ -538,6 +538,22 @@ LESSON: test against a REAL session with history, not a fresh probe.
    instantly in a screenshot, invisible to the compiler and the tests.
    29 tests.
 
+31. **Four server messages were being dropped on the floor.** hop's server
+   sends twelve message types; we handled eight. The two that mattered:
+   - `error` — the server sends this when WE send something it can't parse.
+     Dropping it meant a protocol drift after any hop update would break input
+     with no signal anywhere: no toast, no log, nothing to grep. It now toasts
+     and logs at error level.
+   - `session_renamed` — renaming from the desktop left the phone's title stale
+     until the next list refresh. The title now updates live.
+   `pong` and `cwd_changed` are explicitly ignored (we never ping; the list
+   refresh carries cwd), and anything genuinely unknown now logs — naming what
+   we ignore is how the NEXT protocol addition gets noticed instead of joining
+   these four. Verified against the live daemon: no unhandled types, no errors.
+   Also applied #13's lesson to `active_size`, which still used `as? Int` — the
+   coercion helpers are now shared between the HTTP and socket paths rather
+   than living privately in one of them. 29 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

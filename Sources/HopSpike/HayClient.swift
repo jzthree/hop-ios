@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Minimal client for the hay room protocol (see hop2/hay/README.md):
 // connect wss://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
@@ -15,6 +16,8 @@ final class HayClient: NSObject {
         // device isn't allowed in. Backing off forever against a 404 just
         // burns radio and repeats the same error at the user.
         case failed(String, permanent: Bool)
+        case renamed(String)         // display name changed elsewhere
+        case serverError(String)     // the server rejected something we sent
         case closed
     }
 
@@ -176,11 +179,28 @@ final class HayClient: NSObject {
         case "snapshot", "output":
             if let payload = obj["data"] as? String { onEvent?(.output(payload)) }
         case "active_size":
-            if let c = obj["cols"] as? Int, let r = obj["rows"] as? Int { onEvent?(.activeSize(c, r)) }
+            // Coerced rather than `as? Int`: a JSON number arriving as a
+            // Double silently yields nil, which is exactly the bug that once
+            // zeroed lastActivityAt and bellSeq.
+            if let c = jsonInt(obj["cols"]), let r = jsonInt(obj["rows"]) {
+                onEvent?(.activeSize(c, r))
+            }
+        case "session_renamed":
+            if let name = obj["displayName"] as? String, !name.isEmpty { onEvent?(.renamed(name)) }
+        case "error":
+            // The server sends this when WE send something it can't parse. It
+            // was being dropped, so a protocol drift after a hop update would
+            // have broken input with no signal anywhere.
+            onEvent?(.serverError((obj["message"] as? String) ?? "Server rejected a message"))
         case "session_ended":
             onEvent?(.ended((obj["message"] as? String) ?? "Session ended"))
+        case "pong", "cwd_changed":
+            break        // pong: we never ping. cwd: the list refresh carries it.
         default:
-            break
+            // Naming what we ignore is how the next protocol addition gets
+            // noticed instead of silently dropped, as these four were.
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
+                .info("unhandled server message \(type, privacy: .public)")
         }
     }
 }
