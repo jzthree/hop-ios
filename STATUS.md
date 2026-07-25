@@ -814,6 +814,16 @@ LESSON: test against a REAL session with history, not a fresh probe.
    comment there saying so. This is the same class of mistake as editing a
    build artefact: it works locally until something regenerates.
 
+46. **White flash on launch, on a light-mode phone.** The app forces dark mode,
+   but a LAUNCH screen follows the system appearance, and `UILaunchScreen: {}`
+   names no colour — so on a phone set to light mode, opening hop showed a full
+   WHITE screen before the dark UI appeared. Verified by setting the simulator
+   to light and screenshotting mid-launch: solid white. Now backed by a black
+   colour asset; re-verified in light mode: black, no flash.
+   This one is invisible if you only ever test in dark mode, which is what I'd
+   been doing for 45 iterations — `xcrun simctl ui <sim> appearance light` is
+   worth remembering.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

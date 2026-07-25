@@ -26,7 +26,11 @@ targets:
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         HopGitDescribe: $(HOP_GIT_DESCRIBE)
-        UILaunchScreen: {}
+        # The app forces dark mode, but a launch screen follows the SYSTEM
+        # appearance — with no colour named, opening hop on a light-mode phone
+        # flashed a full white screen before the dark UI appeared.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
