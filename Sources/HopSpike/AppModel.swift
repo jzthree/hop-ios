@@ -277,6 +277,32 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// hop can search the scrollback of every session at once. The local
+    /// filter only matches names, cwds and taglines — but the question you
+    /// actually have on a phone is "which session mentioned that error", and
+    /// you can't answer it by opening thirty terminals.
+    func searchContent(_ query: String) async -> [ContentMatch] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { return [] }
+        guard var comps = baseURL.map({ $0.appendingPathComponent("api/sessions/search") })
+            .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return [] }
+        comps.queryItems = [.init(name: "q", value: q)]
+        guard let url = comps.url else { return [] }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["matches"] as? [[String: Any]] else { return [] }
+        return raw.compactMap { m in
+            guard let internalName = m["internalName"] as? String else { return nil }
+            return ContentMatch(internalName: internalName,
+                                name: (m["name"] as? String) ?? internalName,
+                                snippet: (m["snippet"] as? String) ?? "")
+        }
+    }
+
     private func fetchPreview(_ internalName: String) async -> String? {
         guard var comps = baseURL.map({ $0.appendingPathComponent("api/sessions/preview") })
             .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
@@ -362,6 +388,14 @@ func jsonInt(_ any: Any?) -> Int? {
     if let d = any as? Double { return Int(d) }
     if let n = any as? NSNumber { return n.intValue }
     return nil
+}
+
+/// A hit from hop's cross-session scrollback search.
+struct ContentMatch: Identifiable {
+    let internalName: String
+    let name: String
+    let snippet: String
+    var id: String { internalName }
 }
 
 struct HopSession: Identifiable {

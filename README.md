@@ -33,7 +33,9 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
   there.
 - **Session list** — attention-first, with taglines, working directory, running
   app, relative time, and a 3-line live preview of each session's screen.
-  Filter, and scope to You / Agents / All. Create, rename, kill, and toggle
+  Filter by name, cwd, app or tagline — or search the OUTPUT of every session
+  at once (hop scans server-side and returns snippets). Scope to You / Agents
+  / All. Create, rename, kill, and toggle
   agent (MCP) access.
 - **Terminal** — SwiftTerm over hop's WebSocket, with the native keyboard plus
   a key bar (esc, tab, sticky ctrl, alt/meta, ^C, arrows, `| / - ~`, PgUp/PgDn,

@@ -15,7 +15,7 @@ struct SessionsView: View {
     @StateObject private var network = NetworkConditions.shared
 
     @State private var path: [String] = []
-    @State private var filter = ""
+    @State private var filter = ProcessInfo.processInfo.environment["HOP_DEV_FILTER"] ?? ""
     @State private var scope: SessionScope = {
         switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
         case "all": return .all
@@ -30,6 +30,7 @@ struct SessionsView: View {
     @State private var killTarget: HopSession?
     @AppStorage("groupByProject") private var groupByProject = false
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
+    @State private var contentMatches: [ContentMatch] = []
 
     // MARK: data
 
@@ -95,7 +96,23 @@ struct SessionsView: View {
                     if !section.label.isEmpty { Text(section.label) }
                 }
             }
-            if visible.isEmpty {
+            if !contentMatches.isEmpty {
+                Section("Found in output") {
+                    ForEach(contentMatches) { match in
+                        NavigationLink(value: match.internalName) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(match.name)
+                                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                                Text(match.snippet)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            }
+            if visible.isEmpty && contentMatches.isEmpty {
                 Section {
                     EmptyStateView(
                         filtering: !filter.isEmpty,
@@ -180,10 +197,26 @@ struct SessionsView: View {
                 .task(id: scenePhase) { await pollSessions() }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
                 .task { await openDevSessionIfRequested() }
+                .task(id: filter) { await searchContent() }
         }
     }
 
     // MARK: actions
+
+    /// Content search costs a server-side scan of every session, so it waits
+    /// for typing to stop rather than firing per keystroke.
+    private func searchContent() async {
+        let query = filter
+        guard query.trimmingCharacters(in: .whitespaces).count >= 2 else {
+            contentMatches = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(450))
+        guard !Task.isCancelled else { return }
+        let found = await model.searchContent(query)
+        guard !Task.isCancelled else { return }
+        contentMatches = found
+    }
 
     private func startRename(_ session: HopSession) {
         renameText = session.name

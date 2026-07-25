@@ -704,6 +704,24 @@ LESSON: test against a REAL session with history, not a fresh probe.
    file. The suite count (13 instead of 29) is what caught it. Restored from
    git and redone with an exact-match assert.
 
+40. **Search inside sessions, not just their names.** Audited every REST call
+   against the daemon: all five paths exist and all three payload shapes match
+   (`{oldName,newName}`, `{internalName,allowed}`, `{name,internalName}`) —
+   nothing broken, and now verified rather than assumed.
+   The audit turned up endpoints we never used, one of which matters a lot on a
+   phone: `/api/sessions/search?q=` searches the SCROLLBACK OF EVERY SESSION
+   server-side and returns snippets. The local filter only ever matched names,
+   cwds, apps and taglines — but the question you actually have on a phone is
+   "which session mentioned that error", and you cannot answer it by opening
+   thirty terminals.
+   The list now shows a "Found in output" section with the matching session and
+   its snippet; tapping opens it. Debounced 450 ms and gated at two characters,
+   because each query is a server-side scan of every session.
+   Verified against the live daemon: searching "scrollback" surfaced Neptune,
+   Orion and sequencebrowser, none of which match by name.
+   Unused endpoints noted for later: /park, /archive, /screen, /tagline,
+   /move, /reorder, /origin, /restore, /claim-local-cli.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
