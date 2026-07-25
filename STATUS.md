@@ -322,6 +322,20 @@ LESSON: test against a REAL session with history, not a fresh probe.
    notification observers (removed in detach), preview polling (gated on the
    list being frontmost).
 
+20. **Server & account (sign out)** — until now the only way off a server, or
+   off an account on a phone you were handing to someone, was DELETING THE APP.
+   `⋯ → Server & account` shows the address, session count and version, and
+   signs out for real: the cookie (dropping only the flag would let the next
+   launch walk right back in), the keychain password, the seen-bell baselines
+   (stale ones would silence a new account's first bell), the badge and the
+   quick actions — the last two leak session names to exactly the person you
+   signed out for. Changing servers starts there: sign out, enter a new
+   address.
+   Closed a race while wiring it: a refresh already in flight sets
+   `authenticated = true` on completion, which would bounce the user straight
+   back in a second after signing out. Refreshes now carry an auth epoch and
+   discard themselves if it moved.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

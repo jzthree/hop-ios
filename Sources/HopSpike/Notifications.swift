@@ -76,6 +76,15 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         }
     }
 
+    /// Signing out: drop the badge, everything delivered, and the per-session
+    /// bell markers — otherwise the next account inherits this one's idea of
+    /// what has already been seen, and its first real bell stays silent.
+    func reset() {
+        notified = [:]
+        UNUserNotificationCenter.current().setBadgeCount(0)
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+
     /// Clear a session's pending notifications once the user is looking at it,
     /// and drop the badge by that session immediately rather than waiting out
     /// the poll interval.

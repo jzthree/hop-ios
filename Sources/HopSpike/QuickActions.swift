@@ -43,6 +43,12 @@ enum QuickActions {
     }
 
     @MainActor
+    static func clear() {
+        published = []
+        UIApplication.shared.shortcutItems = []
+    }
+
+    @MainActor
     static func handle(_ item: UIApplicationShortcutItem) {
         guard let name = item.userInfo?[sessionKey] as? String else { return }
         AppModel.shared.requestedSession = name

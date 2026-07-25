@@ -28,6 +28,9 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 
 ## What it does
 
+- **Account** — server address, session count, sign out (drops the cookie, the
+  saved password, the badge and the quick actions); changing servers starts
+  there.
 - **Session list** — attention-first, with taglines, working directory, running
   app, relative time, and a 3-line live preview of each session's screen.
   Filter, and scope to You / Agents / All. Create, rename, kill, and toggle
@@ -54,6 +57,9 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 | `Notifications.swift` | bell → local notification, tap-to-open |
 | `Keychain.swift` | remembered password (device-only, never the TOTP secret) |
 | `SessionFilter.swift` | pure list shaping (unit-tested) |
+| `Links.swift` | URLs off the screen, wrap-aware (unit-tested) |
+| `QuickActions.swift` | Home Screen shortcuts + the scene delegate they need |
+| `AccountView.swift` | server info, sign out, version |
 
 ## Talking to hop
 
@@ -77,8 +83,15 @@ Two iOS traps worth remembering, both cost real debugging time:
 
 `make sim` runs it in the simulator against your live daemon (auth via the
 daemon's own token, no TOTP). `make sim OPEN=Solstice` opens a session
-directly. `make shot` grabs a screenshot. Dev-only env vars: `HOP_DEV_TOKEN`,
-`HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`.
+directly. `make shot` grabs a screenshot. `make sim GROUP=1 SCOPE=all
+SHEET=account` lands on a specific state — a screenshot is the only way to
+review UI that a unit test can't see. Dev-only env vars: `HOP_DEV_TOKEN`,
+`HOP_DEV_COOKIE`, `HOP_DEV_OPEN`, `HOP_DEV_SCOPE`, `HOP_DEV_NOTIFY`,
+`HOP_DEV_GROUP`, `HOP_DEV_SHEET`.
+
+Quick actions can't be seen in a screenshot (they live in SpringBoard), so
+`publish` logs instead: `xcrun simctl spawn <sim> log show --last 60s --info
+--predicate 'subsystem == "io.zhoulab.hop.spike"'`.
 
 `tools/lan-bridge.mjs` exposes the local hay-host to the LAN for testing
 without a tunnel — it's LAN-open while running, so stop it when done.

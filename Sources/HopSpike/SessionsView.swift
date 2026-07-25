@@ -28,6 +28,7 @@ struct SessionsView: View {
     @State private var renameText = ""
     @State private var killTarget: HopSession?
     @AppStorage("groupByProject") private var groupByProject = false
+    @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
 
     // MARK: data
 
@@ -124,6 +125,10 @@ struct SessionsView: View {
                 Toggle(isOn: $groupByProject) {
                     Label("Group by project", systemImage: "folder")
                 }
+                Divider()
+                Button { showAccount = true } label: {
+                    Label("Server & account", systemImage: "person.crop.circle")
+                }
             } label: { Image(systemName: "ellipsis.circle") }
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -145,6 +150,9 @@ struct SessionsView: View {
                     }
                 }
                 .refreshable { await model.refreshSessions() }
+                .sheet(isPresented: $showAccount) {
+                    AccountView().presentationDetents([.medium, .large])
+                }
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,
                     renaming: $renaming, renameText: $renameText,

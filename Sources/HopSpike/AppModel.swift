@@ -80,6 +80,29 @@ final class AppModel: ObservableObject {
         checkingAuth = false
     }
 
+    /// Sign out for real: the cookie is what keeps you in, so dropping only
+    /// the flag would let the next launch walk straight back in. Also drops
+    /// the saved password, and the badge and quick actions — both leak session
+    /// names to anyone holding the phone, which is precisely who you signed
+    /// out for.
+    func signOut() {
+        if let url = baseURL {
+            for cookie in HTTPCookieStorage.shared.cookies(for: url) ?? [] {
+                HTTPCookieStorage.shared.deleteCookie(cookie)
+            }
+        }
+        Keychain.delete(account: normalizedServerURL)
+        seenBells = [:]          // stale baselines would silence a new account's first bell
+        sessions = []
+        previews = [:]
+        requestedSession = nil
+        lastError = nil
+        authenticated = false
+        authEpoch += 1
+        HopNotifier.shared.reset()
+        QuickActions.clear()
+    }
+
     func login(password: String, totp: String) async {
         lastError = nil
         guard let url = baseURL?.appendingPathComponent("api/login") else { return }
@@ -103,13 +126,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Bumped on sign-out so a request already in flight can't report success
+    /// afterwards and walk the user straight back in.
+    private var authEpoch = 0
+
     func refreshSessions(silent: Bool = false) async {
         guard let url = baseURL?.appendingPathComponent("api/sessions") else { return }
+        let epoch = authEpoch
         var listReq = URLRequest(url: url)
         listReq.timeoutInterval = 12
         if let token = accessToken { listReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         do {
             let (data, resp) = try await urlSession.data(for: listReq)
+            guard epoch == authEpoch else { return }   // signed out mid-flight
             guard let http = resp as? HTTPURLResponse else { return }
             // Only a definitive rejection logs the user out. A transient blip
             // (timeout, tunnel hiccup, 5xx) must NOT bounce them to the login
