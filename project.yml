@@ -11,7 +11,8 @@ targets:
   HopSpike:
     type: application
     platform: iOS
-    sources: [Sources/HopSpike]
+    sources:
+      - Sources/HopSpike
     dependencies:
       - package: SwiftTerm
     settings:
@@ -25,3 +26,4 @@ targets:
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
