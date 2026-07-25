@@ -587,6 +587,21 @@ struct TerminalScreen: UIViewRepresentable {
                     // ("35;197;31M") at a prompt that never asked for them.
                     // This path runs on EVERY return from background.
                     tv.getTerminal().resetToInitialState()
+                    // Back to the size this screen actually fits. The fast
+                    // paint deliberately resizes the grid to the session's real
+                    // size so the pre-snapshot screen isn't wrapped into mush,
+                    // and nothing puts it back: SwiftTerm re-fits only when its
+                    // BOUNDS change, so that grid survives until the keyboard
+                    // happens to appear. A grid taller than the view has its
+                    // bottom rows outside the bounds; a shorter one leaves the
+                    // screen underfilled. Measured: usually the snapshot beats
+                    // the fast paint and this is a no-op, which is why it never
+                    // showed. On a slow link the fast paint lands first.
+                    if self.fittedCols > 1, self.fittedRows > 1,
+                       tv.getTerminal().cols != self.fittedCols
+                        || tv.getTerminal().rows != self.fittedRows {
+                        tv.getTerminal().resize(cols: self.fittedCols, rows: self.fittedRows)
+                    }
                     // Re-enter the modes the app is actually in. SwiftTerm keeps
                     // the buffer switch private, but a terminal takes modes as
                     // sequences, which is the honest way to say it anyway.

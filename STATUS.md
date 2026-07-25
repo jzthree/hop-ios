@@ -257,6 +257,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Correction: what the size logs actually showed (iteration 97)
+
+The iteration-96 entry below claimed the log caught a 48-row grid being drawn
+into a 23-row view for 1.7 seconds. **That reading was wrong.** Instrumenting
+the snapshot showed `fitted 51x48, terminal 51x48` — the two MATCHED. The view
+really did fit 48 rows at that moment, because the keyboard hadn't appeared
+yet; the later "fit 51x23" is the keyboard taking half the screen, which is
+correct behaviour, not a bug being fixed late.
+
+What survives, and why the change stays:
+- Adopting a peer's size still means drawing a grid that doesn't match this
+  view, and SwiftTerm clips whatever falls outside its bounds. hop's web client
+  refuses the same resize in auto-fit mode. That reasoning never depended on
+  the log.
+- SwiftTerm re-fits only when its BOUNDS change, so any size set from the
+  network (the fast paint does this) survives until the keyboard happens to
+  appear. The snapshot now restores the fitted size, which is a no-op in the
+  common case — measured: the snapshot usually beats the fast paint entirely.
+
+The mistake was reading a log line as evidence for a bug I had already decided
+was there. The line said "we draw 51x48" and I read it as "we draw 48 rows in
+a 23-row view" — it actually said the view was 48 rows tall.
+
 ## Adopting a peer's size hid claude's input box (iteration 96)
 
 Following the previous fix upstream: why was the local terminal ever a
@@ -269,6 +292,9 @@ hop's web client refuses the same resize in auto-fit mode, and its comment
 names the symptom it was written for: "mobile snapping to a desktop/PTY
 80x24". This app is always auto-fit, so it now records the elected size and
 logs the mismatch instead of adopting it.
+
+**See iteration 97: the log evidence quoted in this entry was misread. The
+change stands on the web client's lesson, not on that measurement.**
 
 The cost is reflow — output written for 80 columns wraps in a 51-column grid —
 and that is the better failure: wrapped is worse to READ, clipped means you
