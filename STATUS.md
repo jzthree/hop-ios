@@ -257,6 +257,39 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Momentum, and the scroll rework under it (iteration 90)
+
+Jian, after confirming scrolling works: "will feel more natural if it has
+momentum like most things in ios". Right — and momentum had been deliberately
+withheld from agent sessions on the theory that flinging wheel events at an
+app is spam. hop's own web client disproves that: it coasts alt-screen wheel
+apps, and per-line wheel events are cheap.
+
+Two changes, both learned by reading the web client rather than inventing:
+
+1. **The flags live beside the terminal, not inside it.** The wheel path went
+   through SwiftTerm's encoder, which reads OUR terminal's mouse state — so it
+   only worked by feeding ?1000h/?1006h into the local terminal, changing what
+   the terminal does in order to record a fact about the remote app. It also
+   couldn't check SGR at all, because SwiftTerm keeps the encoding private.
+   Now seeded from the snapshot and kept current by watching the stream.
+
+2. **One debt accumulator, in points, for all three sinks.** Finger travel and
+   momentum both push into it; one apply step spends it into wheel events,
+   page keys, or our own viewport. Coasting works everywhere as a consequence,
+   and slow drags stopped rounding to zero rows per frame.
+
+The fallback for apps that don't take wheel is now Page keys, not arrows.
+Arrows at a claude prompt recall previous PROMPTS — a scroll gesture that
+rewrites what you were typing is worse than one that does nothing.
+
+Verified by flicking a live agent session under XCUITest: 27 batches of wheel
+events over 900ms, intervals stretching 17ms → 183ms as it decays. The finger
+is gone for most of that.
+
+**Not on the phone yet** — install has been failing on the lock screen since
+this work started (`make install`, 15 attempts each time).
+
 ## Proving claude actually scrolls (iteration 89)
 
 Before trusting the wheel fix, tested it against the live daemon with a
