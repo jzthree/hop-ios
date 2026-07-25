@@ -275,6 +275,19 @@ LESSON: test against a REAL session with history, not a fresh probe.
    stays in code and starts working the moment the App ID carries the
    capability (a portal action, no code change). relevanceScore works today.
 
+17. **Tap the links agents print** — PR URLs, preview servers, docs scroll past
+   constantly and on a phone they were untouchable glyphs. `⋯ → Open link…`
+   lists what's on screen (newest first, capped at 8 — a build log can print
+   dozens) and opens it in Safari. Three details that make it actually work:
+   sentence punctuation is trimmed but a BALANCED paren is kept
+   (`…/a_(b)_c` survives, `(https://x)` doesn't); bare `localhost:5173` gets a
+   scheme; and wrapped rows are rejoined first, since a terminal wraps a long
+   URL with no newline and the naive read gives two broken halves. SwiftTerm
+   keeps `BufferLine.isWrapped` internal, so the wrap is inferred the way
+   terminals do it — a row that filled its last column ran on. The URL charset
+   is explicit ASCII rather than "not whitespace" precisely because rejoining
+   can butt a URL against a TUI border. All five cases are unit-tested (18).
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

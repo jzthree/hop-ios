@@ -20,8 +20,18 @@ struct TerminalHostView: View {
     @State private var iHoldControl = false
     @State private var lockedByOther = false
     @State private var scrolledUp = false
+    @State private var links: [String] = []
+    @State private var showLinks = false
     @Environment(\.scenePhase) private var scenePhase
     enum ConnState { case connecting, live, closed }
+
+    /// Action-sheet labels truncate in the middle by default, which eats the
+    /// path — the part that tells two PR links apart. Keep host + tail.
+    private func displayLink(_ link: String) -> String {
+        let bare = link.replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+        return bare.count <= 48 ? bare : String(bare.prefix(24)) + "…" + String(bare.suffix(20))
+    }
 
     private func setFont(_ size: Double) {
         fontSize = min(24, max(8, size))
@@ -33,6 +43,10 @@ struct TerminalHostView: View {
                        fontSize: fontSize, lightTheme: lightTheme,
                        findText: findOpen ? findText : nil, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
+                       onLinks: { found in
+                           links = found
+                           if found.isEmpty { toast = "No links on screen" } else { showLinks = true }
+                       },
                        onPresence: { viewers = $0 },
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
@@ -41,6 +55,16 @@ struct TerminalHostView: View {
                        onScroll: { scrolledUp = $0 })
             .padding(.horizontal, 5)
             .ignoresSafeArea(.container, edges: .bottom)
+            .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
+                // Newest first, and capped: a build log can put dozens on
+                // screen and an endless action sheet is unusable.
+                ForEach(links.prefix(8), id: \.self) { link in
+                    Button(displayLink(link)) {
+                        if let url = URL(string: link) { UIApplication.shared.open(url) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .overlay(alignment: .bottomTrailing) {
                 if scrolledUp {
                     Button {
@@ -133,6 +157,9 @@ struct TerminalHostView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button { controlAction = .links } label: {
+                            Label("Open link…", systemImage: "link")
+                        }
                         Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
                         Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
                             Label("Copy screen", systemImage: "doc.on.doc")
@@ -192,7 +219,7 @@ struct TerminalHostView: View {
     }
 }
 
-enum ControlAction { case take, release, lock, unlock }
+enum ControlAction { case take, release, lock, unlock, links }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -209,6 +236,7 @@ struct TerminalScreen: UIViewRepresentable {
     var findText: String?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
+    var onLinks: ([String]) -> Void = { _ in }
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
@@ -216,7 +244,7 @@ struct TerminalScreen: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
-                    urlSession: model.urlSession, room: room, onToast: onToast,
+                    urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
     }
 
@@ -284,6 +312,7 @@ struct TerminalScreen: UIViewRepresentable {
             pushStatus(state)
         }
         private let onToast: (String) -> Void
+        private let onLinks: ([String]) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
         private let onScroll: (Bool) -> Void
@@ -296,12 +325,14 @@ struct TerminalScreen: UIViewRepresentable {
 
         init(wsBase: String, httpBase: String, token: String?, urlSession: URLSession, room: String,
              onToast: @escaping (String) -> Void,
+             onLinks: @escaping ([String]) -> Void,
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
              onScroll: @escaping (Bool) -> Void,
              setStatus: @escaping (TerminalHostView.ConnState) -> Void) {
             self.onScroll = onScroll
             self.onToast = onToast
+            self.onLinks = onLinks
             self.onPresence = onPresence
             self.onCollab = onCollab
             self.wsBase = wsBase
@@ -374,7 +405,26 @@ struct TerminalScreen: UIViewRepresentable {
             case .release: client.releaseControl()
             case .lock: client.setCollab(false)
             case .unlock: client.setCollab(true)
+            case .links: onLinks(visibleLinks())
             }
+        }
+
+        /// Links on the visible screen. Wrapped rows are rejoined first — a
+        /// long URL arrives as two rows with no newline between them.
+        /// SwiftTerm keeps BufferLine.isWrapped internal, so infer it the way
+        /// terminals themselves do: a row that filled its last column ran on.
+        private func visibleLinks() -> [String] {
+            guard let t = view?.getTerminal() else { return [] }
+            var rows: [(text: String, wrapped: Bool)] = []
+            var previousFilledLastColumn = false
+            for row in 0..<t.rows {
+                guard let line = t.getLine(row: row + t.buffer.yDisp) else { continue }
+                let full = line.translateToString(trimRight: false)
+                rows.append((line.translateToString(trimRight: true), previousFilledLastColumn))
+                previousFilledLastColumn = full.count >= t.cols
+                    && !(full.last?.isWhitespace ?? true)
+            }
+            return extractLinks(from: screenText(rows: rows))
         }
 
         func detach() {

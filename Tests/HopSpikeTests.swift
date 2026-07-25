@@ -165,6 +165,53 @@ final class HopSpikeTests: XCTestCase {
         }
     }
 
+    // MARK: links on screen
+
+    func testLinkExtractionHandlesProsePunctuation() {
+        let screen = """
+        opened https://github.com/jzthree/hop/pull/12.
+        preview at (http://localhost:5173) — try it
+        docs: https://example.com/a_(b)_c
+        """
+        let links = extractLinks(from: screen)
+        XCTAssertTrue(links.contains("https://github.com/jzthree/hop/pull/12"),
+                      "a sentence period is not part of the URL")
+        XCTAssertTrue(links.contains("http://localhost:5173"),
+                      "a wrapping paren is not part of the URL")
+        XCTAssertTrue(links.contains("https://example.com/a_(b)_c"),
+                      "a balanced paren IS part of the URL")
+    }
+
+    func testLinkExtractionAddsSchemeAndOrdersNewestFirst() {
+        let links = extractLinks(from: "server on localhost:3000\nthen https://later.example")
+        XCTAssertEqual(links.first, "https://later.example", "the bottom of the screen is what you saw last")
+        XCTAssertEqual(links.last, "http://localhost:3000", "a bare host:port still opens")
+    }
+
+    func testLinkExtractionDedupesAndIgnoresBareSchemes() {
+        let links = extractLinks(from: "https://a.example\nhttp://\nhttps://a.example")
+        XCTAssertEqual(links, ["https://a.example"])
+    }
+
+    func testWrappedRowsRejoinBeforeExtraction() {
+        // A terminal wraps without a newline, so a long URL arrives split.
+        let rows = [(text: "see https://example.com/very/long/", wrapped: false),
+                    (text: "path/to/thing", wrapped: true),
+                    (text: "done", wrapped: false)]
+        XCTAssertEqual(extractLinks(from: screenText(rows: rows)),
+                       ["https://example.com/very/long/path/to/thing"])
+        XCTAssertEqual(extractLinks(from: rows.map(\.text).joined(separator: "\n")).first,
+                       "https://example.com/very/long/", "naive join proves the wrap handling matters")
+    }
+
+    func testTUIBorderNeverJoinsTheLink() {
+        // Rejoining a wrapped row can butt the URL against a box-drawing
+        // border; "not whitespace" would swallow it into the link.
+        let rows = [(text: "│ https://example.com/x", wrapped: false),
+                    (text: "│", wrapped: true)]
+        XCTAssertEqual(extractLinks(from: screenText(rows: rows)), ["https://example.com/x"])
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])
