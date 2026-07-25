@@ -1,34 +1,83 @@
 import SwiftUI
 
-// The home screen: the fleet at a glance, attention-first — the native sibling
-// of the web switcher. Pull to refresh; auto-refresh every 5s while visible.
+// Home screen: the fleet, attention-first — the native sibling of the web
+// switcher. Search, user/agent/all scope, create, rename, kill.
 struct SessionsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
-    // Dev/simulator: auto-open a session so the terminal screen can be driven
-    // and screenshotted without touch input.
     @State private var path: [String] = []
+    @State private var filter = ""
+    @State private var scope: Scope = .user
+    @State private var creating = false
+    @State private var newName = ""
+    @State private var renaming: HopSession?
+    @State private var renameText = ""
+    @State private var killTarget: HopSession?
+
+    enum Scope: String, CaseIterable { case user = "You", agent = "Agents", all = "All" }
+
+    private var visible: [HopSession] {
+        model.sessions.filter { s in
+            guard !s.isPort else { return false }
+            switch scope {
+            case .user: if s.createdBy == "agent" { return false }
+            case .agent: if s.createdBy != "agent" { return false }
+            case .all: break
+            }
+            guard !filter.isEmpty else { return true }
+            let q = filter.lowercased()
+            return s.name.lowercased().contains(q)
+                || s.shortCwd.lowercased().contains(q)
+                || s.runningApp.lowercased().contains(q)
+                || s.tagline.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 Section {
-                    ForEach(model.sessions.filter { !$0.isPort }) { session in
+                    Picker("Scope", selection: $scope) {
+                        ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                }
+                Section {
+                    ForEach(visible) { session in
                         NavigationLink(value: session.internalName) {
                             SessionRow(session: session)
                         }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { killTarget = session } label: {
+                                Label("Kill", systemImage: "xmark.circle")
+                            }
+                            Button {
+                                renameText = session.name
+                                renaming = session
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            .tint(.hopPurple)
+                        }
                     }
                 } footer: {
-                    if model.sessions.isEmpty {
-                        Text("No live sessions. Start one with `hop` on your machine.")
+                    if visible.isEmpty {
+                        Text(filter.isEmpty
+                             ? "No \(scope == .agent ? "agent" : "") sessions. Start one with the + button or `hop` on your machine."
+                             : "No sessions match “\(filter)”.")
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .searchable(text: $filter, prompt: "Filter sessions")
             .navigationTitle("hop")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { newName = ""; creating = true } label: { Image(systemName: "plus") }
                 }
             }
             .navigationDestination(for: String.self) { internalName in
@@ -37,6 +86,34 @@ struct SessionsView: View {
                 }
             }
             .refreshable { await model.refreshSessions() }
+            .alert("New session", isPresented: $creating) {
+                TextField("name", text: $newName)
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    let name = newName.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty else { return }
+                    Task { if await model.createSession(name: name) { path = [name] } }
+                }
+            } message: { Text("Letters, numbers, - and _") }
+            .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("name", text: $renameText)
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) { renaming = nil }
+                Button("Rename") {
+                    if let s = renaming { Task { _ = await model.renameSession(s, to: renameText) } }
+                    renaming = nil
+                }
+            }
+            .alert("Kill session?", isPresented: Binding(get: { killTarget != nil }, set: { if !$0 { killTarget = nil } })) {
+                Button("Cancel", role: .cancel) { killTarget = nil }
+                Button("Kill", role: .destructive) {
+                    if let s = killTarget { Task { _ = await model.killSession(s) } }
+                    killTarget = nil
+                }
+            } message: {
+                Text("\(killTarget?.name ?? "") and its running process end for everyone.")
+            }
             .task {
                 guard let want = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
                 for _ in 0..<20 where path.isEmpty {
@@ -67,9 +144,7 @@ struct SessionRow: View {
                     .fill(session.live ? Color.green : Color.secondary.opacity(0.35))
                     .frame(width: 9, height: 9)
                 if session.attention {
-                    Circle()
-                        .stroke(Color.red, lineWidth: 2)
-                        .frame(width: 15, height: 15)
+                    Circle().stroke(Color.red, lineWidth: 2).frame(width: 15, height: 15)
                 }
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -80,21 +155,22 @@ struct SessionRow: View {
                         Text(session.runningApp)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.hopPurple.opacity(0.15), in: Capsule())
-                            .foregroundStyle(Color.hopPurple)
+                            .background(Color.hopPurple.opacity(0.18), in: Capsule())
+                            .foregroundStyle(Color.hopGlow)
+                    }
+                    if session.createdBy == "agent" {
+                        Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
                     }
                     if session.attention {
-                        Image(systemName: "bell.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
+                        Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.red)
                     }
                 }
-                if !session.shortCwd.isEmpty {
+                if !session.tagline.isEmpty {
+                    Text(session.tagline).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else if !session.shortCwd.isEmpty {
                     Text(session.shortCwd)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.head)
                 }
             }
             Spacer()

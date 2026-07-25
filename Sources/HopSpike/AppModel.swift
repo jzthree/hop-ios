@@ -107,6 +107,35 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // ── Session management (parity with the web session manager) ──
+    private func post(_ path: String, _ body: [String: Any]) async -> Bool {
+        guard let url = baseURL?.appendingPathComponent(path) else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (_, resp) = try await urlSession.data(for: req)
+            let ok = (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 500)
+            if ok { await refreshSessions(silent: true) } else { lastError = "Request failed" }
+            return ok
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    func createSession(name: String) async -> Bool {
+        await post("api/sessions", ["name": name, "type": "terminal"])
+    }
+    func renameSession(_ s: HopSession, to newName: String) async -> Bool {
+        await post("api/sessions/rename", ["oldName": s.name, "newName": newName])
+    }
+    func killSession(_ s: HopSession) async -> Bool {
+        await post("api/sessions/delete", ["internalName": s.internalName])
+    }
+
     func markSeen(_ session: HopSession) {
         var seen = seenBells
         seen[session.internalName] = session.bellSeq
@@ -124,6 +153,8 @@ struct HopSession: Identifiable {
     let live: Bool
     let isPort: Bool
     let attention: Bool
+    let createdBy: String
+    let tagline: String
     var id: String { internalName }
 
     init?(json: [String: Any], seenBellSeq: [String: Int]) {
@@ -137,6 +168,9 @@ struct HopSession: Identifiable {
         live = (json["live"] as? Bool) ?? false
         isPort = (json["type"] as? String) == "port"
         attention = bellSeq > (seenBellSeq[internalName] ?? bellSeq)
+        createdBy = (json["createdBy"] as? String) ?? "user"
+        tagline = (json["tagline"] as? String) ?? ""
+
     }
 
     var shortCwd: String {

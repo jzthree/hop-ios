@@ -97,6 +97,31 @@ LESSON: test against a REAL session with history, not a fresh probe.
 - Dark appearance app-wide; purple capsule showed claude's VERSION string
   ("2.1.220") → version-looking values now render as "claude".
 
+## Web-mobile parity matrix (audited from hay/apps/web, 2026-07-25)
+| Feature | web mobile | iOS |
+|---|---|---|
+| Attach / live terminal | ✓ | ✓ |
+| Session list, attention-first | ✓ | ✓ |
+| Taglines / cwd / app badge / relative time | ✓ | ✓ |
+| Filter sessions | ✓ | ✓ (searchable) |
+| Origin scope user/agent/all | ✓ | ✓ (segmented) |
+| Create / rename / kill session | ✓ | ✓ (+ button, swipe actions) |
+| Find in scrollback | ✓ | ✓ (menu → Find) |
+| Copy screen / copy all | ✓ | ✓ (menu) |
+| Font size | ✓ | ✓ (menu ± ) |
+| Light/dark terminal | ✓ | ✓ (menu toggle) |
+| Reconnect in place | ✓ | ✓ (menu) |
+| Accessory keys esc/tab/ctrl/alt/arrows | ✓ | ✓ + ^C, \| / - ~, PgUp/PgDn, paste, dismiss |
+| Native keyboard (dictation/autocorrect) | via KB button | ✓ always (this is the native win) |
+| Bell → haptic | ✗ (iOS Safari has no haptics) | ✓ |
+| **Still missing on iOS** | | |
+| Live preview cards in switcher | ✓ | ✗ (list only) |
+| Presence / take-release control | ✓ | ✗ |
+| Bell notifications (local/push) | ✓ (web push) | ✗ ← next big rock |
+| Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
+| Agent-permission toggle | ✓ | ✗ |
+| Passkey / share link | ✓ | ✗ |
+
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)
 - [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle
