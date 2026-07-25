@@ -271,11 +271,20 @@ struct SessionsView: View {
                             let ok = await QuickReply.send(text, to: target.internalName,
                                                            model: model)
                             // Say when it didn't land — a reply that silently
-                            // vanished is worse than no reply button.
+                            // vanished is worse than no reply button. And
+                            // confirm when it did: sending into a list with no
+                            // visible result is the same uncertainty in the
+                            // other direction, so use the haptic iOS reserves
+                            // for exactly this.
                             model.lastError = ok ? nil : "Couldn't send to \(target.name)"
+                            UINotificationFeedbackGenerator()
+                                .notificationOccurred(ok ? .success : .error)
                             if ok { model.markSeen(target) }
                         }
                     }
+                    // An empty reply isn't a failed send, it's not a send —
+                    // reporting "couldn't send" for it would be a lie.
+                    .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
                 } message: {
                     // The question, not the job title. Answering blind is how
                     // you send "y" to something that asked which of three
