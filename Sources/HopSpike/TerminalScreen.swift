@@ -338,6 +338,7 @@ struct TerminalScreen: UIViewRepresentable {
         let pinch = UIPinchGestureRecognizer(target: context.coordinator,
                                              action: #selector(Coordinator.handlePinch(_:)))
         tv.addGestureRecognizer(pinch)
+        context.coordinator.themeIsLight = lightTheme
         context.coordinator.attach(view: tv)
         _ = tv.becomeFirstResponder()
         return tv
@@ -346,6 +347,7 @@ struct TerminalScreen: UIViewRepresentable {
     func updateUIView(_ uiView: HopTermView, context: Context) {
         uiView.font = UIFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         uiView.applyTheme(light: lightTheme)
+        context.coordinator.themeIsLight = lightTheme
         // Only on a new request. Re-running whenever anything else updated
         // meant the list's background refresh yanked the view back to the
         // match every few seconds while you were trying to read around it.
@@ -563,6 +565,7 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopJumpToLive, object: nil)
             let t = view.getTerminal()
             snapshotLanded = false
+            client.theme = themeIsLight ? .light : .dark
             fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
@@ -597,6 +600,9 @@ struct TerminalScreen: UIViewRepresentable {
         /// Set once the authoritative replay lands, so the fast paint below
         /// can never scribble over it if it loses the race.
         private var snapshotLanded = false
+        /// The palette this view is rendering, mirrored from SwiftUI state so
+        /// the room can be told the background a TUI should theme itself for.
+        var themeIsLight = false
 
         /// Fast first paint. hop can serialize a session's CURRENT screen from
         /// its preview grid in one small response (~2 KB) — paint that at once
@@ -970,17 +976,24 @@ final class HopTermView: TerminalView {
         }
     }
 
+    private var installedTheme: Bool = false
+
     func applyTheme(light: Bool) {
-        if light {
-            nativeForegroundColor = UIColor(white: 0.12, alpha: 1)
-            nativeBackgroundColor = .white
-            backgroundColor = .white
-        } else {
-            nativeForegroundColor = UIColor(red: 0.90, green: 0.90, blue: 0.91, alpha: 1)
-            nativeBackgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
-            backgroundColor = .black
+        let theme: TerminalTheme = light ? .light : .dark
+        nativeForegroundColor = theme.foreground
+        nativeBackgroundColor = theme.background
+        backgroundColor = theme.background
+        caretColor = theme.cursor
+        selectedTextBackgroundColor = theme.selection
+        // installColors repaints the whole grid, so only on a real change.
+        if !installedTheme || currentThemeIsLight != light {
+            installedTheme = true
+            currentThemeIsLight = light
+            installColors(theme.ansi)
         }
     }
+
+    private var currentThemeIsLight = false
 
     /// Scroll to the most recent line containing `needle` (find-in-scrollback).
     /// Finds the next match from `start` and scrolls it into view, returning

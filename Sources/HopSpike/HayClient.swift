@@ -42,6 +42,9 @@ final class HayClient: NSObject {
     /// small enough that opening a session on cellular is not an event.
     static let replayBytes = 200_000
     private var replayBytes: Int { Self.replayBytes }
+    /// Set by the terminal before connecting so the room learns our real
+    /// colours; dark is the app's default.
+    var theme: TerminalTheme = .dark
 
     func connect(base: String, httpBase: String, room: String, cols: Int, rows: Int,
                  token: String?, using session: URLSession) {
@@ -53,10 +56,20 @@ final class HayClient: NSObject {
             .init(name: "cols", value: String(cols)),
             .init(name: "rows", value: String(rows)),
             // A phone doesn't need a desktop's worth of replay: hop's default
-            // tail is 1.5 MB raw, which measured 2.4 MB on the wire as JSON
-            // and yielded one screen. The server clamps this to its own bound,
-            // and ignores it entirely on versions that don't read it yet.
-            .init(name: "replayBytes", value: String(replayBytes))
+            // tail is 1.5 MB raw, which measured 2.4 MB on the wire as JSON and
+            // yielded ONE screen on a TUI session. The param is `replay` (bytes)
+            // — read by scripts/hay-host.js, which passes it to attachClient as
+            // replayBytes. Sending "replayBytes" (as this did at first) is
+            // silently ignored, which is why the earlier attempt looked like it
+            // needed a server change. It doesn't; the plumbing was always there.
+            .init(name: "replay", value: String(replayBytes)),
+            // The colours we actually render. TUI apps pick a light or dark
+            // theme from the background the terminal reports, and hop answers
+            // OSC 10/11 on our behalf — without these it answers with whatever
+            // the last web viewer had, so an app could theme itself for someone
+            // else's screen.
+            .init(name: "bg", value: theme.backgroundHex),
+            .init(name: "fg", value: theme.foregroundHex)
         ]
         // The daemon accepts cookie, Bearer, or ?token= on the upgrade.
         if let token, !token.isEmpty { items.append(.init(name: "token", value: token)) }

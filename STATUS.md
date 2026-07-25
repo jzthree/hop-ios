@@ -139,7 +139,11 @@ be the scriptable route but needs admin, so Console is the practical one.
 | **Home Screen quick actions** | ✗ (impossible) | ✓ (#18) |
 | **Network-aware polling / Low Data Mode** | ✗ | ✓ (#23) |
 | **Offline detection + stale-list banner** | ✗ | ✓ (#43) |
-| **Smaller replay request** (`replayBytes`) | ✗ | ✓ sent (#37) — inert until hop reads it |
+| **Smaller replay request** (`replay=`) | ✓ | ✓ (#54) — 2447 KB → 339 KB |
+| **Reports its own bg/fg to the room** | ✓ | ✓ (#54) |
+| **hop's exact terminal palette** | ✓ | ✓ (#54) |
+| **Touch scrolling** | ✓ (browser) | ✓ (#54) — SwiftTerm had none |
+| **Chrome-free landscape** | ✗ | ✓ (#54) |
 | Split/secondary pane, wall zoom | ✓ | ✗ deliberately (desktop-shaped) |
 | Passkey / share link | ✓ | ✗ (low value on a phone) |
 
@@ -814,17 +818,12 @@ LESSON: test against a REAL session with history, not a fresh probe.
      snapshot. The app now sends `replayBytes=200000` regardless: harmless
      today (unknown params are ignored — verified, still 2447 KB), and it
      becomes a ~10x cut the moment the server reads it.
-     **The hop2 side is 3 lines in `hay/apps/server/src/index.ts`**, additive
-     and backward-compatible (absent param = today's behaviour):
-     ```ts
-     const replayParam = Number(url.searchParams.get("replayBytes"));
-     const replayBytes = Number.isFinite(replayParam) && replayParam > 0
-       ? Math.max(50_000, replayParam) : undefined;   // floor: a tiny value would blank the screen
-     // then pass `replayBytes` in the attachClient({...}) info object
-     ```
-     NOT done here on purpose: the server runs from a built `dist/`, so it
-     needs a build plus a host restart, and this file is shared with Solstice —
-     STATUS's own rule is to coordinate before touching shared hop2 files.
+     **CORRECTED in iteration 54 — no hop2 change is needed at all.** The
+     param is read by `scripts/hay-host.js`, not `hay/apps/server/src/index.ts`,
+     and it is called **`replay`** (bytes), not `replayBytes`. Sending the wrong
+     name was silently ignored, which is what made this look like missing server
+     plumbing. With the right name: snapshot **2447 KB → 339 KB, 98 ms → 4 ms**.
+
 
 38. **Paste was executing your multi-line text line by line.** The accessory
    paste key read the clipboard and sent it straight down the socket, bypassing
