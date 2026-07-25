@@ -9,6 +9,12 @@ import XCTest
 // Auth comes from the daemon's own token, forwarded by the Makefile as
 // TEST_RUNNER_HOP_DEV_COOKIE (xcodebuild strips the prefix for the runner).
 final class ScrollUITests: XCTestCase {
+    /// Couples to a session that exists in the live fleet. Tried removing that
+    /// by tapping the first row instead — XCUITest's element model for a
+    /// SwiftUI List didn't cooperate (neither index nor label predicates
+    /// matched), and two attempts made a green suite fragile. The coupling is
+    /// the cheaper cost: if these sessions are renamed the failure message says
+    /// so, and the fix is one string.
     private func launchIntoSession(_ name: String) -> XCUIApplication {
         let app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
@@ -126,6 +132,37 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(password.waitForExistence(timeout: 8), "sign out did not return to login")
         Thread.sleep(forTimeInterval: 6)     // longer than the 5s poll interval
         XCTAssertTrue(password.exists, "an in-flight refresh put us back in")
+    }
+
+    /// Cross-session output search: the local filter only matches names, so
+    /// this is the feature that answers "which session mentioned that error".
+    /// Read-only against the live daemon, so safe to run.
+    func testSearchFindsSessionsByTheirOutput() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_FILTER"] = "scrollback"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        // The section header only exists when the daemon returned matches, so
+        // its presence proves the round trip, not just the UI.
+        XCTAssertTrue(app.staticTexts["Found in output"].waitForExistence(timeout: 25),
+                      "server-side search returned nothing for a term known to be in the fleet")
+    }
+
+    /// Switching sessions from the terminal title goes through the same
+    /// requestedSession path that cold-launch quick actions use — the one that
+    /// silently did nothing until #51.
+    func testSwitchSessionFromTheTitleMenu() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.staticTexts["Orion"].tap()
+        let other = app.buttons["Solstice"].firstMatch
+        XCTAssertTrue(other.waitForExistence(timeout: 5), "switcher menu never opened")
+        other.tap()
+        XCTAssertTrue(app.staticTexts["Solstice"].waitForExistence(timeout: 20),
+                      "picking a session from the title did not switch to it")
     }
 
     /// Regression cover for the tap that did nothing on a mouse-mode session.

@@ -226,6 +226,26 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Two more flows covered; one refactor abandoned (iteration 73)
+
+Added, both read-only against the live daemon so they're safe to run:
+- **`testSearchFindsSessionsByTheirOutput`** — types a term known to be in the
+  fleet and asserts the "Found in output" section appears, which proves the
+  server round trip rather than just the UI.
+- **`testSwitchSessionFromTheTitleMenu`** — switching from the terminal title
+  goes through the same `requestedSession` path that cold-launch quick actions
+  use, the one that silently did nothing until #51.
+
+Suite: 7 tests, 62s, one honest skip.
+
+**Abandoned:** replacing the hardcoded session names with "tap the first row".
+The intent was good — names break confusingly the day a session is renamed —
+but XCUITest's element model for a SwiftUI List didn't cooperate with either an
+index or a label predicate, and two attempts turned a green suite red. Reverted
+and wrote the coupling down instead: if those sessions vanish the failure names
+them, and the fix is one string. Cheaper than the fragility I was adding to
+remove it.
+
 ## The UI suite went from unrunnable to 48 seconds (iteration 72)
 
 Individual UI tests were fast but the SUITE exceeded ten minutes, so it could
