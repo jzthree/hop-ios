@@ -24,6 +24,11 @@ final class NetworkConditions: ObservableObject {
     @Published private(set) var isOnline =
         ProcessInfo.processInfo.environment["HOP_DEV_OFFLINE"] != "1"
 
+    /// Low Power Mode is the same kind of instruction as Low Data Mode — the
+    /// user has explicitly asked every app to do less — and a 5s poll with a
+    /// render per visible session is exactly what that means.
+    @Published private(set) var isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
     private let monitor = NWPathMonitor()
 
     private init() {
@@ -37,10 +42,22 @@ final class NetworkConditions: ObservableObject {
             }
         }
         monitor.start(queue: DispatchQueue(label: "io.zhoulab.hop.spike.network"))
+        NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+                }
+            }
     }
 
-    var sessionPollInterval: TimeInterval { pollInterval(expensive: isExpensive, constrained: isConstrained) }
-    var previewPollInterval: TimeInterval? { previewInterval(expensive: isExpensive, constrained: isConstrained) }
+    /// Low power folds into "expensive": a different signal, the same
+    /// conclusion, so the interval table needs no extra branch.
+    var sessionPollInterval: TimeInterval {
+        pollInterval(expensive: isExpensive || isLowPower, constrained: isConstrained)
+    }
+    var previewPollInterval: TimeInterval? {
+        previewInterval(expensive: isExpensive || isLowPower, constrained: isConstrained)
+    }
 }
 
 /// How often to re-list sessions. Wi-Fi keeps the 5s that makes attention feel
