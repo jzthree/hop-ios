@@ -26,6 +26,7 @@ struct AccountView: View {
         network: \(net)
         notifications: \(notifier.enabled ? "on" : "off")
         apns: \(push.deviceToken.map { String($0.prefix(16)) + "…" } ?? push.failure ?? "not registered")
+        background: \(BackgroundRefresh.lastSchedule) / \(BackgroundRefresh.lastRun)
         lastError: \(model.lastError ?? "none")
         """
     }

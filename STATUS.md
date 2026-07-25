@@ -258,6 +258,41 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Background refresh was failing silently, every time (iteration 107)
+
+Bells only reach a pocket if the app gets woken. Background refresh has been
+implemented since #33 and shipped as though it worked. It submits its request
+with `try?`.
+
+Removing that `try?` produced, immediately:
+
+```
+background slot refused: BGTaskSchedulerErrorDomain error 1
+```
+
+Error 1 is "unavailable". **The simulator refuses BGTaskScheduler outright**,
+so this particular result says nothing about the phone — but that is the
+point: the failure is indistinguishable from success from here, and on a
+device its only symptom is a phone that never tells you an agent rang, which
+looks exactly like no agent ringing. A permanent misconfiguration (identifier
+missing from BGTaskSchedulerPermittedIdentifiers, background mode absent,
+Background App Refresh switched off in Settings) would fail this way forever
+and silently.
+
+So the phone can now answer it. `Copy diagnostics` carries two new fields:
+
+    background: requested Jul 25 18:56 / ran Jul 25 19:04
+
+`lastSchedule` records every ask (granted or refused, with the reason);
+`lastRun` records the first time iOS ACTUALLY hands us a slot — the only
+evidence that any of this works on real hardware. Until one lands it reads
+"never ran".
+
+Checked while there and found correct, so it isn't re-checked: registration
+happens in the App's `init()` (iOS throws if it is later than launch), the
+task is completed exactly once behind a lock, and the expiration handler
+cancels the in-flight work.
+
 ## The bell path, verified with an actual bell (iteration 106)
 
 Attention has only ever been exercised here through `HOP_DEV_ATTENTION=1`,
