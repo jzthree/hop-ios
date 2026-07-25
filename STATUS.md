@@ -74,9 +74,10 @@ be the scriptable route but needs admin, so Console is the practical one.
    and open Safari.
 8. **Sign out.** `⋯ → Server & account → Sign out` should return to login and
    NOT remember the password; relaunching must not walk back in.
-9. **Landscape.** Rotate inside a terminal. Watch for the Dynamic Island or
-   home indicator clipping text. Unverified here — simulator rotation needs
-   synthetic keystrokes that can hit other apps, so I stopped trying.
+9. **Landscape.** Rotate inside a terminal. Chrome-hiding is now covered by a
+   UI test (XCUIDevice rotates the simulator), so what's left for you is
+   whether it FEELS right — text clipped by the Dynamic Island, and whether the
+   reclaimed height is worth losing the title.
 10. **Low Data Mode** (Settings → Cellular): live previews should stop
     appearing; the list should still update, just slower.
 11. **Reconnect after a real suspend.** Open a shell session (not claude),
@@ -224,6 +225,19 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 (zero when it's down, since the bar goes with it). Now **fit 51x23 in 358pt**,
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
+
+## Landscape verified for real (iteration 71)
+
+XCUIDevice can rotate the simulator, which I hadn't used — so landscape had only
+ever been checked through `HOP_DEV_COMPACT=1`, a proxy that forces the compact
+layout in portrait. `testLandscapeHidesChromeButKeepsTheKeyBar` now does the
+actual thing: asserts the nav bar is present in portrait, rotates to landscape,
+waits for it to disappear, and confirms the key bar survives — because a
+chrome-free terminal that also lost `esc` would be a downgrade.
+
+That closes one of the three device-checklist items I'd written off as
+"needs your hands". Remaining there: pinch zoom, and long-press selection
+(whose menu belongs to another process and can't be queried).
 
 ## Sticky modifiers: announced, and finally pressed (iteration 70)
 

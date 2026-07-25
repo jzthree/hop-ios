@@ -71,6 +71,27 @@ final class ScrollUITests: XCTestCase {
         XCTAssertEqual(ctrl.value as? String, "", "tapping again disarms rather than sticking")
     }
 
+    /// Landscape was verified only by a dev flag that forced the compact
+    /// layout in portrait — a proxy for the thing, not the thing. XCUIDevice
+    /// can actually rotate, so assert the real behaviour: in landscape the
+    /// keyboard takes over half the height, so the nav bar gets out of the way
+    /// and the terminal keeps its keys.
+    func testLandscapeHidesChromeButKeepsTheKeyBar() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["Terminal actions"].exists, "portrait shows the nav bar")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        // Give the rotation a moment to settle before asserting on layout.
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.buttons["Terminal actions"], handler: nil)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.buttons["escape"].exists,
+                      "the key bar must survive: it's the only way to send esc")
+    }
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")
