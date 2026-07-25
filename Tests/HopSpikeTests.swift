@@ -323,6 +323,13 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(alertable(list, openSession: nil).count, 2, "in the list, both still count")
     }
 
+    func testAuthenticatorCodeIsCleanedAndBounded() {
+        XCTAssertEqual(sanitizedCode("123 456"), "123456", "authenticators copy a space in")
+        XCTAssertEqual(sanitizedCode("123-456"), "123456")
+        XCTAssertEqual(sanitizedCode("1234567890"), "123456", "six digits, not the whole paste")
+        XCTAssertEqual(sanitizedCode("abc"), "", "a number pad can still receive a paste")
+    }
+
     func testPortSessionsNeverAppear() {
         let list = [session(["name": "web", "type": "port"]), session(["name": "shell"])]
         XCTAssertEqual(filterSessions(list, scope: .all, query: "").map(\.name), ["shell"])

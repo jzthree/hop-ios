@@ -520,6 +520,24 @@ LESSON: test against a REAL session with history, not a fresh probe.
    (hop's toInternalSessionName is identity for valid names, so the typed name
    IS the room). 28 tests.
 
+30. **Login — the screen you touch every 7 days.** Reviewed it for the first
+   time and it was full of friction: a number pad has NO return key, so after
+   typing six digits there was no submit gesture at all — you had to reach for
+   the button. Nothing was focused on launch, so every login started with a
+   tap. A code copied from an authenticator ("123 456") just failed. And the
+   remembered password wasn't re-read when the server address changed, so a
+   previous server's password sat in the field.
+   Now: focus lands on the first empty field, the code is cleaned to six digits
+   as you type, login fires automatically on the sixth digit, a failed code is
+   cleared (it's single-use — a spent one is never worth resubmitting) and
+   refocused, and the password follows the server it belongs to. Re-login with
+   a remembered password is now: open, type six digits, in.
+   The screenshot loop earned itself again here: setting @FocusState
+   synchronously in onAppear is silently dropped (the view isn't in a window
+   yet), so the "auto-focus" I'd just written did nothing at all. Visible
+   instantly in a screenshot, invisible to the compiler and the tests.
+   29 tests.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

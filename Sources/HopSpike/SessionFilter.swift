@@ -64,3 +64,11 @@ func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String
 func alertable(_ sessions: [HopSession], openSession: String?) -> [HopSession] {
     sessions.filter { $0.attention && $0.internalName != openSession }
 }
+
+/// A 6-digit authenticator code, cleaned. Authenticator apps and password
+/// managers hand over "123 456" or "123-456" often enough that pasting one
+/// otherwise just fails, and the field is a number pad with no way to correct
+/// it comfortably.
+func sanitizedCode(_ raw: String) -> String {
+    String(raw.filter(\.isNumber).prefix(6))
+}

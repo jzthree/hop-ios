@@ -69,6 +69,37 @@ struct LoginView: View {
     @FocusState private var focus: Field?
     enum Field { case password, totp }
 
+    private func loadSavedPassword() {
+        if let saved = Keychain.read(account: model.normalizedServerURL) {
+            password = saved
+            remember = true
+        }
+    }
+
+    /// Focus set synchronously in onAppear is silently dropped — the view
+    /// isn't in a window yet, so the keyboard never comes up. Yield first.
+    private func focusFirstEmptyField() async {
+        try? await Task.sleep(for: .milliseconds(400))
+        focus = password.isEmpty ? .password : .totp
+    }
+
+    private func submit() {
+        busy = true
+        Task {
+            await model.login(password: password, totp: totp)
+            if model.authenticated {
+                // Only the password — never the TOTP secret, which would put
+                // both factors on one device.
+                if remember { Keychain.save(password, account: model.normalizedServerURL) }
+                else { Keychain.delete(account: model.normalizedServerURL) }
+            } else {
+                totp = ""            // a code is single-use; a failed one is spent
+                focus = .totp
+            }
+            busy = false
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
@@ -102,6 +133,15 @@ struct LoginView: View {
                         .textContentType(.oneTimeCode)
                         .keyboardType(.numberPad)
                         .focused($focus, equals: .totp)
+                        .onChange(of: totp) { _, raw in
+                            // A number pad has no return key, so there is no
+                            // "submit" gesture at all — and a code copied from
+                            // an authenticator often arrives as "123 456".
+                            // Clean it, and go the moment it's complete.
+                            let clean = sanitizedCode(raw)
+                            if clean != raw { totp = clean }
+                            if clean.count == 6, !busy, !password.isEmpty { submit() }
+                        }
                         .padding(12)
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
                 }
@@ -119,17 +159,7 @@ struct LoginView: View {
                 }
 
                 Button {
-                    busy = true
-                    Task {
-                        await model.login(password: password, totp: totp)
-                        if model.authenticated {
-                            // Only the password — never the TOTP secret, which
-                            // would put both factors on one device.
-                            if remember { Keychain.save(password, account: model.normalizedServerURL) }
-                            else { Keychain.delete(account: model.normalizedServerURL) }
-                        }
-                        busy = false
-                    }
+                    submit()
                 } label: {
                     if busy {
                         ProgressView().frame(maxWidth: .infinity).padding(6)
@@ -138,17 +168,21 @@ struct LoginView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(busy || totp.isEmpty)
+                .disabled(busy || password.isEmpty || totp.count < 6)
 
                 Spacer()
                 Spacer()
             }
             .padding(.horizontal, 28)
-            .onAppear {
-                if password.isEmpty, let saved = Keychain.read(account: model.normalizedServerURL) {
-                    password = saved
-                    remember = true
-                }
+            .task {
+                loadSavedPassword()
+                await focusFirstEmptyField()
+            }
+            .onChange(of: model.normalizedServerURL) { _, _ in
+                // A password belongs to a server. Editing the address must not
+                // leave the previous server's password sitting in the field.
+                password = ""
+                loadSavedPassword()
             }
         }
     }
