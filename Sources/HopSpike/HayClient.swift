@@ -7,7 +7,10 @@ final class HayClient: NSObject {
     enum Event {
         case connected
         case output(String)
-        case snapshot(String)        // full replay: the terminal must be reset first          // raw terminal bytes (snapshot or live)
+        // Full replay. The mode flags travel BESIDE the data because the
+        // replayed bytes don't re-emit the DECSETs that turned them on — the
+        // app enabled alt-screen once, long before this tail begins.
+        case snapshot(String, alternateScreen: Bool, cursorHidden: Bool)          // raw terminal bytes (snapshot or live)
         case activeSize(Int, Int)    // cols, rows
         case presence([Viewer])      // who else is attached
         case collab(Bool, String?)   // everyone-can-type, controllerId
@@ -35,6 +38,11 @@ final class HayClient: NSObject {
     private var task: URLSessionWebSocketTask?
     var onEvent: ((Event) -> Void)?
 
+    /// Enough to redraw a TUI screen and leave a little shell history, and
+    /// small enough that opening a session on cellular is not an event.
+    static let replayBytes = 200_000
+    private var replayBytes: Int { Self.replayBytes }
+
     func connect(base: String, httpBase: String, room: String, cols: Int, rows: Int,
                  token: String?, using session: URLSession) {
         var comps = URLComponents(string: base + "/ws")
@@ -43,7 +51,12 @@ final class HayClient: NSObject {
             .init(name: "name", value: "iPhone"),
             .init(name: "source", value: "ios"),
             .init(name: "cols", value: String(cols)),
-            .init(name: "rows", value: String(rows))
+            .init(name: "rows", value: String(rows)),
+            // A phone doesn't need a desktop's worth of replay: hop's default
+            // tail is 1.5 MB raw, which measured 2.4 MB on the wire as JSON
+            // and yielded one screen. The server clamps this to its own bound,
+            // and ignores it entirely on versions that don't read it yet.
+            .init(name: "replayBytes", value: String(replayBytes))
         ]
         // The daemon accepts cookie, Bearer, or ?token= on the upgrade.
         if let token, !token.isEmpty { items.append(.init(name: "token", value: token)) }
@@ -191,7 +204,13 @@ final class HayClient: NSObject {
                     .info("snapshot \(bytes / 1024) KB after \(ms) ms")
             }
             if let payload = obj["data"] as? String {
-                onEvent?(type == "snapshot" ? .snapshot(payload) : .output(payload))
+                if type == "snapshot" {
+                    onEvent?(.snapshot(payload,
+                                       alternateScreen: (obj["alternateScreen"] as? Bool) ?? false,
+                                       cursorHidden: (obj["cursorHidden"] as? Bool) ?? false))
+                } else {
+                    onEvent?(.output(payload))
+                }
             }
         case "active_size":
             // Coerced rather than `as? Int`: a JSON number arriving as a

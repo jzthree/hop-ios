@@ -650,6 +650,37 @@ LESSON: test against a REAL session with history, not a fresh probe.
    confirmed the first-snapshot path renders correctly but could not exercise
    the reconnect one here. Added to the device checklist.
 
+37. **Seeded the modes my own reset cleared — and found a 10x mobile win that
+   needs 3 lines in hop2.**
+   - #36's reset was right but incomplete. hop's snapshot carries
+     `alternateScreen`, `cursorHidden`, `keyboardEnhanced`, `mouseReporting`,
+     `mouseSgr` precisely BECAUSE the replayed bytes don't re-emit the DECSETs
+     that turned them on — the app enabled alt-screen once, long before the
+     tail begins. We ignored all five. Alt-screen and cursor-hidden are now
+     re-entered as sequences after the reset (SwiftTerm keeps the buffer switch
+     private, and a terminal takes modes as sequences anyway).
+     Mouse reporting is deliberately NOT restored: on a touch screen a tap is
+     how you reach the keyboard, and turning taps into clicks at the app is a
+     behaviour change to decide on a device, not guess at here. Same for the
+     Kitty keyboard flag — left as is.
+   - **`replayBytes` is honoured by rooms.ts and populated by nobody.** The
+     per-client replay bound exists in the server's type and its Math.min, but
+     index.ts never reads it off the URL, so no client can ask for a smaller
+     snapshot. The app now sends `replayBytes=200000` regardless: harmless
+     today (unknown params are ignored — verified, still 2447 KB), and it
+     becomes a ~10x cut the moment the server reads it.
+     **The hop2 side is 3 lines in `hay/apps/server/src/index.ts`**, additive
+     and backward-compatible (absent param = today's behaviour):
+     ```ts
+     const replayParam = Number(url.searchParams.get("replayBytes"));
+     const replayBytes = Number.isFinite(replayParam) && replayParam > 0
+       ? Math.max(50_000, replayParam) : undefined;   // floor: a tiny value would blank the screen
+     // then pass `replayBytes` in the attachClient({...}) info object
+     ```
+     NOT done here on purpose: the server runs from a built `dist/`, so it
+     needs a build plus a host restart, and this file is shared with Solstice —
+     STATUS's own rule is to coordinate before touching shared hop2 files.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and

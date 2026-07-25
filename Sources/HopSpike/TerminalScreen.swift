@@ -484,7 +484,7 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                 case .output(let data):
                     tv.feed(text: data)
-                case .snapshot(let data):
+                case .snapshot(let data, let alternateScreen, let cursorHidden):
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
                     // one duplicated history for shell sessions and let stale
@@ -495,6 +495,15 @@ struct TerminalScreen: UIViewRepresentable {
                     // ("35;197;31M") at a prompt that never asked for them.
                     // This path runs on EVERY return from background.
                     tv.getTerminal().resetToInitialState()
+                    // Re-enter the modes the app is actually in. SwiftTerm keeps
+                    // the buffer switch private, but a terminal takes modes as
+                    // sequences, which is the honest way to say it anyway.
+                    // Mouse reporting is deliberately NOT restored: on a touch
+                    // screen a tap is how you reach the keyboard, and turning
+                    // taps into clicks at the app is a behaviour change worth
+                    // deciding on a device, not guessing at here.
+                    if alternateScreen { tv.feed(text: "\u{1b}[?1049h") }
+                    if cursorHidden { tv.feed(text: "\u{1b}[?25l") }
                     tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
