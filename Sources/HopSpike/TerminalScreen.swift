@@ -485,6 +485,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .output(let data):
                     tv.feed(text: data)
                 case .snapshot(let data, let alternateScreen, let cursorHidden):
+                    self.snapshotLanded = true
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
                     // one duplicated history for shell sessions and let stale
@@ -543,6 +544,8 @@ struct TerminalScreen: UIViewRepresentable {
             NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
                                                    name: .hopJumpToLive, object: nil)
             let t = view.getTerminal()
+            snapshotLanded = false
+            fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
         }
@@ -570,6 +573,50 @@ struct TerminalScreen: UIViewRepresentable {
             case .lock: client.setCollab(false)
             case .unlock: client.setCollab(true)
             case .links: onLinks(visibleLinks())
+            }
+        }
+
+        /// Set once the authoritative replay lands, so the fast paint below
+        /// can never scribble over it if it loses the race.
+        private var snapshotLanded = false
+
+        /// Fast first paint. hop can serialize a session's CURRENT screen from
+        /// its preview grid in one small response (~2 KB) — paint that at once
+        /// so opening a session shows content while the WebSocket snapshot,
+        /// measured at 2.4 MB, is still downloading. On a phone over a tunnel
+        /// that download IS the wait. The snapshot handler resets the terminal
+        /// before writing, so this paint is fully superseded rather than
+        /// merged. Best-effort throughout: any failure just means the old
+        /// behaviour, a blank terminal until the snapshot arrives.
+        private func fastPaint(room: String) {
+            guard var comps = URL(string: httpBase)
+                .map({ $0.appendingPathComponent("api/sessions/screen") })
+                .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return }
+            comps.queryItems = [.init(name: "name", value: room)]
+            guard let url = comps.url else { return }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 5
+            if let t = token_, !t.isEmpty { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
+            let session = urlSession
+            Task { [weak self] in
+                guard let (data, resp) = try? await session.data(for: req),
+                      (resp as? HTTPURLResponse)?.statusCode == 200,
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let screen = obj["data"] as? String, !screen.isEmpty else { return }
+                await MainActor.run {
+                    guard let self, self.alive, !self.snapshotLanded,
+                          self.room == room, let tv = self.view else { return }
+                    // Paint at the session's real dimensions: writing a wide
+                    // screen into a narrow grid wraps it into mush.
+                    let t = tv.getTerminal()
+                    if let cols = obj["cols"] as? Int, let rows = obj["rows"] as? Int,
+                       cols > 1, rows > 1, t.cols != cols || t.rows != rows {
+                        t.resize(cols: cols, rows: rows)
+                    }
+                    tv.feed(text: screen)
+                    Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                        .info("fast paint \(screen.utf8.count / 1024) KB (snapshot still in flight)")
+                }
             }
         }
 
@@ -655,6 +702,8 @@ struct TerminalScreen: UIViewRepresentable {
             client.close()
             setStatus(.connecting)
             let t = view.getTerminal()
+            snapshotLanded = false
+            fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room,
                            cols: t.cols, rows: t.rows, token: token_, using: urlSession)
         }

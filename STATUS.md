@@ -722,6 +722,22 @@ LESSON: test against a REAL session with history, not a fresh probe.
    Unused endpoints noted for later: /park, /archive, /screen, /tagline,
    /move, /reorder, /origin, /restore, /claim-local-cli.
 
+41. **Fast first paint — the blank-terminal wait is gone.** Opening a session
+   showed nothing until the 2.4 MB snapshot finished; on Wi-Fi that's ~100 ms,
+   on cellular it's the whole wait. hop's web client solved this long ago and
+   its comment names our exact case ("the dominant switch cost on a phone over
+   the tunnel"): `/api/sessions/screen` serializes the session's CURRENT screen
+   from the preview grid in one small response.
+   The app now fires that HTTP request alongside the WebSocket connect and
+   paints it immediately — measured at **1 KB, landing 29 ms before the 2454 KB
+   snapshot**. It paints at the session's real dimensions (writing a wide
+   screen into a narrow grid wraps it into mush) and is fully superseded,
+   because #36's snapshot handler resets the terminal before writing. Entirely
+   best-effort: any failure just restores the old blank-until-snapshot
+   behaviour.
+   Found by continuing the endpoint audit from #40 — `/screen` returns
+   `{data, cols, rows}` WITH escape sequences, unlike `/preview`'s plain text.
+
 ## Remaining (needs your call)
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
   hop2 daemon. Client work is done; this is the only thing between us and
