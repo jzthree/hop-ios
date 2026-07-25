@@ -1441,17 +1441,31 @@ final class HopTermView: TerminalView {
 
 extension HopTermView: UIGestureRecognizerDelegate {
     /// Don't scroll out from under a selection: once one exists, dragging
-    /// belongs to its handles.
+    /// belongs to its handles. And a scroll is a VERTICAL gesture — anything
+    /// mostly sideways belongs to whoever else wants it.
     override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         // Only gate OUR pan; leave UIView's own answer for everything else.
-        guard g is UIPanGestureRecognizer else { return super.gestureRecognizerShouldBegin(g) }
-        return !selectionActive
+        guard let pan = g as? UIPanGestureRecognizer else {
+            return super.gestureRecognizerShouldBegin(g)
+        }
+        guard !selectionActive else { return false }
+        let v = pan.velocity(in: self)
+        return abs(v.y) >= abs(v.x)
     }
 
     /// Coexist with the long-press and tap recognizers, which are how
-    /// selection and focus still work.
+    /// selection and focus still work — but NOT with the swipe back to the
+    /// session list. Sharing that one means an edge swipe scrolls the terminal
+    /// on its way out, and now that a flick coasts, it would go on sending
+    /// wheel events to the agent after the screen is gone.
     func gestureRecognizer(_ g: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        true
+        !(other is UIScreenEdgePanGestureRecognizer)
+    }
+
+    /// And when the two do overlap, the swipe back wins outright.
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        other is UIScreenEdgePanGestureRecognizer
     }
 }

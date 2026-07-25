@@ -258,4 +258,20 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after a flick")
         XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after a flick")
     }
+
+    /// The swipe back to the session list must not double as a scroll. Our pan
+    /// covers the whole terminal, so without yielding to the edge gesture the
+    /// way out of a session also flings wheel events at the agent — and with
+    /// momentum, keeps flinging them after the screen is gone.
+    func testSwipeBackLeavesTheSessionInsteadOfScrolling() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: right)
+        // Back at the list: the key bar is gone and sessions are listed again.
+        XCTAssertTrue(app.staticTexts["hop"].waitForExistence(timeout: 10),
+                      "swipe from the edge didn't leave the session")
+        XCTAssertFalse(app.buttons["escape"].exists, "key bar survived the swipe back")
+    }
 }
