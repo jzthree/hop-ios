@@ -50,6 +50,12 @@ final class ScrollUITests: XCTestCase {
                        "Live should disappear once back at the bottom")
     }
 
+    // NOTE: there is deliberately no selection test here. Double-tap selects a
+    // word and offers Copy, but that menu is presented by another process, so
+    // it never appears in this app's accessibility hierarchy and the assertion
+    // fails whatever the app does. Testing the OS's menu presentation isn't
+    // this suite's job; selection stays on the device checklist.
+
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
         let app = launchIntoSession("Orion")

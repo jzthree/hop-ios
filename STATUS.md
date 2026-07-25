@@ -210,6 +210,37 @@ were never in it. Auditing interactions instead:
 | Hardware keyboard | unaudited |
 | Drag & drop text | unaudited |
 
+## Touch was breaking THREE interactions, not one (iteration 58)
+
+Writing a UI test for selection turned up the full extent of the mouse-reporting
+problem. SwiftTerm gates these three behind `allowMouseReporting && mouseMode
+.sendButtonPress()`, and claude turns mouse mode on:
+
+| Gesture | Before #55 (agent sessions) | Now |
+|---|---|---|
+| Drag | click sent to the app; viewport never moved | scrolls |
+| Tap | click sent; keyboard stayed down | focuses, raises keyboard |
+| Double-tap | click sent; nothing selected | selects a word, offers Copy |
+
+So on every claude session — which is what this app is FOR — touch did nothing
+locally and quietly poked the agent instead. One wrong assumption (touch is a
+mouse), three dead interactions.
+
+Also learned: `enableSelectionPanGesture()` adds the selection pan LAZILY, when
+a selection starts. #55 disabled the pans that existed at setup, so
+drag-to-extend was never actually traded away — the earlier note overstated the
+cost.
+
+Test-harness limits worth recording, since three runs were spent finding them:
+- The edit menu ("Copy") is presented by another process and never enters this
+  app's accessibility hierarchy, so it cannot be asserted from here. Selection
+  stays a device-checklist item.
+- SwiftTerm's long press does NOT select — it only opens a context menu.
+  Double-tap is what selects. Asserting the wrong gesture made working code
+  look broken.
+- UI tests run ~2-4 min each, so they exceed a single 10-minute command when run
+  as a suite; use `-only-testing:` per test.
+
 ## Scroll momentum + a UI test target (iteration 57)
 
 **Momentum.** The scroll was 1:1 with no inertia, so reaching anything more
