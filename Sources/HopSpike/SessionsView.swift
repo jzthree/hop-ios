@@ -49,6 +49,16 @@ struct SessionsView: View {
     /// Counting only what's on screen meant filtering to one project could
     /// report "nothing waiting on you" while a session in another project was
     /// waiting — the summary quietly agreeing with whatever you'd narrowed to.
+    /// Search runs server-side across everything; the scope picker is a local
+    /// choice the server never hears about. Reconcile them here.
+    private var inScopeMatches: [ContentMatch] {
+        let allowed = Set(filterSessions(model.sessions, scope: scope, query: "")
+            .map(\.internalName))
+        return contentMatches.filter { allowed.contains($0.internalName) }
+    }
+
+    private var outOfScopeMatches: Int { contentMatches.count - inScopeMatches.count }
+
     /// What the session last said, falling back to what it's for.
     private var replyPrompt: String {
         guard let target = replyTarget else { return "" }
@@ -165,9 +175,9 @@ struct SessionsView: View {
                     if !section.label.isEmpty { Text(section.label) }
                 }
             }
-            if !contentMatches.isEmpty {
-                Section("Found in output") {
-                    ForEach(contentMatches) { match in
+            if !inScopeMatches.isEmpty || outOfScopeMatches > 0 {
+                Section {
+                    ForEach(inScopeMatches) { match in
                         NavigationLink(value: match.internalName) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(match.name)
@@ -178,6 +188,17 @@ struct SessionsView: View {
                                     .lineLimit(2)
                             }
                         }
+                    }
+                } header: {
+                    Text("Found in output")
+                } footer: {
+                    // The scope picker filters the list, and the server-side
+                    // search doesn't know about it. Silently showing agent
+                    // sessions while scoped to You is confusing; silently
+                    // HIDING them is worse — you'd conclude the text isn't
+                    // anywhere. So filter, and say what was filtered.
+                    if outOfScopeMatches > 0 {
+                        Text("\(outOfScopeMatches) more in other scopes")
                     }
                 }
             }
