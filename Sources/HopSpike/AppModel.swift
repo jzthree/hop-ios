@@ -10,6 +10,9 @@ final class AppModel: ObservableObject {
     @Published var checkingAuth = true
     @Published var sessions: [HopSession] = []
     @Published var lastError: String?
+    /// internalName -> last rendered screen text (the daemon renders these on
+    /// demand, so only ask for what's actually on screen).
+    @Published var previews: [String: String] = [:]
     // Optional access token (the daemon accepts it as Bearer / ?token=).
     // Dev/simulator runs can inject it via the HOP_DEV_TOKEN env var so the
     // real UI can be exercised without an authenticator code.
@@ -148,6 +151,60 @@ final class AppModel: ObservableObject {
     }
     func killSession(_ s: HopSession) async -> Bool {
         await post("api/sessions/delete", ["internalName": s.internalName])
+    }
+
+    /// Fetch screen previews for the sessions the user can actually see.
+    /// Mirrors the web switcher: bounded set, only while the list is open.
+    func refreshPreviews(for names: [String]) async {
+        await withTaskGroup(of: (String, String?).self) { group in
+            for name in names.prefix(6) {
+                group.addTask { [weak self] in
+                    guard let self else { return (name, nil) }
+                    return (name, await self.fetchPreview(name))
+                }
+            }
+            for await (name, text) in group {
+                if let text, !text.isEmpty { previews[name] = text }
+            }
+        }
+    }
+
+    private func fetchPreview(_ internalName: String) async -> String? {
+        guard var comps = baseURL.map({ $0.appendingPathComponent("api/sessions/preview") })
+            .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
+        comps.queryItems = [.init(name: "name", value: internalName)]
+        guard let url = comps.url else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = obj["text"] as? String else { return nil }
+        return Self.meaningfulTail(of: text, lines: 3)
+    }
+
+    /// The last few lines that actually say something. A TUI's final lines are
+    /// its own chrome — Claude's composer box, rule lines, the "bypass
+    /// permissions" hint — so a naive tail shows every session as identical
+    /// box-drawing. Skip chrome and keep real content.
+    static func meaningfulTail(of screen: String, lines wanted: Int) -> String {
+        let boxChars = CharacterSet(charactersIn: "─│╭╮╰╯┌┐└┘├┤┬┴┼━┃▏▕▁▔█▀▄· ")
+        let noise = ["bypass permissions", "esc to interrupt", "shift+tab to cycle",
+                     "? for shortcuts", "ctrl+c to"]
+        let kept = screen.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { line in
+                guard !line.isEmpty else { return false }
+                let lower = line.lowercased()
+                if noise.contains(where: { lower.contains($0) }) { return false }
+                // Prompt-only lines ("❯", "> ") carry no information.
+                if line.count <= 2 { return false }
+                // Mostly box-drawing => chrome.
+                let boxCount = line.unicodeScalars.filter { boxChars.contains($0) }.count
+                return Double(boxCount) / Double(line.unicodeScalars.count) < 0.6
+            }
+        return kept.suffix(wanted).joined(separator: "\n")
     }
 
     func markSeen(_ session: HopSession) {

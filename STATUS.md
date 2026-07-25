@@ -115,7 +115,7 @@ LESSON: test against a REAL session with history, not a fresh probe.
 | Native keyboard (dictation/autocorrect) | via KB button | ✓ always (this is the native win) |
 | Bell → haptic | ✗ (iOS Safari has no haptics) | ✓ |
 | **Still missing on iOS** | | |
-| Live preview cards in switcher | ✓ | ✗ (list only) |
+| Live session previews | ✓ (hero tiles) | ✓ (3-line live screen per row) |
 | Presence / take-release control | ✓ | ✗ |
 | Bell notifications | ✓ (web push) | ✓ local (banner + tap-to-open); APNs pending |
 | Split/secondary pane, wall zoom | ✓ | ✗ (desktop-shaped) |
@@ -143,6 +143,16 @@ LESSON: test against a REAL session with history, not a fresh probe.
    (1/2/4/8s, capped 15s) for tunnel blips, reset on a healthy connect and
    cancelled on manual reconnect/leave. Verified by a real background→
    foreground cycle in the simulator: terminal came back live unattended.
+
+4. **Live previews in the session list** — /api/sessions/preview for the top 6
+   visible live sessions, refreshed every 9s only while the list is on screen
+   (the daemon renders these on demand, so the cost is bounded). Shown as a
+   3-line monospace block per row.
+   **Design catch found by looking at it**: a naive "last 3 non-empty lines"
+   showed every Claude session as identical composer box-drawing. Previews now
+   skip TUI chrome (box characters, prompt-only lines, "bypass permissions" /
+   "esc to interrupt" hints) and keep the last real content lines — so rows now
+   read "Incubating… (10m 53s · 7.3k tokens)", "Ran 2 shell commands", etc.
 
 ## Next (Orion)
 - [x] Code compiles clean (simulator build green, no API drift)

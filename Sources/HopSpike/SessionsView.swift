@@ -53,7 +53,7 @@ struct SessionsView: View {
                 Section {
                     ForEach(visible) { session in
                         NavigationLink(value: session.internalName) {
-                            SessionRow(session: session)
+                            SessionRow(session: session, preview: model.previews[session.internalName])
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) { killTarget = session } label: {
@@ -153,12 +153,22 @@ struct SessionsView: View {
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
+            .task(id: scenePhase) {
+                // Previews cost daemon work per call, so only while the list is
+                // on screen, only the top few, on a slower cadence than the list.
+                guard scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    await model.refreshPreviews(for: visible.filter(\.live).map(\.internalName))
+                    try? await Task.sleep(for: .seconds(9))
+                }
+            }
         }
     }
 }
 
 struct SessionRow: View {
     let session: HopSession
+    var preview: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -194,6 +204,17 @@ struct SessionRow: View {
                     Text(session.shortCwd)
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.head)
+                }
+                if let preview, !preview.isEmpty {
+                    Text(preview)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary.opacity(0.85))
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                        .background(Color(white: 0.10), in: RoundedRectangle(cornerRadius: 7))
+                        .padding(.top, 3)
                 }
             }
             Spacer()
