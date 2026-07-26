@@ -224,6 +224,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Previews now follow your eyes (iteration 116)
+
+A preview — the three lines of what a session is actually SAYING — is the most
+useful thing on a row. They cost the daemon a render each, so the budget is
+small and fixed, and it was being spent on the first six of the rendered list,
+full stop.
+
+With nineteen sessions that means two-thirds of the fleet shows a name and no
+output, and **scrolling never changed it**: the rows under your thumb stayed
+blank while six off-screen ones stayed fresh.
+
+Rows now report whether they are on screen, and the budget is spent on the
+visible ones first, falling back to rendered order to fill. Same cost to the
+daemon, pointed where the eyes are. Raised 6 → 8 at the same time, because a
+phone screen holds about seven rows and a budget smaller than a screenful is
+the difference between "the list shows what sessions are saying" and "most of
+it doesn't".
+
+Verified by screenshot: scrolled to rows ten through seventeen, and Bellatrix,
+Neptune, presenceprobe and Altair — all of which would have been blank before
+— are showing their output.
+
 ## The app now says which build it is (iteration 115)
 
 Follows directly from #114. The phone ran an unoptimised build for its entire

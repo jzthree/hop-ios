@@ -33,6 +33,9 @@ struct SessionsView: View {
     @AppStorage("groupByProject") private var groupByProject = false
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var contentMatches: [ContentMatch] = []
+    /// Rows currently on screen. Previews cost the daemon a render each, so the
+    /// budget is small and fixed — this decides WHERE it is spent.
+    @State private var visibleRows: Set<String> = []
     /// Asked once, ever. The whole point of this app is being told when an
     /// agent wants you, and that shipped OFF and three taps deep in a menu —
     /// so the one person who'd benefit had to already know it existed.
@@ -126,6 +129,8 @@ struct SessionsView: View {
         // element the List owns. A wash the width of the row is what makes the
         // one that wants you findable while scrolling past nineteen.
         .listRowBackground(session.attention ? Color.hopAttention.opacity(0.13) : nil)
+        .onAppear { visibleRows.insert(session.internalName) }
+        .onDisappear { visibleRows.remove(session.internalName) }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { killTarget = session } label: {
                 Label("Kill", systemImage: "xmark.circle")
@@ -143,6 +148,20 @@ struct SessionsView: View {
             }
             .tint(.hopAttention)
         }
+    }
+
+    /// The handful of sessions worth a preview right now: what's on screen
+    /// first, then the rendered order to fill the budget.
+    ///
+    /// It used to be the first six of the rendered list, full stop. With
+    /// nineteen sessions that leaves two-thirds of the fleet showing a name and
+    /// no output — and scrolling never changed it, so the rows you were looking
+    /// at stayed blank while six off-screen ones stayed fresh. Same cost to the
+    /// daemon, pointed where the eyes are.
+    private var previewCandidates: [String] {
+        let rendered = sections.flatMap(\.rows).filter(\.live).map(\.internalName)
+        let onScreen = rendered.filter { visibleRows.contains($0) }
+        return onScreen + rendered.filter { !visibleRows.contains($0) }
     }
 
     private var listView: some View {
@@ -446,9 +465,7 @@ struct SessionsView: View {
             // attention order: with grouping on they differ, and fetching the
             // top 6 of the wrong order leaves visible rows preview-less while
             // off-screen ones stay fresh.
-            let names: [String] = sections.flatMap(\.rows)
-                .compactMap { $0.live ? $0.internalName : nil }
-            await model.refreshPreviews(for: names)
+            await model.refreshPreviews(for: previewCandidates)
             try? await Task.sleep(for: .seconds(every))
         }
     }

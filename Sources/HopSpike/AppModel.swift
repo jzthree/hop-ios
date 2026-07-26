@@ -330,7 +330,11 @@ final class AppModel: ObservableObject {
         // screen contents back into the store.
         let epoch = authEpoch
         await withTaskGroup(of: (String, String?).self) { group in
-            for name in names.prefix(6) {
+            // Eight, not six: a phone screen holds about seven rows, and the
+            // caller now hands these over in viewport order — so the budget
+            // covering less than a screenful was the difference between "the
+            // list shows what sessions are saying" and "most of it doesn't".
+            for name in names.prefix(8) {
                 group.addTask { [weak self] in
                     guard let self else { return (name, nil) }
                     return (name, await self.fetchPreview(name))
