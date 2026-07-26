@@ -597,4 +597,30 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(s.archived)
         XCTAssertFalse(session(["name": "Titan"]).archived)
     }
+
+    func testJSONNumbersSurviveEitherForm() {
+        // The hazard these helpers exist for: JSONSerialization hands back
+        // NSNumber, and a straight cast to the WRONG one of Int/Double yields
+        // nil — silently, so the value just becomes a default.
+        XCTAssertEqual(jsonInt(NSNumber(value: 51)), 51)
+        XCTAssertEqual(jsonInt(NSNumber(value: 51.0)), 51)
+        XCTAssertEqual(jsonInt(Double(51)), 51)
+        XCTAssertEqual(jsonInt(Int(51)), 51)
+        XCTAssertNil(jsonInt("51"))          // a string is not a number
+        XCTAssertNil(jsonInt(nil))
+
+        XCTAssertEqual(jsonDouble(NSNumber(value: 12)), 12)
+        XCTAssertEqual(jsonDouble(Int(12)), 12)
+        XCTAssertEqual(jsonDouble(12.5), 12.5)
+        XCTAssertNil(jsonDouble("12.5"))
+    }
+
+    func testBellSeqFromAPushSurvives() {
+        // The APNs case specifically: a bell counter decoded from a push
+        // arrives as NSNumber, and losing it means marking the session seen at
+        // 0 — so answering a notification would leave the dot and the badge
+        // exactly where they were.
+        let fromPush: [String: Any] = ["session": "Orion", "bellSeq": NSNumber(value: 42)]
+        XCTAssertEqual(jsonInt(fromPush["bellSeq"]), 42)
+    }
 }

@@ -778,7 +778,10 @@ struct TerminalScreen: UIViewRepresentable {
                 // Paint at the session's real dimensions: writing a wide
                     // screen into a narrow grid wraps it into mush.
                 let t = tv.getTerminal()
-                if let cols = obj["cols"] as? Int, let rows = obj["rows"] as? Int,
+                // Coerced for the same reason every other number here is: a
+                // cast that yields nil skips the resize silently, and the
+                // symptom is the wrapped mush this code exists to prevent.
+                if let cols = jsonInt(obj["cols"]), let rows = jsonInt(obj["rows"]),
                    cols > 1, rows > 1, t.cols != cols || t.rows != rows {
                     t.resize(cols: cols, rows: rows)
                 }

@@ -258,6 +258,32 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The same lens again: known fix, not applied everywhere (iteration 111)
+
+Three bugs today have had one shape — a fix this codebase already knew,
+applied in some places and not others (the theme on one of three connect
+paths; the auth-epoch guard on one of three fetches). So I went looking for it
+deliberately.
+
+`jsonInt` / `jsonDouble` exist because JSONSerialization hands back NSNumber
+and a straight `as? Int` yields nil for the other form, silently. Two places
+still cast:
+
+- **The APNs path.** `userInfo["bellSeq"] as? Int` in the notification reply
+  handler. Today that dictionary is one we build, so it holds an Int — but the
+  same handler receives push payloads, where the number arrives as NSNumber.
+  It would have failed the moment APNs shipped, and failed quietly: the reply
+  sends, and the session keeps its dot and badge as though you had ignored it.
+- **The fast paint.** `obj["cols"] as? Int` — a nil there skips the resize, and
+  the symptom is exactly the wrapped mush that code exists to prevent.
+
+Both coerced now, and the helpers themselves are finally unit-tested, including
+the NSNumber-from-a-push case.
+
+Worth noting the first one: it is a bug in a feature that does not exist yet,
+found by asking "what will this handler receive when APNs lands" rather than
+"what does it receive today".
+
 ## What sign-out left behind (iteration 110)
 
 Audited what belongs to an account and what actually gets dropped when you

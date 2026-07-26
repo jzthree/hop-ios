@@ -193,7 +193,13 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
                 // Answering IS attending to it. Without this the session kept
                 // its dot and its badge after you'd already dealt with it,
                 // which is the app nagging about something you just handled.
-                let seq = response.notification.request.content.userInfo["bellSeq"] as? Int
+                // Coerced, not cast. Today this userInfo is one we built, so
+                // it holds an Int — but the same handler will receive APNs
+                // payloads, and a number decoded from a push arrives as
+                // NSNumber. `as? Int` yields nil for that, and the failure is
+                // silent in the worst way: the reply sends, and the session
+                // keeps its dot and its badge as though you had ignored it.
+                let seq = jsonInt(response.notification.request.content.userInfo["bellSeq"])
                 await MainActor.run {
                     AppModel.shared.markSeen(internalName: name, bellSeq: seq ?? 0)
                 }
