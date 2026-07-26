@@ -9,7 +9,8 @@ SIM ?= 56F2687C-0938-490F-ABC4-18461A4D8F36
 BUNDLE = io.zhoulab.hop.spike
 PROJECT = HopSpike.xcodeproj
 SCHEME = HopSpike
-APP = build/Build/Products/Debug-iphoneos/HopSpike.app
+APP = build/Build/Products/Release-iphoneos/HopSpike.app
+DEBUG_APP = build/Build/Products/Debug-iphoneos/HopSpike.app
 SIMAPP = build-sim/Build/Products/Debug-iphonesimulator/HopSpike.app
 # The daemon accepts its own session secret as a bearer token / cookie, which
 # is how the simulator gets past TOTP during development.
@@ -26,10 +27,25 @@ TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expandus
 gen:
 	xcodegen
 
+# Release, not Debug. Swift Debug is -Onone: the terminal parser, the scroll
+# maths and SwiftUI's diffing all run unoptimised, and this is the build that
+# lives on a phone all day. APS_ENVIRONMENT is forced back to development
+# because a locally-signed install is a development one — Release only flips it
+# to production for TestFlight, and a production token cannot be pushed to by a
+# development APNs connection.
 build: gen
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+	  -derivedDataPath build $(VERSION_FLAGS) APS_ENVIRONMENT=development build
+
+# The unoptimised build, for when something needs a debugger attached.
+build-debug: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
 	  -derivedDataPath build $(VERSION_FLAGS) build
+
+install-debug: build-debug
+	@xcrun devicectl device install app --device $(DEVICE) "$(DEBUG_APP)"
 
 test: gen
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \

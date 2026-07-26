@@ -224,6 +224,40 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The phone has been running an unoptimised build all along (iteration 114)
+
+Measured what a firehose costs, since watching agent output is what this app
+IS. 13 MB in one burst (200k lines) into an attached session:
+
+- CPU pegged at ~115% for about 6.5 seconds, then flat.
+- RSS +14 MB, and **stable afterwards** — the 5000-line cap holds, nothing
+  grows without bound.
+
+Then noticed what that measurement was actually of. `make install` built the
+default configuration and installed from `Debug-iphoneos`. Swift Debug is
+`-Onone`: the terminal parser, the scroll maths and SwiftUI's diffing have all
+been running unoptimised on the phone, every day, including while the scroll
+feel was being judged.
+
+`make install` now builds Release. `make install-debug` keeps the old path for
+when a debugger is needed. The binary drops 8.6 MB → 5.1 MB.
+
+Two details that matter:
+
+- **APS_ENVIRONMENT is forced back to `development` for local installs.**
+  Release flips it to `production` for TestFlight, and a production token
+  cannot be pushed to over a development APNs connection. Verified in the
+  signed app: `aps-environment = development`.
+- **The dev flags are `#if DEBUG`** — deliberately, "a TestFlight build has no
+  business containing it". So the Release build cannot be driven by
+  HOP_DEV_COOKIE, which is why the harness keeps using Debug, and is also how
+  this was discovered: the Release simulator build sat at the login screen.
+
+Not measured: the actual speedup. Driving a Release build needs a real login,
+which is the user's password. The direction is not in question — shipping
+`-Onone` to a phone someone uses all day is not defensible when the flag is
+free — but the number is unknown.
+
 ## Do terminals actually go away? (iteration 113)
 
 A phone that opens twenty sessions holds twenty 5000-line buffers if leaving
