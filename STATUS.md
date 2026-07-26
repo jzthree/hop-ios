@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## What a brand-new install sees (iteration 117)
+
+Wiped the app entirely — no defaults, no keychain, no seen-bell baselines —
+and pointed it at the live fleet, where three sessions had already rung
+(Solstice 48, presenceprobe 24, rooms 5).
+
+It showed **"19 sessions · nothing waiting on you"**, and the preferences file
+confirms baselines seeded at exactly 48 / 24 / 5. A new device does not
+inherit a fleet's history as a pile of unread bells — which is what
+`rebaselinedMarker` exists for, unit-tested since #40 but never once run
+against real data with real counters.
+
+Also confirmed in the same run: the notification opt-in is the first thing a
+fresh install asks, which is right for an app whose entire point is being told
+when an agent wants you, and the viewport-aware previews from #116 are
+populating the visible rows.
+
 ## Previews now follow your eyes (iteration 116)
 
 A preview — the three lines of what a session is actually SAYING — is the most
