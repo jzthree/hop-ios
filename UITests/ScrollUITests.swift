@@ -321,4 +321,18 @@ final class ScrollUITests: XCTestCase {
         sleep(12)
         XCTAssertTrue(refusal.exists, "the refusal was wiped by a successful poll")
     }
+
+    /// Holding a key drives a Timer that asserts it runs on the main actor
+    /// (#112c). If that assertion is ever wrong the app TRAPS rather than
+    /// misbehaving, so this holds the key and checks the app is still there.
+    func testHoldToRepeatDoesNotTrap() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let down = app.buttons["down arrow"].firstMatch
+        XCTAssertTrue(down.waitForExistence(timeout: 5), "no down key in the bar")
+        down.press(forDuration: 1.6)          // drives the repeat timer
+        sleep(2)
+        XCTAssertTrue(app.buttons["escape"].exists, "the app died holding a key")
+        XCTAssertTrue(app.staticTexts["Orion"].exists)
+    }
 }

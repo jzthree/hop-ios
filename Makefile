@@ -111,6 +111,30 @@ sim: simbuild
 	  $(if $(SHEET),SIMCTL_CHILD_HOP_DEV_SHEET=$(SHEET),) $(if $(FILTER),SIMCTL_CHILD_HOP_DEV_FILTER=$(FILTER),) $(if $(OFFLINE),SIMCTL_CHILD_HOP_DEV_OFFLINE=$(OFFLINE),) $(if $(COMPACT),SIMCTL_CHILD_HOP_DEV_COMPACT=$(COMPACT),) $(if $(ATTN),SIMCTL_CHILD_HOP_DEV_ATTENTION=$(ATTN),) $(if $(GONE),SIMCTL_CHILD_HOP_DEV_GONE=$(GONE),) \
 	  xcrun simctl launch $(SIM) $(BUNDLE)
 
+# The two lenses that found real bugs without a phone: the compiler's complete
+# concurrency checking (a race on the socket's retired-generation guard, #112b)
+# and Thread Sanitizer over the tests that actually open, close and reopen
+# sockets. Neither is on by default; both are cheap to re-run.
+strict:
+	@xcodebuild -project $(PROJECT) -scheme HopSpike \
+	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -derivedDataPath build-strict CODE_SIGNING_ALLOWED=NO \
+	  SWIFT_STRICT_CONCURRENCY=complete build > build-strict.log 2>&1; \
+	  echo "warnings in our sources: $$(grep -cE 'Sources/HopSpike/.*warning:' build-strict.log)"; \
+	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u
+
+tsan: gen
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
+	  -project $(PROJECT) -scheme HopSpikeUI \
+	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -derivedDataPath build-tsan CODE_SIGNING_ALLOWED=NO -enableThreadSanitizer YES \
+	  -only-testing:HopSpikeUITests/ScrollUITests/testReconnectKeepsTheSessionUsable \
+	  -only-testing:HopSpikeUITests/ScrollUITests/testSwitchSessionFromTheTitleMenu \
+	  -only-testing:HopSpikeUITests/ScrollUITests/testDragOnAgentSessionKeepsSessionUsable \
+	  > build-tsan.log 2>&1; \
+	  echo "races: $$(grep -c 'WARNING: ThreadSanitizer' build-tsan.log)"; \
+	  grep -E "Executed [0-9]+ tests" build-tsan.log | tail -1
+
 shot:
 	xcrun simctl io $(SIM) screenshot /tmp/hop-ios.png && echo "wrote /tmp/hop-ios.png"
 

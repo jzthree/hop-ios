@@ -1425,9 +1425,14 @@ final class HopTermView: TerminalView {
         // Then iOS keyboard cadence, a little quicker — a terminal's ↓ is
         // held to walk history, not to type a character.
         repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.42, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.055, repeats: true) { [weak self] _ in
-                self?.keyHandler?.accessoryKey(key, isRepeat: true)
+            // Scheduled from main, so it fires on the main runloop. Asserting
+            // that is what lets the timer touch main-isolated state honestly —
+            // and it traps rather than racing if it ever stops being true.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.055, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.keyHandler?.accessoryKey(key, isRepeat: true) }
+                }
             }
         }
     }

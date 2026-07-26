@@ -3,5 +3,5 @@ DerivedData/
 build/
 .DS_Store
 xcuserdata/
-build-sim/
-build-strict/
+build-*/
+build-*.log

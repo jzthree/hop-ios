@@ -224,6 +224,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Two more races, and both lenses made repeatable (iteration 112c)
+
+Thread Sanitizer over the tests that actually open, close and reopen sockets —
+attach, drag, reconnect, session switch — reports **zero races**. That is the
+path #112b restructured, checked by the tool that would catch a regression in
+it. A normal build is also warning-free.
+
+Strict concurrency then found two more worth fixing:
+
+- **BackgroundRefresh held its work in a captured local `var`.** The expiration
+  handler — which iOS calls on a queue of its choosing — read it while this
+  thread was still assigning it. Narrow, unattended, and the kind of window
+  that only ever closes on someone else's phone. The handle now lives in the
+  completer, behind the lock that already serialises completion, and a task
+  attached after expiry is cancelled instead of running for nothing.
+- **The key-repeat timer** mutated main-isolated state from its closure. It is
+  scheduled from main and fires on the main runloop, so the fix is to SAY so
+  with `assumeIsolated`, which traps instead of racing if that ever stops
+  being true.
+
+Because that assertion turns a wrong assumption into a crash, holding a key is
+now a UI test: 1.6 seconds on ↓, then check the app is still there. It passes,
+which is also the first automated coverage of hold-to-repeat.
+
+Both lenses are `make` targets now — `make strict` and `make tsan` — because a
+check nobody can re-run is a check that only ever happens once. 11 → 6
+warnings; what remains is SwiftTerm's nonisolated delegate and a deinit that
+cannot touch main-isolated timers.
+
 ## A data race on the socket's own guard (iteration 112b)
 
 Turned on `SWIFT_STRICT_CONCURRENCY=complete` — a lens the compiler provides

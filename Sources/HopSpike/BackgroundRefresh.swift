@@ -75,31 +75,54 @@ enum BackgroundRefresh {
         // refresh finishes and completes it again. One completion wins.
         let once = OnceComplete(task: task, log: log)
 
+        // The handle to the work lives inside the completer, behind the same
+        // lock. It used to be a local `var` captured by the expiration
+        // handler — which iOS calls on a queue of its choosing, while this
+        // thread was still assigning it. A narrow window, but the kind that
+        // only ever fires on someone else's phone.
+        //
         // Set BEFORE the work starts: an expiration arriving in that window
         // would otherwise find no handler.
-        var work: Task<Void, Never>?
         task.expirationHandler = {
-            work?.cancel()
+            once.cancelWork()
             once.finish(success: false)
         }
-        work = Task {
+        once.attach(Task {
             await model.refreshSessions(silent: true)   // posts notifications itself
             once.finish(success: true)
-        }
+        })
     }
 }
 
 /// Whichever of the two paths gets there first completes the task; the other
 /// becomes a no-op.
-private final class OnceComplete {
+private final class OnceComplete: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
+    private var work: Task<Void, Never>?
     private let task: BGTask
     private let log: Logger
 
     init(task: BGTask, log: Logger) {
         self.task = task
         self.log = log
+    }
+
+    /// Takes ownership of the refresh. If the window already expired, the work
+    /// is cancelled at once rather than running for nothing.
+    func attach(_ work: Task<Void, Never>) {
+        lock.lock()
+        let expired = done
+        if !expired { self.work = work }
+        lock.unlock()
+        if expired { work.cancel() }
+    }
+
+    func cancelWork() {
+        lock.lock()
+        let work = self.work
+        lock.unlock()
+        work?.cancel()
     }
 
     func finish(success: Bool) {
