@@ -224,6 +224,31 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A data race on the socket's own guard (iteration 112b)
+
+Turned on `SWIFT_STRICT_CONCURRENCY=complete` — a lens the compiler provides
+for free and this project had never used. 79 warnings in our sources. Most are
+annotation gaps, but one was a real race, in the worst possible place.
+
+`receiveLoop`'s completion runs on URLSession's queue, and it read
+`self.generation` there — the counter that stops a RETIRED socket's callback
+from triggering a reconnect, written on main by `close()`. Reading it across
+threads is undefined, and a stale read brings back precisely the bug the
+counter was added to fix (#46's spurious retry). The real work already hopped
+to main one line at a time; the guard didn't.
+
+Now the hop happens before any of the object's state is touched, and the
+invariant is enforced rather than hoped for: `HayClient` and the Coordinator
+are `@MainActor`, so the compiler checks it.
+
+79 → 10 warnings. What's left is inherent: SwiftTerm's `TerminalViewDelegate`
+is nonisolated, and a `deinit` cannot touch main-isolated timers. Not worth
+contorting the code for.
+
+Worth noting the shape: this bug was invisible to every test, would have shown
+up as a rare wrong-socket reconnect on someone's phone, and cost one build
+setting to find.
+
 ## The same lens again: known fix, not applied everywhere (iteration 111)
 
 Three bugs today have had one shape — a fix this codebase already knew,

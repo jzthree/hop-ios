@@ -437,6 +437,7 @@ struct TerminalScreen: UIViewRepresentable {
         coordinator.detach()
     }
 
+    @MainActor
     final class Coordinator: NSObject, TerminalViewDelegate, AccessoryKeyHandler {
         private let client = HayClient()
         private weak var view: HopTermView?
@@ -1149,6 +1150,9 @@ enum AccessoryKey {
         }
     }
 }
+/// Main-isolated: its only implementer is the Coordinator, and every call
+/// site is a touch event or a key press.
+@MainActor
 protocol AccessoryKeyHandler: AnyObject {
     func accessoryKey(_ key: AccessoryKey, isRepeat: Bool)
     /// Scrolling, which is NOT typing — see the implementation for why that

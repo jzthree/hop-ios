@@ -21,8 +21,16 @@ enum QuickReply {
         client.replayOverride = 1
 
         return await withCheckedContinuation { continuation in
+            // The body of withCheckedContinuation runs synchronously on the
+            // caller's executor, and this whole enum is @MainActor — but the
+            // closure itself is nonisolated as far as the compiler is
+            // concerned, so touching the client from inside it looks like a
+            // race. Asserting the isolation says what is true and TRAPS if it
+            // ever stops being true, which beats both a silent race and a hop
+            // that would let the continuation escape the frame.
+            MainActor.assumeIsolated {
             var settled = false
-            func finish(_ ok: Bool) {
+            @MainActor func finish(_ ok: Bool) {
                 guard !settled else { return }
                 settled = true
                 // Break the cycle before letting go: `client` owns onEvent and
@@ -70,6 +78,7 @@ enum QuickReply {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(12))
                 finish(false)
+            }
             }
         }
     }

@@ -3,6 +3,7 @@ import os
 
 // Minimal client for the hay room protocol (see hop2/hay/README.md):
 // connect wss://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
+@MainActor
 final class HayClient: NSObject {
     enum Event {
         case connected
@@ -169,9 +170,27 @@ final class HayClient: NSObject {
 
     private func receiveLoop(_ generation: Int) {
         task?.receive { [weak self] result in
-            // A result from a socket we already retired says nothing about the
-            // one we have now.
-            guard let self, generation == self.generation else { return }
+            // Straight to main before touching ANY of this object's state.
+            //
+            // URLSession runs this completion on its own queue, and everything
+            // below reads properties that main writes: `task`, and `generation`
+            // — which is the guard that stops a retired socket's callback from
+            // triggering a reconnect. Reading it across threads is a data race,
+            // and a stale read there brings back exactly the bug the counter
+            // was added to fix. The real work already hopped to main one line
+            // at a time; this just moves the hop up to the top, where the
+            // object's state starts being touched.
+            Task { @MainActor [weak self] in
+                // A result from a socket we already retired says nothing about
+                // the one we have now.
+                guard let self, generation == self.generation else { return }
+                self.receive(result, generation: generation)
+            }
+        }
+    }
+
+    private func receive(_ result: Result<URLSessionWebSocketTask.Message, any Error>,
+                         generation: Int) {
             switch result {
             case .failure(let error):
                 // A rejected upgrade surfaces as an error here; name it so the
@@ -197,15 +216,13 @@ final class HayClient: NSObject {
                 } else {
                     reason = "connection lost: \(ns.localizedDescription)"
                 }
-                let isPermanent = permanent
-                DispatchQueue.main.async { self.onEvent?(.failed(reason, permanent: isPermanent)) }
+                self.onEvent?(.failed(reason, permanent: permanent))
             case .success(let message):
                 if case .string(let text) = message {
-                    DispatchQueue.main.async { self.handle(text) }
+                    self.handle(text)
                 }
                 self.receiveLoop(generation)
             }
-        }
     }
 
     private func handle(_ text: String) {

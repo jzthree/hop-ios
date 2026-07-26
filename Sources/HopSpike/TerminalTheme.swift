@@ -10,7 +10,11 @@ import UIKit
 // washed out next to a normal terminal, which is what made Claude Code look
 // duller in hop than in iTerm". These are the VS Code Dark+ terminal colours:
 // saturated like a real terminal, still readable on #0d1117.
-struct TerminalTheme {
+// @unchecked Sendable: every stored property is a `let`, and the two reference
+// types it holds (UIColor, SwiftTerm.Color) are immutable once constructed and
+// safe to read from any thread. The alternative — main-isolating a palette —
+// would mean the socket could not read the background it has to announce.
+struct TerminalTheme: @unchecked Sendable {
     let background: UIColor
     let foreground: UIColor
     let cursor: UIColor
