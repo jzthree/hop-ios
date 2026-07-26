@@ -224,6 +224,17 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The app now says which build it is (iteration 115)
+
+Follows directly from #114. The phone ran an unoptimised build for its entire
+life with nothing on screen saying so — while the scroll feel was being judged
+on it. "This feels sluggish" and "this is a debug build" are the same sentence,
+and it should never have to be inferred.
+
+`⋯ → Server & account` now reads `1.0 (142) · cbef4ab · debug`, with the
+suffix absent on Release. Confirmed by screenshot, including that the longer
+string still fits on one line.
+
 ## The phone has been running an unoptimised build all along (iteration 114)
 
 Measured what a firehose costs, since watching agent output is what this app

@@ -127,6 +127,12 @@ caret is a permanent animation, and XCUITest waits for animations before every
 interaction — with it on, each tap sat through a 60s timeout and the suite took
 longer than ten minutes instead of 48 seconds.
 
+### Which build am I running?
+
+`⋯ → Server & account` shows the version, the git describe, and `· debug` when
+it is an unoptimised build. `make install` ships Release; `make install-debug`
+is the slow one, for attaching a debugger.
+
 ### Reading the app's diagnostics
 
 The app logs the handful of numbers that explain its behaviour, under

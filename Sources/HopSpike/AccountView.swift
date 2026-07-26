@@ -38,7 +38,18 @@ struct AccountView: View {
         let v = info?["CFBundleShortVersionString"] as? String ?? "?"
         let b = info?["CFBundleVersion"] as? String ?? "?"
         let desc = info?["HopGitDescribe"] as? String ?? ""
-        return desc.isEmpty || desc.hasPrefix("$(") ? "\(v) (\(b))" : "\(v) (\(b)) · \(desc)"
+        // Says which BUILD, not just which commit. The phone ran an
+        // unoptimised Debug build for its whole life without anything on
+        // screen saying so, while the scroll feel was being judged on it.
+        // A debug build is a fair explanation for "this feels sluggish", and
+        // it should never have to be inferred.
+#if DEBUG
+        let config = " · debug"
+#else
+        let config = ""
+#endif
+        let base = desc.isEmpty || desc.hasPrefix("$(") ? "\(v) (\(b))" : "\(v) (\(b)) · \(desc)"
+        return base + config
     }
 
     var body: some View {
