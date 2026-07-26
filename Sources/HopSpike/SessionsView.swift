@@ -158,6 +158,26 @@ struct SessionsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // The verdict on something the user just did. It stays until they
+            // dismiss it or try again — a poll succeeding says nothing about a
+            // rename the daemon refused.
+            if let err = model.actionError {
+                Section {
+                    Button { model.actionError = nil } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label(err, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Dismiss")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             if let err = model.lastError, network.isOnline {
                 Section {
                     Label(err, systemImage: "exclamationmark.triangle.fill")
@@ -310,7 +330,7 @@ struct SessionsView: View {
                             // visible result is the same uncertainty in the
                             // other direction, so use the haptic iOS reserves
                             // for exactly this.
-                            model.lastError = ok ? nil : "Couldn't send to \(target.name)"
+                            model.actionError = ok ? nil : "Couldn't send to \(target.name)"
                             UINotificationFeedbackGenerator()
                                 .notificationOccurred(ok ? .success : .error)
                             if ok { model.markSeen(target) }

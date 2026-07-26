@@ -15,6 +15,16 @@ final class AppModel: ObservableObject {
     @Published var checkingAuth = true
     @Published var sessions: [HopSession] = []
     @Published var lastError: String?
+    /// A failure of something the user just DID — rename, kill, reply, allow
+    /// agent access — as opposed to a connectivity problem.
+    ///
+    /// Separate from `lastError` because the two clear on opposite signals. A
+    /// successful refresh proves connectivity is back, so it clears
+    /// `lastError`; it proves nothing about a rename the daemon rejected as a
+    /// duplicate. Sharing one field meant every action failure was wiped by
+    /// the next poll — under five seconds on wifi — so the user saw a dialog
+    /// close and, quite often, nothing else at all.
+    @Published var actionError: String?
     /// Set when a cookie we HAD was rejected — i.e. the 7-day session ran out,
     /// as opposed to never having signed in. The difference is the difference
     /// between "did something break?" and "ah, it's been a week".
@@ -260,6 +270,7 @@ final class AppModel: ObservableObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        actionError = nil        // this attempt replaces the last one's verdict
         do {
             let (data, resp) = try await urlSession.data(for: req)
             let ok = (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 500)
@@ -270,11 +281,11 @@ final class AppModel: ObservableObject {
                 // "Request failed" threw that away and left the user guessing
                 // at a dialog that just closed and did nothing.
                 let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                lastError = (obj?["error"] as? String) ?? "Request failed"
+                actionError = (obj?["error"] as? String) ?? "Request failed"
             }
             return ok
         } catch {
-            lastError = error.localizedDescription
+            actionError = error.localizedDescription
             return false
         }
     }

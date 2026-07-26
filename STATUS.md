@@ -258,6 +258,39 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The daemon's reason vanished before it could be read (iteration 109)
+
+Kept following the "fails without saying so" thread, this time into the other
+direction: things that DO report, but not for long enough to be seen.
+
+Every action failure — rename, kill, create, reply, agent access — was written
+into `lastError`, the same field a successful refresh clears. That clearing is
+right for what it was written for ("a refresh that worked is proof the last
+failure is over"), and wrong for everything else: a poll succeeding proves
+nothing about a rename the daemon refused as a duplicate. On wifi the poll is
+every five seconds, so the verdict on something you just did was usually gone
+before you finished reading the dialog close.
+
+Split into `actionError`, which is cleared by the next attempt or by tapping
+it — never by a poll.
+
+Verified with a discriminator, both directions, against the real daemon:
+creating a session whose name is already taken.
+
+| | reason shown | still there after 12s |
+|---|---|---|
+| old | yes | **no — wiped by a poll** |
+| fixed | yes | yes |
+
+Kept as a permanent UI test: it has no side effects, since the create it
+attempts is the one the daemon refuses.
+
+Two throwaway attempts before that one went nowhere — the context menu and the
+swipe actions both refused to open under XCUITest. The create button is a
+plain toolbar button, and driving the same failure through it took one try.
+When a UI probe fights back, the answer is usually a simpler entry point to
+the same code path, not a better query.
+
 ## A refused bell was a silenced bell (iteration 108)
 
 Swept the codebase for the same shape as #107 — failures hidden behind `try?`

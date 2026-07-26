@@ -296,4 +296,29 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),
                       "tapping a stopped terminal must still raise the keyboard")
     }
+
+    /// A create the daemon refuses must stay on screen. It used to be written
+    /// into the same field as connectivity errors, which a successful poll
+    /// clears — so the verdict on something you just did vanished in under
+    /// five seconds, often before it was read.
+    func testRejectedActionStaysVisibleThroughPolls() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["hop"].waitForExistence(timeout: 25))
+        app.buttons["New session"].tap()
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 8))
+        field.typeText("Orion")                      // a name already taken
+        app.buttons["Create"].tap()
+
+        let refusal = app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS 'already in use'")).firstMatch
+        XCTAssertTrue(refusal.waitForExistence(timeout: 10),
+                      "the daemon's reason was never shown")
+        // Survive two poll cycles — the thing that used to erase it.
+        sleep(12)
+        XCTAssertTrue(refusal.exists, "the refusal was wiped by a successful poll")
+    }
 }
