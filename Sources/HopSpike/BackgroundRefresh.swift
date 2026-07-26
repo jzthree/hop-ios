@@ -130,6 +130,10 @@ private final class OnceComplete: @unchecked Sendable {
         defer { lock.unlock() }
         guard !done else { return }
         done = true
+        // The completer holds the Task and the Task's closure holds the
+        // completer. That resolves itself when the work finishes, but not if it
+        // never does — so drop it here, where we know it is over either way.
+        work = nil
         log.info("background refresh finished, success=\(success, privacy: .public)")
         task.setTaskCompleted(success: success)
     }

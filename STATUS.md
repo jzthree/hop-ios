@@ -100,6 +100,12 @@ README has a table of what each line means.
   hop2 daemon. Client work is done — including the NSNumber coercion that path
   will need (#111). This is the only thing between here and "phone buzzes while
   locked". Needs a greenlight to touch hop2 and coordination with Solstice.
+  **`APNS-PLAN.md` now spells out the whole shape** — endpoints, payload,
+  collapse-id, the `410 Unregistered` cleanup, and the one decision that has to
+  come first (sandbox vs production hosts, which is why local installs are
+  pinned to `development`). Roughly 110 lines of daemon code; nothing further
+  on the client. Written so the answer can be yes or no rather than an
+  investigation.
 - **Archived sessions**: marked as stopped in the list, or left transparent?
 - Split panes / wall zoom: deliberately skipped — desktop-shaped.
 
