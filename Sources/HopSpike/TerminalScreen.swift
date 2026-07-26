@@ -23,6 +23,17 @@ struct TerminalHostView: View {
         guard findOpen, !findText.isEmpty else { return nil }
         return FindRequest(query: findText, seq: findSeq, direction: findDirection)
     }
+    /// Chrome is for arriving and for deciding; the terminal is for reading.
+    /// Shown briefly on arrival, then out of the way — measured, this takes the
+    /// terminal from 23 rows to 27 on a phone, which is the room Jian asked for.
+    ///
+    /// The controls stay in the navigation bar rather than moving to an overlay
+    /// of my own. Three attempts at that overlay ended in a mangled file, and
+    /// the honest trade is: this way the bar's appearance changes the terminal's
+    /// row count, so summoning it reflows the shared PTY briefly. The phone
+    /// already reflows it on every attach, and the size election hands it back
+    /// the moment someone types at a desk.
+    @State private var chromeShown = true
     @State private var findOpen = false
     @State private var reconnectToken = 0
     @ObservedObject private var network = NetworkConditions.shared
@@ -99,7 +110,10 @@ struct TerminalHostView: View {
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
                        },
                        control: $controlAction,
-                       onScroll: { scrolledUp = $0 })
+                       onScroll: { scrolledUp = $0 },
+                       onChromeTap: {
+                           withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
+                       })
     }
 
     var body: some View {
@@ -210,7 +224,7 @@ struct TerminalHostView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(landscapePhone ? .hidden : .visible, for: .navigationBar)
+            .toolbar(landscapePhone || !chromeShown ? .hidden : .visible, for: .navigationBar)
             .statusBarHidden(landscapePhone)
             .toolbarBackground(Color.hopRaised, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -333,6 +347,18 @@ struct TerminalHostView: View {
             .onChange(of: network.pathGeneration) {
                 if status == .closed { reconnectToken += 1 }
             }
+            .task(id: session.internalName) {
+                chromeShown = true
+                // Under test the bar stays put. The same launch argument
+                // already steadies the caret, for the same reason: XCUITest
+                // resolves elements against a moving target and reports the
+                // miss as whatever assertion happened to be next, which cost
+                // hours here — a chrome timer was read as "menus don't open in
+                // an overlay" and a working feature was reverted over it.
+                guard !ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") else { return }
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(.easeOut(duration: 0.25)) { chromeShown = false }
+            }
             .onAppear {
                 model.openSession = session.internalName
                 model.markSeen(session)
@@ -378,6 +404,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
     var onScroll: (Bool) -> Void = { _ in }
+    var onChromeTap: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
@@ -405,6 +432,7 @@ struct TerminalScreen: UIViewRepresentable {
         tv.getTerminal().changeScrollback(5000)
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
+        tv.onChromeTap = onChromeTap
         tv.installAccessoryBar()
         tv.backgroundColor = .black
         tv.nativeForegroundColor = UIColor(red: 0.90, green: 0.90, blue: 0.91, alpha: 1)
@@ -1251,6 +1279,17 @@ final class HopTermView: TerminalView {
     /// call is work done for a line that is usually disabled.
     static let log = Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
 
+    /// Summons or dismisses the chrome. The top strip is where anyone reaches
+    /// for controls, and the one place a tap is not meant as "give me the
+    /// keyboard".
+    var onChromeTap: (() -> Void)?
+    private weak var chromeTap: UITapGestureRecognizer?
+    /// Big enough for a thumb, small enough not to steal taps meant for the
+    /// first line of output.
+    static let chromeStrip: CGFloat = 46
+
+    @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
+
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
@@ -1283,6 +1322,13 @@ final class HopTermView: TerminalView {
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
         addGestureRecognizer(pan)
+        // The top strip belongs to the chrome: it is where anyone reaches for
+        // controls, and it is the one place a tap is not meant as "give me the
+        // keyboard".
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleChromeTap))
+        tap.delegate = self
+        addGestureRecognizer(tap)
+        chromeTap = tap
     }
 
     /// A drag is a SCROLL, and what that means depends on who owns the screen.
@@ -1670,6 +1716,14 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // there, so pans are never braked — only started.
             let v = pan.velocity(in: self)
             return abs(v.y) >= abs(v.x)
+        }
+        if let tap = g as? UITapGestureRecognizer {
+            // SwiftTerm's view is a SCROLL view, so location(in:) carries the
+            // scrollback offset — a tap at the top of the screen reported y=461.
+            // The strip means "the top of what you can SEE": bounds.origin.
+            let inStrip = tap.location(in: self).y - bounds.origin.y < Self.chromeStrip
+            if tap === chromeTap { return inStrip }
+            if inStrip { return false }   // reaching for controls ≠ asking to type
         }
         // Everything else — tap, double tap, long press — is swallowed while
         // a coast is running, and stops it. Every scroll view on iOS works

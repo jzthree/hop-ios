@@ -230,6 +230,44 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Chrome hidden by default: 23 rows → 27 (iteration 121)
+
+Jian: "screen realestate is limited in mobile ideally most unnecesaary ui
+comoonents are hidden by eefaul to make room for termjnal".
+
+The navigation bar is gone by default in BOTH orientations now (it already was
+in landscape). Measured: **51x23 → 51x27**. Four lines, a 17% taller terminal,
+on every session.
+
+It comes back when you tap the top 46pt of the terminal — where anyone reaches
+for controls, and the one place a tap is not meant as "give me the keyboard".
+The back SWIPE still works because `BackSwipe.swift` re-enables the gesture
+UIKit ties to the navigation bar.
+
+**The honest trade.** The controls stayed in the navigation bar rather than
+moving to an overlay of my own, so summoning them changes the terminal's row
+count and briefly reflows the shared PTY. An overlay would avoid that — I tried
+three times, mangled the file twice, and reverted. The phone already reflows on
+every attach, and the size election hands the size back the moment someone
+types at a desk, so the cost is small and bounded. It is written down rather
+than hidden.
+
+Two things this cost, worth remembering:
+
+- The top strip's tap test failed for an hour because SwiftTerm's view is a
+  SCROLL view: `location(in:)` carries the scrollback offset, and a tap at the
+  top of the screen reported y=461. The strip means bounds.origin, not zero.
+- Chrome that moves on a timer breaks XCUITest, which resolves elements against
+  a moving target and reports the miss as whatever assertion came next. The bar
+  now stays put under `-hop-ui-testing`, the same argument that already steadies
+  the caret for the same reason.
+
+Also fixed here: `testDragScrollsAndLiveButtonReturns` pointed at
+`presenceprobe`, which no longer exists — and it had only ever passed because
+attaching to a dead name CREATED it, which is the resurrection bug from #118.
+It now points at a live shell and SKIPS when the fixture is missing, because
+that is an environment fact rather than a regression.
+
 ## Backspace, and the flake that cost a feature (iteration 120)
 
 Jian: "long press a key especially backspace should repeat".
