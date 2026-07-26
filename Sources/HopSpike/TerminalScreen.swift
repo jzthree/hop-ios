@@ -1175,7 +1175,7 @@ struct TerminalScreen: UIViewRepresentable {
 // ── Accessory key bar ──
 enum AccessoryKey {
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
-    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
+    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace
 
     /// What this key puts on the wire; nil for keys that only arm a modifier
     /// or dismiss the keyboard. Data rather than a switch full of send calls,
@@ -1193,6 +1193,9 @@ enum AccessoryKey {
         case .slash: return "/"
         case .dash: return "-"
         case .tilde: return "~"
+        // 0x7f, which is what the system keyboard's own delete sends here —
+        // measured, not assumed.
+        case .backspace: return "\u{7f}"
         case .pageUp: return "\u{1b}[5~"
         case .pageDown: return "\u{1b}[6~"
         case .up: return "\u{1b}[A"
@@ -1208,6 +1211,7 @@ enum AccessoryKey {
     var spokenName: String {
         switch self {
         case .shiftTab: return "shift tab"
+        case .backspace: return "backspace"
         case .pageUp: return "page up"
         case .pageDown: return "page down"
         default: return "\(self)"
@@ -1219,7 +1223,11 @@ enum AccessoryKey {
     /// modifier would just flap its armed state.
     var repeats: Bool {
         switch self {
-        case .up, .down, .left, .right, .pageUp, .pageDown: return true
+        // Backspace above all: holding delete on the system keyboard sends
+        // exactly ONE character to a view like this one (measured — iOS only
+        // repeats it for its own text views), so correcting a mistyped path
+        // meant tapping once per character.
+        case .up, .down, .left, .right, .pageUp, .pageDown, .backspace: return true
         default: return false
         }
     }
@@ -1587,6 +1595,7 @@ final class HopTermView: TerminalView {
             ("ctrl", .ctrl, 42, "control", nil),
             ("alt", .alt, 38, "alt", nil),
             ("^C", .ctrlC, 38, "control C", nil),
+            ("⌫", .backspace, 38, "backspace", nil),
             ("←", .left, 34, "left arrow", nil),
             ("↓", .down, 34, "down arrow", nil),
             ("↑", .up, 34, "up arrow", nil),

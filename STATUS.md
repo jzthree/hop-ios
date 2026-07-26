@@ -230,6 +230,39 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Backspace, and the flake that cost a feature (iteration 120)
+
+Jian: "long press a key especially backspace should repeat".
+
+**Measured first.** Holding the system keyboard's delete for 2.5 seconds sends
+**one** character to this terminal — iOS repeats delete only for its own text
+views, not for a custom key-input responder. So correcting a mistyped path
+meant one tap per character.
+
+Added ⌫ to the key bar, where the repeat is ours: the same hold now sends
+**36**. Sequence 0x7f, taken from what the system key actually sends (logged,
+not looked up). Still deliberately not repeating: ^C, paste, esc — a stuck
+interrupt is destructive in a way a repeated delete is not.
+
+### The flake, finally named
+
+`testSwitchSessionFromTheTitleMenu` expected a menu entry called "Solstice".
+The switcher lists the **twelve most recent** sessions, and Solstice had
+drifted to **fourteenth** — so the test went red and read exactly like "the
+menu never opened". That is the ~1-in-4 flake from #107 that could not be
+named at the time.
+
+It cost more than a red test. Jian asked for chrome to be hidden so the
+terminal gets the room, and the floating-bar implementation of that was
+**reverted on the strength of this misreading** — I took the failure as proof
+that a Menu does not open from an overlay, when the menu had been opening all
+along.
+
+The test now proves only what it can prove deterministically: that tapping the
+session name opens the switcher. Naming a target needs either a scratch
+session on every run or the fleet's current order, which is the thing that
+broke it.
+
 ## The same zombie, through the other door (iteration 119)
 
 #118 latched "this session ended" when the message ARRIVES. A phone in a

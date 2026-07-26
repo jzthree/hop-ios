@@ -154,15 +154,23 @@ final class ScrollUITests: XCTestCase {
     /// Switching sessions from the terminal title goes through the same
     /// requestedSession path that cold-launch quick actions use — the one that
     /// silently did nothing until #51.
+    /// Proves the switcher OPENS. It used to also prove that picking an entry
+    /// switched — by expecting "Solstice" — and the menu lists the twelve most
+    /// recent sessions, so the day Solstice drifted to fourteenth this went red
+    /// and looked exactly like the menu failing to open. A whole feature was
+    /// reverted on the strength of that misreading.
+    ///
+    /// Every deterministic way to name a target needs either a scratch session
+    /// (mutating the fleet on every run) or the fleet's current order (the
+    /// thing that broke it). The section header proves the interaction; the
+    /// navigation it would have covered is exercised by quick actions and
+    /// notification taps, which reach the same requestedSession path.
     func testSwitchSessionFromTheTitleMenu() throws {
         let app = launchIntoSession("Orion")
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.staticTexts["Orion"].tap()
-        let other = app.buttons["Solstice"].firstMatch
-        XCTAssertTrue(other.waitForExistence(timeout: 5), "switcher menu never opened")
-        other.tap()
-        XCTAssertTrue(app.staticTexts["Solstice"].waitForExistence(timeout: 20),
-                      "picking a session from the title did not switch to it")
+        XCTAssertTrue(app.staticTexts["Switch session"].waitForExistence(timeout: 5),
+                      "tapping the session name did not open the switcher")
     }
 
     // Find and "Open link…" are deliberately NOT covered here. Both report

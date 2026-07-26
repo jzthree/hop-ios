@@ -623,4 +623,20 @@ final class HopSpikeTests: XCTestCase {
         let fromPush: [String: Any] = ["session": "Orion", "bellSeq": NSNumber(value: 42)]
         XCTAssertEqual(jsonInt(fromPush["bellSeq"]), 42)
     }
+
+    func testBackspaceSendsDeleteAndRepeats() {
+        // 0x7f is what the system keyboard sends here — measured by logging the
+        // bytes SwiftTerm hands us, not taken from a table.
+        XCTAssertEqual(AccessoryKey.backspace.sequence, "\u{7f}")
+        // The point of having it at all: holding the system delete key sends
+        // exactly one character to a view like this (iOS repeats delete only
+        // for its own text views), so a mistyped path had to be erased one tap
+        // at a time.
+        XCTAssertTrue(AccessoryKey.backspace.repeats)
+        // Still not repeating, deliberately: a stuck interrupt or a repeating
+        // paste is destructive in a way a repeated delete is not.
+        XCTAssertFalse(AccessoryKey.ctrlC.repeats)
+        XCTAssertFalse(AccessoryKey.paste.repeats)
+        XCTAssertFalse(AccessoryKey.esc.repeats)
+    }
 }
