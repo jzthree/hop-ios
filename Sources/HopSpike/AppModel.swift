@@ -115,8 +115,16 @@ final class AppModel: ObservableObject {
         seenBells = [:]          // stale baselines would silence a new account's first bell
         sessions = []
         previews = [:]
+        // Everything below belongs to the account being left. lastKnown in
+        // particular is not just clutter: it holds names, taglines and working
+        // directories, and it is what renders a session that ended while you
+        // were reading it — so a stale entry could show one server's session
+        // details after signing into another.
+        lastKnown = [:]
+        openSession = nil
         requestedSession = nil
         lastError = nil
+        actionError = nil
         authenticated = false
         authEpoch += 1
         HopNotifier.shared.reset()
@@ -316,6 +324,11 @@ final class AppModel: ObservableObject {
     /// Fetch screen previews for the sessions the user can actually see.
     /// Mirrors the web switcher: bounded set, only while the list is open.
     func refreshPreviews(for names: [String]) async {
+        // Same guard the session refresh carries, and it matters more here: a
+        // preview IS terminal output. Without it, a fetch still in flight when
+        // someone signs out lands afterwards and puts the previous account's
+        // screen contents back into the store.
+        let epoch = authEpoch
         await withTaskGroup(of: (String, String?).self) { group in
             for name in names.prefix(6) {
                 group.addTask { [weak self] in
@@ -324,6 +337,7 @@ final class AppModel: ObservableObject {
                 }
             }
             for await (name, text) in group {
+                guard epoch == authEpoch else { return }   // signed out mid-flight
                 if let text, !text.isEmpty { previews[name] = text }
             }
         }
@@ -336,6 +350,7 @@ final class AppModel: ObservableObject {
     func searchContent(_ query: String) async -> [ContentMatch] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard q.count >= 2 else { return [] }
+        let epoch = authEpoch
         guard var comps = baseURL.map({ $0.appendingPathComponent("api/sessions/search") })
             .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return [] }
         comps.queryItems = [.init(name: "q", value: q)]
@@ -347,6 +362,9 @@ final class AppModel: ObservableObject {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let raw = obj["matches"] as? [[String: Any]] else { return [] }
+        // Search snippets are session output too, and this request outlives a
+        // sign-out easily — it has a ten-second timeout.
+        guard epoch == authEpoch else { return [] }
         return raw.compactMap { m in
             guard let internalName = m["internalName"] as? String else { return nil }
             return ContentMatch(internalName: internalName,

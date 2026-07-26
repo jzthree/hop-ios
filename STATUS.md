@@ -258,6 +258,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## What sign-out left behind (iteration 110)
+
+Audited what belongs to an account and what actually gets dropped when you
+leave one. `signOut` cleared cookies, keychain, seen-bell baselines, the
+session list, previews and the notifier — and missed three:
+
+- `lastKnown`, the fallback used to render a session that ended while you were
+  reading it. It holds names, taglines and working directories, so a stale
+  entry could show one server's session details after signing into another.
+- `openSession`, still pointing at a terminal on the server just left.
+- `actionError` — added an hour ago, in #109. New code, same omission.
+
+Two RACES in the same family, found by asking what else writes account data
+after a request returns:
+
+- `refreshPreviews` had no `authEpoch` guard, and a preview IS terminal
+  output. A fetch in flight during sign-out landed afterwards and put the
+  previous account's screen contents back into the store.
+- `searchContent` likewise, and its request has a TEN-SECOND timeout, so it
+  outlives a sign-out easily. Its snippets are session output too.
+
+Both now carry the guard `refreshSessions` has had all along ("signed out
+mid-flight"), which is the tell: the pattern was known and simply not applied
+everywhere it was needed.
+
+Verified by reading and by the sign-out UI test still passing — these are
+races that would need a request timed to land inside a sign-out to observe,
+and I would rather say that than manufacture a test that proves nothing.
+
 ## The daemon's reason vanished before it could be read (iteration 109)
 
 Kept following the "fails without saying so" thread, this time into the other
