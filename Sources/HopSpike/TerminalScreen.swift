@@ -929,12 +929,37 @@ struct TerminalScreen: UIViewRepresentable {
             retryAttempt = 0
             client.close()
             setStatus(.connecting)
-            let t = view.getTerminal()
             snapshotLanded = false
             claimed = false
             fastPaint(room: room)
-            client.connect(base: wsBase, httpBase: httpBase, room: room,
-                           cols: t.cols, rows: t.rows, token: token_, using: urlSession)
+            // Ask whether the session still EXISTS before attaching to it.
+            //
+            // The sibling of the resurrection bug: if the phone is in a pocket
+            // when a session is killed, it never receives session_ended, so
+            // nothing is latched — and returning to the app reconnects, which
+            // for hop means CREATING the room again. Same zombie, different
+            // door.
+            //
+            // The list is refreshed rather than trusted, because the stale copy
+            // is exactly what would still contain the dead session. If the
+            // refresh fails, or nothing has ever been fetched, this proceeds:
+            // refusing to reconnect on no evidence would be worse than the bug.
+            Task { @MainActor [weak self] in
+                await AppModel.shared.refreshSessions(silent: true)
+                guard let self, self.alive, !self.sessionEnded, let tv = self.view else { return }
+                let known = AppModel.shared.sessions
+                if !known.isEmpty, !known.contains(where: { $0.internalName == self.room }) {
+                    self.sessionEnded = true
+                    self.setStatus(.closed)
+                    self.onGone("Session ended while the app was away")
+                    _ = tv.resignFirstResponder()
+                    return
+                }
+                let t = tv.getTerminal()
+                self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
+                                    cols: t.cols, rows: t.rows,
+                                    token: self.token_, using: self.urlSession)
+            }
         }
 
         @objc func jumpToLive() {

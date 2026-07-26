@@ -230,6 +230,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The same zombie, through the other door (iteration 119)
+
+#118 latched "this session ended" when the message ARRIVES. A phone in a
+pocket may never receive it: iOS suspends the socket, the session is killed at
+the desk, and returning to the app reconnects — which for hop means creating
+the room again. Same zombie, different door.
+
+`reconnectIfNeeded` now refreshes the session list and refuses to attach to a
+name that is no longer in it. Refreshed rather than trusted, because the stale
+copy is exactly what would still list the dead session. If the refresh fails,
+or nothing has ever been fetched, it proceeds — refusing to reconnect on no
+evidence would be worse than the bug.
+
+**Honest about what the test proved.** Backgrounding via another app, killing
+the session, and returning gave the right outcome — not resurrected, fleet
+still 19, red dot, correct card, keyboard dismissed — but the card said
+"Session terminated", which is the message from the SOCKET. iOS had kept it
+alive long enough to deliver `session_ended`, so this run exercised the latch
+from #118, not the new check. The simulator "never truly suspends" (the same
+line the device checklist has carried since #50), so the path this change
+exists for cannot be reproduced here. It is reasoned, cheap, and cannot make
+things worse; it is not verified.
+
 ## Finishing what the resurrection fix started (iteration 118b)
 
 Screenshotted an ended session against the fixed build, and all three symptoms
