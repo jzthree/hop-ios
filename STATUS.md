@@ -17,125 +17,91 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 
 ## Where this stands right now
 
+*(top rewritten at iteration 112 — everything above the parity matrix had gone
+stale: it still said twenty commits were waiting on an unreachable phone.)*
+
+**Installed and current.** The phone builds and installs in one shot again, and
+every functional commit through iteration 111 is on it.
+
 **Waiting on you, in order of what unblocks most:**
-1. **App Store Connect → Apps → + → New App**, bundle ID `io.zhoulab.hop.spike`
+1. **The device checklist below.** Most of it is ordinary use — but four items
+   can ONLY be answered with a phone in hand, and two of those decide whether
+   features that look finished actually work at all.
+2. **App Store Connect → Apps → + → New App**, bundle ID `io.zhoulab.hop.spike`
    (already registered, appears in the dropdown). Then
    `make testflight ISSUER=254072af-7f14-4065-acd8-d09fe4924553` uploads, and
-   the phone installs over 5G — which permanently removes the "phone isn't on
-   the network" problem below.
-2. **Phone on the Mac's network** (Personal Hotspot works) for `make install`.
-   The device has been `unavailable` for a while, so roughly twenty commits are
-   built and waiting: touch scrolling, momentum, the key-bar redesign, hop's
-   colour palette, both autofit fixes, the attention redesign, notification
-   content and lock-screen replies.
-3. **The device checklist below** — now 11 items, several closed by automation
-   since it was written.
+   the phone installs over 5G — no more "is the phone on this network".
+3. **The APNs decision** (below): a daemon endpoint and a send-on-bell path.
+   Apple's half is done — explicit App ID, Push enabled, entitlement in the
+   signed app, client obtaining and displaying a token.
 
-**Blocked on a decision, not on work:** the daemon side of APNs (an endpoint to
-register tokens against, and a send-on-bell path). Apple's half is done — the
-App ID is explicit, Push is enabled, the entitlement lands in the signed app,
-and the client already obtains and displays a device token.
+**Open question for you, one line:** should `archived` sessions (stopped but
+resumable) be marked as stopped in the list? They are parsed and hidden with
+parked ones today; opening one resumes it transparently.
 
 **Handed over, not done here:** the preview-corruption bug in hop
-(`getOutputSince`'s reset tail can start mid-escape-sequence — see the
-Reference section). It affects the web switcher and iOS equally, and the fix is
-a few lines in shared hop2 code.
+(`getOutputSince`'s reset tail can start mid-escape-sequence — see Reference).
+It affects the web switcher and iOS equally; the fix is a few lines of shared
+hop2 code.
 
-## Current state (updated by Orion)
-- **Scaffolded**: XcodeGen project (`project.yml` → HopSpike app), SwiftTerm via SPM.
-  ~250 lines Swift: ConnectView (bridge URL + session form) → TerminalScreen
-  (SwiftTerm `TerminalView` + `HayClient` speaking the hay WS protocol:
-  snapshot/output → feed, input → send, active_size → resize, bell → native haptic).
-- **Compile: GREEN.** Full simulator build succeeds — SwiftTerm integration,
-  HayClient, and the delegate wiring are all valid; Metal toolchain installed.
-  Only signing separates us from the device build.
-- **LAN bridge**: `tools/lan-bridge.mjs` — spike-only TCP proxy exposing the
-  hay-host WS to the LAN (no hop2 changes needed). Security caveat printed at start;
-  run only while testing.
-- Toolchain verified: Xcode 26.6, iOS 26.5 SDK, xcodegen, Apple Development
-  identity for team 7U9ZU5QLGQ present, iPhone 17 Pro known to devicectl.
+## Device checklist ⚠ ONLY YOU CAN DO THESE
 
-## Needs from Jian  ⚠ BLOCKER first item
-1. **Sign in to your Apple ID in Xcode** (Xcode → Settings → Accounts): the
-   development certificate for team 7U9ZU5QLGQ is in the keychain, but there is
-   no account session, so automatic provisioning can't mint a profile for
-   `io.zhoulab.hop.spike`. One sign-in unblocks the device build.
-2. **Plug in / unlock the iPhone** when we're ready to install (devicectl shows it
-   "unavailable" until connected + trusted; Developer Mode must be on:
-   Settings → Privacy & Security → Developer Mode).
-3. First install will ask to trust the developer cert on-device
-   (Settings → General → VPN & Device Management).
-
-## Device checklist (10 minutes, unblocks v1) ⚠ ONLY YOU CAN DO THESE
-
-Ordered by what's most likely to be wrong and what it costs if it is. Each was
-built and instrumented here but CANNOT be exercised without a hand on a phone.
+Ordered by what is most likely to be wrong and what it costs if it is. The
+first four are the ones a simulator provably cannot answer.
 
 If something looks wrong, the app says why in the log: **Console.app → your
 iPhone → search `io.zhoulab.hop.spike`** (Action → Include Info Messages).
-README has a table of what each line means. `log collect --device-udid` would
-be the scriptable route but needs admin, so Console is the practical one.
+README has a table of what each line means.
 
-1. **Keyboard feel — the thesis the app rests on.** Type a real command with
+1. **Does the coast feel right?** Flick a claude session. The glide should
+   decay over roughly a couple of seconds, like any iOS scroll view. It is
+   built on UIScrollView's own deceleration rate and made frame-rate
+   independent specifically for your 120Hz screen (#103) — but the simulator
+   is 60Hz, so this number has never been felt on the hardware it was written
+   for. If it feels too fast or too short, that is a real finding.
+2. **Has iOS ever granted a background slot?** `⋯ → Server & account → Copy
+   diagnostics` → paste it here. The `background:` line reads
+   `requested … / ran …` or `never ran`. Background refresh is what lets a bell
+   reach you with the app closed, it has never once been observed working, and
+   the simulator refuses BGTaskScheduler outright (#107). If it says
+   `never ran` after a day of normal use, APNs stops being a nice-to-have.
+3. **Hardware ctrl combos**, if you have a keyboard case. ctrl+C should
+   interrupt, not type a `c`. Plain typing and arrows are verified; modifiers
+   are not, because XCUITest delivers `mods=0` (#104).
+4. **Keyboard feel — the thesis the app rests on.** Type a real command with
    dictation and autocorrect. If this doesn't beat the web client, nothing else
    in this repo matters.
-2. **Hold-to-repeat.** Hold ↓ at a shell prompt: history should walk smoothly,
-   and it should buzz ONCE, not continuously. (A haptic-per-tick bug lived here
-   for five iterations — #19.)
-3. **Buffered input through a drop.** Start typing a command, flip Airplane
-   Mode on mid-command, keep typing, flip it off. Expect "Reconnecting — input
-   buffered", then the whole command lands on reconnect. Nothing typed >15s
-   before the reconnect should appear.
-4. **Quick actions.** Long-press the hop icon → four sessions, attention first
-   → tap one → it should open THAT session. **Test it with the app fully
-   closed**: that path was broken until #51 (onChange can't fire for a value
-   set before the view exists) and is now verified only by proxy.
-5. **Reply from the notification** (new). Long-press/swipe a bell notification,
-   type a reply, Send. **Do this first on a SHELL session, not an agent** — a
-   stray line in an agent session could approve something. Expect the text to
-   appear in that session; if it can't be delivered you should get a second
-   notification saying so, rather than silence.
-6. **Badge.** Let an agent ring a bell with the app closed. A number should
-   appear on the icon and clear when you read the session.
-6. **Attach claim.** Open a session on the phone that a desktop also has open
-   and typed in recently. Text should wrap at PHONE width immediately — if it
-   arrives mis-wrapped and only fixes itself once you type, the claim (#21)
-   isn't landing.
-7. **Links.** In a session that printed a URL, `⋯ → Open link…` should list it
-   and open Safari.
-8. **Sign out.** `⋯ → Server & account → Sign out` should return to login and
-   NOT remember the password; relaunching must not walk back in.
-9. **Landscape.** Rotate inside a terminal. Chrome-hiding is now covered by a
-   UI test (XCUIDevice rotates the simulator), so what's left for you is
-   whether it FEELS right — text clipped by the Dynamic Island, and whether the
-   reclaimed height is worth losing the title.
-10. **Low Data Mode** (Settings → Cellular): live previews should stop
-    appearing; the list should still update, just slower.
-11. **Reconnect after a real suspend.** Open a shell session (not claude),
-    lock the phone for a minute, come back. Three things to watch: history must
-    not appear twice, no junk like "35;197;31M" at the prompt, and the screen
-    should repaint almost immediately rather than after a pause (the fast paint
-    on auto-reconnect, #50). The simulator can't reproduce any of it — it never
-    truly suspends.
-12. **VoiceOver.** Swipe through the list: each row should read as one sentence
-    starting with the name and "wants attention", never raw box-drawing.
+5. **Reconnect after a real suspend.** Open a shell session (not claude), lock
+   the phone for a minute, come back. History must not appear twice, no junk
+   like "35;197;31M" at the prompt, and the screen should repaint immediately
+   rather than after a pause. The simulator never truly suspends.
+6. **Walk out of wifi.** With a session open, leave the house on 5G. The
+   terminal should come back on its own within a second or two rather than
+   sitting dead for the backoff (#98) — that path is wired and logged here but
+   only a phone that moves can prove it.
+7. **Reply from the notification.** Long-press a bell notification, type a
+   reply, Send. **Do this first on a SHELL session, not an agent** — a stray
+   line in an agent session could approve something.
+8. **Quick actions with the app fully closed.** Long-press the hop icon → four
+   sessions, attention first → tap one → it should open THAT session.
+9. **Badge.** Let an agent ring with the app closed: a number appears and
+   clears when you read the session.
+10. **Attach claim.** Open a session a desktop also has open and typed in
+    recently. Text should wrap at PHONE width immediately.
+11. **Low Data Mode** (Settings → Cellular): live previews stop appearing; the
+    list still updates, slower.
+12. **Landscape, sign out, links, VoiceOver.** Rotation hiding chrome, sign-out
+    forgetting the password, `⋯ → Open link…`, and each row reading as one
+    sentence starting with the name.
 
-## Remaining (needs your call)
+## Decisions that are yours
+
 - **APNs background delivery**: device-token endpoint + push-on-bell in the
-  hop2 daemon. Client work is done; this is the only thing between us and
-  "phone buzzes while locked". Needs a greenlight to touch hop2 + coordination
-  with Solstice.
+  hop2 daemon. Client work is done — including the NSNumber coercion that path
+  will need (#111). This is the only thing between here and "phone buzzes while
+  locked". Needs a greenlight to touch hop2 and coordination with Solstice.
+- **Archived sessions**: marked as stopped in the list, or left transparent?
 - Split panes / wall zoom: deliberately skipped — desktop-shaped.
-
-## Next (Orion)
-- [x] Code compiles clean (simulator build green, no API drift)
-- [x] **INSTALLED ON DEVICE** — signed with team 5AD7QB9795, bundle
-  io.zhoulab.hop.spike. (Wi-Fi install flaky: took ~12 retries through
-  DeviceLocked/disconnect; USB cable makes it one-shot.)
-- [ ] **AWAITING JAIN'S KEYBOARD VERDICT** — the gate for v1
-- [ ] PWA push prototype branch plan (daemon: VAPID + subscribe endpoint + push on
-  bellSeq increment; web: manifest + SW). Will be a small separate hop2 commit — 
-  coordinating with Solstice before touching shared files.
 
 ## Web-mobile parity matrix (re-audited 2026-07-25, after iteration 48)
 
