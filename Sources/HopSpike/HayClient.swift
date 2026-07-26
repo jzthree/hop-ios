@@ -180,7 +180,7 @@ final class HayClient: NSObject {
             // was added to fix. The real work already hopped to main one line
             // at a time; this just moves the hop up to the top, where the
             // object's state starts being touched.
-            Task { @MainActor [weak self] in
+            Task { @MainActor in
                 // A result from a socket we already retired says nothing about
                 // the one we have now.
                 guard let self, generation == self.generation else { return }
@@ -191,38 +191,38 @@ final class HayClient: NSObject {
 
     private func receive(_ result: Result<URLSessionWebSocketTask.Message, any Error>,
                          generation: Int) {
-            switch result {
-            case .failure(let error):
-                // A rejected upgrade surfaces as an error here; name it so the
-                // user sees "not authorized" rather than a bare "disconnected".
-                let ns = error as NSError
-                let reason: String
-                var permanent = false
-                let status = (self.task?.response as? HTTPURLResponse)?.statusCode
-                // 101 = Switching Protocols: the upgrade SUCCEEDED, so this is a
-                // post-connect failure (message too large, server close, network).
-                if let status, status != 101 {
-                    switch status {
-                    case 401, 403:
-                        reason = "not authorized — sign in again"
-                        permanent = true
-                    case 404:
-                        reason = "session not found on the server"
-                        permanent = true
-                    default: reason = "server refused the connection (\(status))"
-                    }
-                } else if ns.domain == NSURLErrorDomain {
-                    reason = ns.localizedDescription
-                } else {
-                    reason = "connection lost: \(ns.localizedDescription)"
+        switch result {
+        case .failure(let error):
+            // A rejected upgrade surfaces as an error here; name it so the
+            // user sees "not authorized" rather than a bare "disconnected".
+            let ns = error as NSError
+            let reason: String
+            var permanent = false
+            let status = (self.task?.response as? HTTPURLResponse)?.statusCode
+            // 101 = Switching Protocols: the upgrade SUCCEEDED, so this is a
+            // post-connect failure (message too large, server close, network).
+            if let status, status != 101 {
+                switch status {
+                case 401, 403:
+                    reason = "not authorized — sign in again"
+                    permanent = true
+                case 404:
+                    reason = "session not found on the server"
+                    permanent = true
+                default: reason = "server refused the connection (\(status))"
                 }
-                self.onEvent?(.failed(reason, permanent: permanent))
-            case .success(let message):
-                if case .string(let text) = message {
-                    self.handle(text)
-                }
-                self.receiveLoop(generation)
+            } else if ns.domain == NSURLErrorDomain {
+                reason = ns.localizedDescription
+            } else {
+                reason = "connection lost: \(ns.localizedDescription)"
             }
+            self.onEvent?(.failed(reason, permanent: permanent))
+        case .success(let message):
+            if case .string(let text) = message {
+                self.handle(text)
+            }
+            self.receiveLoop(generation)
+        }
     }
 
     private func handle(_ text: String) {
