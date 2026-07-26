@@ -459,6 +459,9 @@ struct TerminalScreen: UIViewRepresentable {
         private let room: String
         private let pushStatus: (TerminalHostView.ConnState) -> Void
         private var isLive = false
+        /// Latched when hop says the session is over. Reconnecting after that
+        /// does not reattach — it creates a new session wearing the same name.
+        private var sessionEnded = false
         private var controlLocked = false
         private var lastLockedToast = Date.distantPast
         private var lastDeadToast = Date.distantPast
@@ -683,16 +686,34 @@ struct TerminalScreen: UIViewRepresentable {
                             .info("room elected \(cols)x\(rows), we draw \(mine.cols)x\(mine.rows) — output reflows until our claim wins")
                     }
                 case .ended(let message):
+                    // The session is GONE, and reconnecting would not find it —
+                    // it would CREATE it. hop makes a room on demand for any
+                    // attach, so the automatic retry answered "this session
+                    // ended" by bringing a brand-new shell back under the same
+                    // name. Kill a session at your desk with your phone open on
+                    // it, and the phone quietly resurrected it. Measured: the
+                    // fleet went from 19 sessions to 20.
+                    //
+                    // hop's web client has always known this — it sets
+                    // shouldReconnect = false on session_ended.
+                    self.sessionEnded = true
+                    self.retryTask?.cancel()
+                    self.retryTask = nil
                     self.setStatus(.closed)
                     self.onGone(message)
                     tv.feed(text: "\r\n\u{1b}[2m[\(message)]\u{1b}[0m\r\n")
                 case .failed(let reason, let permanent):
+                    // After a known end, the socket closing is a consequence,
+                    // not news. Saying "connection lost" under "session
+                    // terminated" reads as a second, unrelated problem.
+                    if self.sessionEnded { return }
                     self.setStatus(.closed)
                     if permanent { self.onGone(reason) }
                     tv.feed(text: "\r\n\u{1b}[31m[\(reason)]\u{1b}[0m\r\n")
                     // A gone room or a rejected identity won't fix itself.
                     if !permanent { self.scheduleRetry() }
                 case .closed:
+                    if self.sessionEnded { return }
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[2m[disconnected]\u{1b}[0m\r\n")
                     self.scheduleRetry()
@@ -857,7 +878,7 @@ struct TerminalScreen: UIViewRepresentable {
         /// Reconnect on our own with backoff (1s, 2s, 4s, 8s, capped at 15s)
         /// so a tunnel blip or a phone waking from sleep heals itself.
         private func scheduleRetry() {
-            guard alive, retryTask == nil else { return }
+            guard alive, !sessionEnded, retryTask == nil else { return }
             let delay = min(15.0, pow(2.0, Double(retryAttempt)))
             retryAttempt += 1
             retryTask = Task { [weak self] in
@@ -883,6 +904,10 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         func reconnectIfNeeded(token: Int, view: HopTermView) {
+            // Every reconnect path runs through here — the manual menu item,
+            // returning to the foreground, and a route change. None of them
+            // should resurrect a session that ended; the way back is the list.
+            guard !sessionEnded else { lastReconnectToken = token; return }
             guard token != lastReconnectToken else { return }
             lastReconnectToken = token
             retryTask?.cancel()

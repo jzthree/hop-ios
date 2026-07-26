@@ -230,6 +230,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The phone was resurrecting killed sessions (iteration 118)
+
+The worst bug found today, and it took opening a session and killing it from
+somewhere else to see — no test would have.
+
+hop creates a room on demand for any attach. So when a session ended, the
+app's automatic retry did not fail to find it: it **created it**. Kill a
+session at your desk with your phone open on it, and the phone quietly brought
+back a fresh shell under the same name. Measured directly: fleet 19 → 20, with
+a live `endtest` and a new prompt sitting where the agent had been.
+
+The screenshot showed all three symptoms at once and I nearly filed them as
+three separate polish items — a stale green status dot, a red "connection
+lost" line stacked under "[Session terminated]", and a live shell behind the
+"Session ended" card. They were one bug: the app had successfully reconnected
+to a session that no longer existed.
+
+hop's web client has always known this — `shouldReconnect = false` on
+`session_ended`. The iOS client now latches the same thing, and it blocks
+EVERY reconnect path, not just the automatic retry: returning to the
+foreground and a route change run through the same door, and neither should
+resurrect a session either. The way back is the list.
+
+Verified by repeating the experiment against the fixed build: killed while
+open, `endtest2` stayed dead. (The fleet showed 20 for a moment afterwards
+because the OLD build was still running when the previous session was deleted
+and resurrected it one final time — which is the bug demonstrating itself
+twice.)
+
 ## What a brand-new install sees (iteration 117)
 
 Wiped the app entirely — no defaults, no keychain, no seen-bell baselines —
