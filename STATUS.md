@@ -230,6 +230,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Finishing what the resurrection fix started (iteration 118b)
+
+Screenshotted an ended session against the fixed build, and all three symptoms
+from #118 are gone: the status dot is RED, there is no "connection lost" line
+stacked under "[Session terminated]", and there is no live shell behind the
+card. One bug, three symptoms, one fix.
+
+The fix then exposed something it had been hiding. Typing into an ended
+session still buffered the keystrokes and toasted "Reconnecting — input
+buffered" — which was true while the app resurrected sessions, and became a
+lie the moment it correctly stopped. The whole worth of that message is that
+the promise gets kept. It now says "Session has ended" and keeps nothing, and
+the keyboard is put away when the session goes, because there is nothing left
+to type into.
+
 ## The phone was resurrecting killed sessions (iteration 118)
 
 The worst bug found today, and it took opening a session and killing it from

@@ -479,6 +479,17 @@ struct TerminalScreen: UIViewRepresentable {
                 markTyping()
                 return
             }
+            // A session that ENDED is not coming back, so buffering keystrokes
+            // for it promises a replay that can never happen — and the whole
+            // point of that message is that the promise is kept. Say the true
+            // thing instead.
+            guard !sessionEnded else {
+                if Date().timeIntervalSince(lastDeadToast) > 2 {
+                    lastDeadToast = Date()
+                    onToast("Session has ended")
+                }
+                return
+            }
             pending.append(text, at: Date())
             if Date().timeIntervalSince(lastDeadToast) > 2 {
                 lastDeadToast = Date()
@@ -699,6 +710,9 @@ struct TerminalScreen: UIViewRepresentable {
                     self.sessionEnded = true
                     self.retryTask?.cancel()
                     self.retryTask = nil
+                    // Put the keyboard away: there is nothing to type into, and
+                    // leaving it up invites typing into a session that is gone.
+                    _ = tv.resignFirstResponder()
                     self.setStatus(.closed)
                     self.onGone(message)
                     tv.feed(text: "\r\n\u{1b}[2m[\(message)]\u{1b}[0m\r\n")
