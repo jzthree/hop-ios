@@ -1,4 +1,5 @@
 import UIKit
+import os
 import UserNotifications
 
 // Bell notifications. A hop session rings BEL when it wants you (an agent
@@ -97,7 +98,6 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         for s in sessions {
             guard s.attention, shouldNotify(bellSeq: s.bellSeq,
                                             lastNotified: notified[s.internalName]) else { continue }
-            notified[s.internalName] = s.bellSeq
             let content = UNMutableNotificationContent()
             content.title = s.name
             let live = await snippet(s)
@@ -121,9 +121,21 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             // mark the session seen without fetching the list first.
             content.userInfo = ["session": s.internalName, "bellSeq": s.bellSeq]
             content.threadIdentifier = s.internalName   // group per session
-            try? await UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: "\(s.internalName)-\(s.bellSeq)",
-                                      content: content, trigger: nil))
+            // Recorded as notified only once it HAS been, and never with
+            // `try?`. Marking it first meant a refused notification was also a
+            // permanently silenced one: the dedupe said "posted", so the next
+            // poll skipped it and that bell was never shown at all. Failing to
+            // tell someone an agent is waiting is this app's worst outcome, so
+            // a failure retries five seconds later instead.
+            do {
+                try await UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: "\(s.internalName)-\(s.bellSeq)",
+                                          content: content, trigger: nil))
+                notified[s.internalName] = s.bellSeq
+            } catch {
+                Logger(subsystem: "io.zhoulab.hop.spike", category: "notify")
+                    .error("bell refused for \(s.internalName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
         if !known.isEmpty { notified = notified.filter { known.contains($0.key) } }
         UserDefaults.standard.set(notified, forKey: notifiedBellsKey)

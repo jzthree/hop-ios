@@ -258,6 +258,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A refused bell was a silenced bell (iteration 108)
+
+Swept the codebase for the same shape as #107 — failures hidden behind `try?`
+— and found one that matters. `report(attention:)` marked a session as
+notified BEFORE posting the notification, and posted it with `try?`.
+
+So a refused notification was also a permanently silenced one: the dedupe
+record said "already posted", every later poll skipped it, and that bell was
+never shown at all. Failing to say an agent is waiting is this app's worst
+possible outcome, and it would have happened without a trace.
+
+The record now happens only after the post succeeds, so a failure simply
+retries on the next poll five seconds later, and the refusal is logged.
+
+The rest of the `try?` uses are fine and were checked: JSON encoding of
+dictionaries built two lines above, and network calls whose failure is already
+handled by the guard that follows.
+
 ## Background refresh was failing silently, every time (iteration 107)
 
 Bells only reach a pocket if the app gets woken. Background refresh has been
