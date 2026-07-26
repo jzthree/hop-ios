@@ -159,6 +159,7 @@ open it, pick the iPhone in the sidebar, Start streaming, and put
 | `background slot requested` / `background slot refused: …` | whether iOS accepted a request to wake us later. **A refusal here means bells cannot reach a pocket at all** — the same pair is in Copy diagnostics |
 | `background refresh finished, success=` | a pocket bell-poll actually ran. This is the only proof iOS ever grants a slot |
 | `bell refused for X: …` | a notification could not be posted; it will be retried on the next poll rather than silently dropped |
+| `terminal released` | leaving a session freed its 5000-line buffer and socket. Should appear once per session you back out of; if it stops, terminals are accumulating |
 | `published N quick actions` | Home Screen shortcuts were refreshed — the only evidence, since SpringBoard owns them |
 | `unhandled server message X` | hop added a protocol message this client ignores |
 | `server rejected a message: …` | this client sent something hop couldn't parse — input may be silently broken |

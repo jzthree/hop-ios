@@ -439,6 +439,16 @@ struct TerminalScreen: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, TerminalViewDelegate, AccessoryKeyHandler {
+        /// A terminal holds a 5000-line buffer and a socket. If leaving a
+        /// session ever stops releasing this, a phone that opens twenty
+        /// sessions in a session accumulates twenty of them — and the only
+        /// symptom is the app being killed for memory, long after the cause.
+        /// So the release is logged, and its absence is the signal.
+        deinit {
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
+                .info("terminal released")
+        }
+
         private let client = HayClient()
         private weak var view: HopTermView?
         private let wsBase: String

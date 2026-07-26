@@ -224,6 +224,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Do terminals actually go away? (iteration 113)
+
+A phone that opens twenty sessions holds twenty 5000-line buffers if leaving
+one doesn't free it, and the only symptom is being killed for memory long
+after the cause. The ownership reads correctly — `onEvent` captures self
+weakly, the view is `weak`, the notification observer is removed on teardown —
+but reading is not evidence.
+
+So the Coordinator's `deinit` logs, and the log answers it: 4 attaches / 3
+releases in one run (the fourth still open at teardown), 1 / 1 in another.
+Terminals are freed.
+
+The throwaway test that drove it was flaky — XCUITest and this app's
+navigation disagreed twice — so it isn't kept. The `deinit` line is, because
+it turns "does this leak" from an investigation into a grep, and its ABSENCE
+is the signal.
+
 ## Two more races, and both lenses made repeatable (iteration 112c)
 
 Thread Sanitizer over the tests that actually open, close and reopen sockets —
