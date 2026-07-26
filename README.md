@@ -146,13 +146,27 @@ open it, pick the iPhone in the sidebar, Start streaming, and put
 
 | Line | What it tells you |
 |------|-------------------|
-| `attach claim 51x26 for X` | the phone claimed the shared PTY size — if absent, the terminal will be wrapped at some other client's width |
-| `snapshot 2447 KB after 96 ms` | what opening that session cost on the wire, and how long the server took |
-| `scrollback reachable N lines` | how much history find and copy-all can actually see (26 = one screen; TUI apps have no scrollback) |
+| `attach claim 51x23 for X` | the phone claimed the shared PTY size — if absent, the terminal is wrapped at some other client's width |
+| `room elected 80x50, we draw 51x23` | a peer holds the size and output will reflow until our claim wins. Not a bug: adopting their size would clip the bottom of the screen, where claude's input box is |
+| `snapshot 339 KB after 96 ms` | what opening that session cost on the wire, and how long the server took |
+| `fast paint 2 KB` | the pre-snapshot screen, so the terminal isn't blank while a big replay downloads |
+| `connect X bg=0d1117` | the background we told the room, which decides the theme a TUI paints itself in. `ffffff` means light |
+| `scrollback reachable N lines` | how much history find and copy-all can see (one screenful = an alt-screen app, which has none by design) |
+| `scroll sent 12 bytes` | a drag reached the remote app as wheel events. 12 bytes is one notch |
+| `scroll dropped, socket down` / `…control locked` | a drag went nowhere, and why: no connection, or someone else is driving |
+| `coast braked by touch` | you stopped a flick mid-glide; that touch does nothing else, on purpose |
+| `route wifi (change 3)` | the network route changed under us. A closed terminal reconnects at once instead of waiting out its backoff |
+| `background slot requested` / `background slot refused: …` | whether iOS accepted a request to wake us later. **A refusal here means bells cannot reach a pocket at all** — the same pair is in Copy diagnostics |
+| `background refresh finished, success=` | a pocket bell-poll actually ran. This is the only proof iOS ever grants a slot |
+| `bell refused for X: …` | a notification could not be posted; it will be retried on the next poll rather than silently dropped |
 | `published N quick actions` | Home Screen shortcuts were refreshed — the only evidence, since SpringBoard owns them |
-| `background refresh finished, success=` | a pocket bell-poll ran; silence here means iOS stopped granting slots |
 | `unhandled server message X` | hop added a protocol message this client ignores |
 | `server rejected a message: …` | this client sent something hop couldn't parse — input may be silently broken |
+
+Absence is often the signal. No `attach claim` means the size never went out;
+no `background refresh finished` after a day means iOS has never woken the app,
+which is the difference between "bells work in my pocket" and "bells work while
+I'm looking at the screen".
 
 `tools/lan-bridge.mjs` exposes the local hay-host to the LAN for testing
 without a tunnel — it's LAN-open while running, so stop it when done.
