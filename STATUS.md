@@ -230,6 +230,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The banner reply, driven for real (iteration 140)
+
+The one headline feature never exercised end to end was the REPLY action on a
+bell notification — the lock-screen answer that motivated half the
+notification design. Driven now, with the probe from tools/: a real BEL, the
+banner long-pressed in springboard, "ok-from-banner" typed into the
+notification's own reply field, Send — and the text arrived in the session's
+PTY with its newline, confirmed from the daemon's screen API.
+
+That closes the full attention loop in both directions: the session can reach
+the human (bell → banner, #131) and the human can answer without unlocking
+anything (banner → PTY, this entry). Screenshots of the expanded banner and
+the typed reply are in the round's record.
+
+Every headline feature has now been driven end to end with real
+infrastructure: scroll and pan against live grids, bells, banner tap, banner
+reply, copy, find, login failure, parked semantics, resurrection guards.
+
 ## The last tail items (iteration 139)
 
 **System-light appearance: already correct.** The whole UI is pinned dark via
