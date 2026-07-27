@@ -230,6 +230,53 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Peer-sized grids: adopt and PAN, like hop's mobile web (iteration 122)
+
+Jian: "mobile does not seem to handle the case where the terminal is fitted to
+the other user's size well. you should take the hop mobile terminal ui as the
+reference for such behaviors (scroll = panning in that mode)".
+
+This reverses #96, which refused a peer's size and let output wrap into mush.
+The web's answer was always adopt-and-pan; what #96 was missing is the pan,
+which is what makes the clipped region — claude's input box lives at the
+bottom — reachable.
+
+Now: when the room elects a size bigger than this screen draws, the terminal
+adopts it, and drags become 1:1 two-axis PANNING with momentum. Scroll-as-
+wheel and scrollback return the moment the grid fits again.
+
+Two SwiftTerm fights, both found by measurement:
+
+- `updateScroller` recomputes contentSize lazily; after a programmatic resize
+  it still said 391pt of content for a 90-column grid, so every pan clamped to
+  zero. The grid's true extent is now computed from what we draw before each
+  pan.
+- `updateScroller` also runs on EVERY output and pins the offset back to x=0
+  and the live row — a pan was undone within one keystroke from the desk. The
+  pan is stored as a delta and re-applied after each output chunk.
+
+Verified with the test writing its own screenshots (after two rounds lost to
+racing an outside screenshot against test teardown): a 90x44 probe holds the
+election while typing every 1.5s; the phone shows the 90-col ruler unwrapped
+and clipped; a swipe reveals RIGHT-EDGE at column 90; and six seconds of desk
+typing later the pan is still there. Horizontal is screenshot-verified;
+vertical panning (the bottom rows of a taller grid) shares the same path but
+is verified only by the clamp math.
+
+### Keyboard (iteration 121b)
+
+- ⌫ moved past the fold: a TAP is redundant with the system delete — it exists
+  only because a HELD system delete sends one character to a custom key-input
+  view (measured), so it is the only backspace that can repeat. Putting it
+  mid-bar had broken the documented promise that esc…→ fit without scrolling.
+  **Open question for Jian: hold the system delete key on the phone. If it
+  auto-repeats on real hardware, the measurement was a harness artifact and ⌫
+  should be deleted outright.**
+- The bar cannot follow the system keyboard's caps/123 toggle: iOS exposes the
+  keyboard's plane only to keyboard extensions (`textDocumentProxy`), never to
+  an app's accessory view. By design the bar holds only keys that exist in NO
+  plane — that is why | / - ~ were removed.
+
 ## Chrome hidden by default: 23 rows → 27 (iteration 121)
 
 Jian: "screen realestate is limited in mobile ideally most unnecesaary ui

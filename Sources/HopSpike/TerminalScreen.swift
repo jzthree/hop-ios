@@ -637,6 +637,10 @@ struct TerminalScreen: UIViewRepresentable {
                 case .output(let data):
                     tv.noteRemoteModes(in: data)
                     tv.feed(text: data)
+                    // After the feed's display pass: SwiftTerm re-pins the
+                    // offset on output, which would undo a pan while the desk
+                    // is typing.
+                    DispatchQueue.main.async { [weak tv] in tv?.reapplyPan() }
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
@@ -702,27 +706,25 @@ struct TerminalScreen: UIViewRepresentable {
                     Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
                         .error("server rejected a message: \(message, privacy: .public)")
                 case .activeSize(let cols, let rows):
-                    // Recorded, NOT applied. This terminal is sized to fit this
-                    // screen, and adopting a peer's size means drawing their
-                    // grid clipped into our view: a 50-row desktop leaves the
-                    // bottom 27 rows outside the bounds, which is exactly where
-                    // claude's input box is. hop's web client refuses the same
-                    // resize in auto-fit mode, and its comment names the
-                    // symptom — "mobile snapping to a desktop/PTY 80x24".
+                    // ADOPTED, the way hop's mobile web does it (Jian's call —
+                    // this replaces #96's refuse-and-reflow). One PTY has one
+                    // size; when a peer holds it, the choice is between
+                    // wrapping their 80-column output into our 51-column grid
+                    // (mush) or drawing their grid at full size and PANNING
+                    // over it. The web's manual mode picks panning, and so do
+                    // we: HopTermView turns drags into 1:1 panning whenever
+                    // the grid is bigger than what fits, which is also what
+                    // makes the clipped region — claude's input box lives at
+                    // the bottom — reachable rather than lost.
                     //
-                    // The cost of refusing is reflow: output written for 80
-                    // columns wraps in a 51-column grid. Wrapped is worse to
-                    // read than clipped is to look at, but you can still SEE
-                    // all of it, and it self-heals the moment our claim wins.
-                    //
-                    // Logged rather than stored: "the room is 80x50 and we
-                    // draw 51x23" is the whole explanation for a screen that
-                    // looks reflowed on the phone, and Console is where the
-                    // README already sends you for that.
+                    // Self-heals in both directions: our next claim (attach,
+                    // or a keyboard-driven refit) takes the size back, and
+                    // their next keystroke reclaims it.
                     let mine = tv.getTerminal()
                     if mine.cols != cols || mine.rows != rows {
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
-                            .info("room elected \(cols)x\(rows), we draw \(mine.cols)x\(mine.rows) — output reflows until our claim wins")
+                            .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
+                        mine.resize(cols: cols, rows: rows)
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —
@@ -1148,6 +1150,7 @@ struct TerminalScreen: UIViewRepresentable {
             fittedCols = newCols
             fittedRows = newRows
             view?.drawnRows = newRows
+            view?.drawnCols = newCols
             // Before the claim, record only. Sending now would reshape the PTY
             // at a height the keyboard is about to take away.
             guard claimed else { return }
@@ -1352,6 +1355,25 @@ final class HopTermView: TerminalView {
     /// that rewrites what you were typing is worse than one that does nothing.
     /// Which case applies is `scrollSink`, decided by who owns the screen.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
+        if !peerSizedGrid { panExtra = .zero }
+        if peerSizedGrid {
+            // Panning, not scrolling: the content moves with the finger, both
+            // axes, and momentum carries it — the grid is a surface here.
+            switch g.state {
+            case .began:
+                stopMomentum()
+            case .changed:
+                let t = g.translation(in: self)
+                g.setTranslation(.zero, in: self)
+                panBy(dx: -t.x, dy: -t.y)
+            case .ended:
+                let v = g.velocity(in: self)
+                startPanMomentum(vx: -v.x, vy: -v.y)
+            default:
+                break
+            }
+            return
+        }
         switch g.state {
         case .began:
             stopMomentum()
@@ -1417,6 +1439,75 @@ final class HopTermView: TerminalView {
     /// What the view actually draws, which is not always what the terminal
     /// says — see drawnCellHeight. Pushed in from SwiftTerm's sizeChanged.
     var drawnRows = 0
+    var drawnCols = 0
+
+    /// A peer owns the PTY size and the grid is bigger than this view can
+    /// draw. In this state a drag PANS over the full grid, 1:1 with the
+    /// finger — the same behaviour as hop's mobile web. Scroll-as-wheel and
+    /// scrollback come back the moment the grid fits again.
+    var peerSizedGrid: Bool {
+        guard drawnRows > 0, drawnCols > 0 else { return false }
+        let t = getTerminal()
+        return t.rows > drawnRows || t.cols > drawnCols
+    }
+
+    /// Where the user has panned to, as an offset from the position SwiftTerm
+    /// keeps trying to restore: x from the left edge, y below the live row.
+    ///
+    /// SwiftTerm's updateScroller runs on EVERY output and pins the offset
+    /// back to x=0 / the live row — measured: a horizontal pan was undone
+    /// within a keystroke of lifting the finger. Storing the pan as a delta
+    /// and re-applying it after output is what makes panning stick while the
+    /// desk keeps typing. Vertical keeps its terminal semantics: panning up
+    /// into history is ordinary scrollback (SwiftTerm preserves it), and the
+    /// extra below the live row is the slice of the peer's screen that does
+    /// not fit — where claude's input box lives.
+    private var panExtra: CGPoint = .zero
+
+    /// SwiftTerm recomputes contentSize lazily (updateScroller), and after a
+    /// programmatic resize it can lag at the OLD grid — measured: a 90-column
+    /// grid still reported contentW=391 (51 columns' worth), so maxX was zero
+    /// and every pan clamped to nothing. The grid's true extent is knowable
+    /// from what we draw, so make the scroll surface match it before panning.
+    private func ensureGridContentSize() {
+        guard drawnCols > 0, drawnRows > 0 else { return }
+        let t = getTerminal()
+        let cellW = bounds.width / CGFloat(drawnCols)
+        let cellH = drawnCellHeight(viewHeight: bounds.height,
+                                    drawnRows: drawnRows, terminalRows: t.rows)
+        let gridW = cellW * CGFloat(t.cols)
+        let liveBottom = (CGFloat(t.buffer.yDisp) + CGFloat(t.rows)) * cellH
+        if contentSize.width < gridW || contentSize.height < liveBottom {
+            contentSize = CGSize(width: max(contentSize.width, gridW),
+                                 height: max(contentSize.height, liveBottom))
+        }
+    }
+
+    /// Move the visible window over the grid, clamped to its edges.
+    private func panBy(dx: CGFloat, dy: CGFloat) {
+        ensureGridContentSize()
+        let maxX = max(0, contentSize.width - bounds.width)
+        let maxY = max(0, contentSize.height - bounds.height)
+        let p = CGPoint(x: min(max(0, contentOffset.x + dx), maxX),
+                        y: min(max(0, contentOffset.y + dy), maxY))
+        contentOffset = p
+        let cell = drawnCellHeight(viewHeight: bounds.height,
+                                   drawnRows: drawnRows, terminalRows: getTerminal().rows)
+        let liveTop = CGFloat(getTerminal().buffer.yDisp) * cell
+        panExtra = CGPoint(x: p.x, y: max(0, p.y - liveTop))
+    }
+
+    /// Called after output lands: SwiftTerm has just pinned the offset home,
+    /// so put the user's pan back on top of wherever it pinned to.
+    func reapplyPan() {
+        guard peerSizedGrid, panExtra != .zero else { return }
+        ensureGridContentSize()
+        let maxX = max(0, contentSize.width - bounds.width)
+        let maxY = max(0, contentSize.height - bounds.height)
+        let target = CGPoint(x: min(panExtra.x, maxX),
+                             y: min(contentOffset.y + panExtra.y, maxY))
+        if target != contentOffset { contentOffset = target }
+    }
 
     private var remote = RemoteModes()
     /// The live value, for diagnostics: the snapshot's flag goes stale the
@@ -1433,7 +1524,23 @@ final class HopTermView: TerminalView {
     func noteRemoteModes(in chunk: String) { remote.note(chunk) }
 
     private var momentum = ScrollMomentum()
+    /// The pan's two axes decay on the same curve the scroll uses; `panActive`
+    /// is which mode the shared display link is serving.
+    private var panMomentumX = ScrollMomentum()
+    private var panMomentumY = ScrollMomentum()
+    private var panActive = false
     private var momentumLink: CADisplayLink?
+
+    private func startPanMomentum(vx: CGFloat, vy: CGFloat) {
+        stopMomentum()
+        let x = panMomentumX.start(pointsPerSecond: Double(vx))
+        let y = panMomentumY.start(pointsPerSecond: Double(vy))
+        guard x || y else { return }
+        panActive = true
+        let link = CADisplayLink(target: self, selector: #selector(stepMomentum(_:)))
+        link.add(to: .main, forMode: .common)
+        momentumLink = link
+    }
     /// A finger down stops the coast even if no recognizer claims the touch.
     /// The recognizers are asked FIRST (see gestureRecognizerShouldBegin), so
     /// by the time this runs the brake has usually already happened — which is
@@ -1460,6 +1567,15 @@ final class HopTermView: TerminalView {
         // main thread parsing a burst of output — would otherwise spend a
         // quarter second of travel in one go.
         let elapsed = min(max(link.targetTimestamp - link.timestamp, 1.0 / 240), 1.0 / 20)
+        if panActive {
+            let dx = panMomentumX.step(elapsed: elapsed) ?? 0
+            let dy = panMomentumY.step(elapsed: elapsed) ?? 0
+            guard dx != 0 || dy != 0 else { return stopMomentum() }
+            let before = contentOffset
+            panBy(dx: CGFloat(dx), dy: CGFloat(dy))
+            if contentOffset == before { stopMomentum() }   // parked at an edge
+            return
+        }
         guard let points = momentum.step(elapsed: elapsed) else { return stopMomentum() }
         scrollDebt += CGFloat(points)
         applyScrollDebt()
@@ -1474,6 +1590,9 @@ final class HopTermView: TerminalView {
         momentumLink?.invalidate()
         momentumLink = nil
         momentum.stop()
+        panMomentumX.stop()
+        panMomentumY.stop()
+        panActive = false
         scrollDebt = 0
     }
 
@@ -1641,11 +1760,16 @@ final class HopTermView: TerminalView {
             ("ctrl", .ctrl, 42, "control", nil),
             ("alt", .alt, 38, "alt", nil),
             ("^C", .ctrlC, 38, "control C", nil),
-            ("⌫", .backspace, 38, "backspace", nil),
             ("←", .left, 34, "left arrow", nil),
             ("↓", .down, 34, "down arrow", nil),
             ("↑", .up, 34, "up arrow", nil),
             ("→", .right, 34, "right arrow", nil),
+            // Past the fold on purpose: a TAP is redundant with the system
+            // delete key — it exists only because a HELD system delete sends a
+            // single character to a custom key-input view (measured), so this
+            // is the one backspace that can repeat. It peeks at the edge,
+            // which is also the hint that the bar scrolls.
+            ("⌫", .backspace, 38, "backspace", nil),
             ("⇞", .pageUp, 38, "page up", nil),
             ("⇟", .pageDown, 38, "page down", nil),
             ("paste", .paste, 50, "paste", nil),
@@ -1712,6 +1836,10 @@ extension HopTermView: UIGestureRecognizerDelegate {
     override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         if let pan = g as? UIPanGestureRecognizer {
             guard !selectionActive else { return false }
+            // Panning a peer-sized grid is two-dimensional by nature; the
+            // vertical-dominance rule below is for scrolling, where a sideways
+            // drag belongs to the swipe back.
+            if peerSizedGrid { return true }
             // A drag that grabs a coasting terminal keeps scrolling from
             // there, so pans are never braked — only started.
             let v = pan.velocity(in: self)
