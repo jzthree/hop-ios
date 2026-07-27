@@ -661,4 +661,18 @@ final class HopSpikeTests: XCTestCase {
         let many = (0..<20).map { mk(["name": "s\($0)", "live": true]) }
         XCTAssertEqual(switcherCandidates(many, excluding: "none").count, 12)
     }
+
+    func testFitFontSizeMapsColumnsToPoints() {
+        // 12pt font, 7.2pt cells, 402pt view: 51 cols fit naturally. Fitting
+        // 90 columns needs cells of 402/90 = 4.47pt → about 7.4pt type.
+        let f = fitFontSize(base: 12, baseCellWidth: 7.2, viewWidth: 402, gridCols: 90)
+        XCTAssertEqual(f, 12 * (402.0/90.0) / 7.2, accuracy: 0.01)
+        // Never grows past the user's chosen size…
+        XCTAssertEqual(fitFontSize(base: 12, baseCellWidth: 7.2, viewWidth: 402, gridCols: 40), 12)
+        // …and never shrinks below the readability floor: 500 columns would
+        // want sub-pixel glyphs, which is a texture, not text.
+        XCTAssertEqual(fitFontSize(base: 12, baseCellWidth: 7.2, viewWidth: 402, gridCols: 500), 4)
+        // Degenerate inputs change nothing.
+        XCTAssertEqual(fitFontSize(base: 12, baseCellWidth: 0, viewWidth: 402, gridCols: 90), 12)
+    }
 }

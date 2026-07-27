@@ -34,6 +34,9 @@ struct TerminalHostView: View {
     /// already reflows it on every attach, and the size election hands it back
     /// the moment someone types at a desk.
     @State private var chromeShown = true
+    /// Observer mode: shrink type until the peer's full grid width fits.
+    @State private var fitWidth = false
+    @State private var fitTick = 0
     @State private var findOpen = false
     /// Focus lands in the find field the moment the bar opens. Without this
     /// the keyboard stays bound to the TERMINAL, and typing a search term
@@ -101,6 +104,7 @@ struct TerminalHostView: View {
     private var screen: some View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
+                       fitWidth: fitWidth, fitTick: fitTick,
                        find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
                        onLinks: { found in
@@ -118,7 +122,8 @@ struct TerminalHostView: View {
                        onScroll: { scrolledUp = $0 },
                        onChromeTap: {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
-                       })
+                       },
+                       onFitRefresh: { fitTick += 1 })
     }
 
     var body: some View {
@@ -323,6 +328,16 @@ struct TerminalHostView: View {
                             Label(lightTheme ? "Dark terminal" : "Light terminal",
                                   systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
                         }
+                        // Observer mode: see the peer's whole grid width at
+                        // once instead of panning — and claim nothing while
+                        // watching. Small type is the honest price; the
+                        // fitFontSize floor keeps it text rather than texture.
+                        Button { fitWidth.toggle(); fitTick += 1 } label: {
+                            Label(fitWidth ? "Actual size" : "Fit to width",
+                                  systemImage: fitWidth
+                                    ? "arrow.up.left.and.arrow.down.right"
+                                    : "arrow.down.right.and.arrow.up.left")
+                        }
                         Divider()
                         // Who else is here + who may type (hay collab model).
                         if !viewers.isEmpty {
@@ -431,6 +446,12 @@ struct TerminalScreen: UIViewRepresentable {
     @Binding var status: TerminalHostView.ConnState
     var fontSize: Double = 12
     var lightTheme = false
+    /// Observer mode: shrink the glyphs until the peer's full grid width fits,
+    /// and stop claiming the PTY size while doing it — a fit-width client that
+    /// claimed its inflated row count would reflow the desk it is watching.
+    var fitWidth = false
+    /// Bumped when the room's elected size changes, so the fit font recomputes.
+    var fitTick = 0
     var find: FindRequest?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
@@ -443,6 +464,7 @@ struct TerminalScreen: UIViewRepresentable {
     @Binding var control: ControlAction?
     var onScroll: (Bool) -> Void = { _ in }
     var onChromeTap: () -> Void = {}
+    var onFitRefresh: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
@@ -471,6 +493,7 @@ struct TerminalScreen: UIViewRepresentable {
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
         tv.onChromeTap = onChromeTap
+        context.coordinator.onGridChange = onFitRefresh
         tv.installAccessoryBar()
         tv.backgroundColor = .black
         tv.nativeForegroundColor = UIColor(red: 0.90, green: 0.90, blue: 0.91, alpha: 1)
@@ -485,7 +508,38 @@ struct TerminalScreen: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: HopTermView, context: Context) {
-        uiView.font = UIFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        _ = fitTick     // dependency: elected-size changes re-run this update
+        context.coordinator.observeOnly = fitWidth
+        if !fitWidth { context.coordinator.fitNudges = 0 }
+        var size = CGFloat(fontSize)
+        if fitWidth {
+            let cols = uiView.getTerminal().cols
+            let width = uiView.bounds.width
+            let advance = { (pt: CGFloat) -> CGFloat in
+                ("0" as NSString).size(withAttributes:
+                    [.font: UIFont.monospacedSystemFont(ofSize: pt, weight: .regular)]).width
+            }
+            // Analytic first guess, then measure-and-correct: glyph advances
+            // round to pixel boundaries at small sizes, so pure linear scaling
+            // left 84 of 90 columns fitting — measured, off by one wrap.
+            size = fitFontSize(base: size, baseCellWidth: advance(size),
+                               viewWidth: width, gridCols: cols)
+            // Each nudge is a 3% shrink on top of the analytic guess, applied
+            // until SwiftTerm reports the elected column count actually fits.
+            size = max(4, size * CGFloat(pow(0.97, Double(context.coordinator.fitNudges))))
+            for _ in 0..<3 {
+                let w = advance(size) * CGFloat(cols)
+                if w <= width || size <= 4 { break }
+                size = max(4, size * width / w * 0.995)
+            }
+            HopTermView.log.info("fit: cols=\(cols) width=\(Int(width)) -> \(size)pt")
+        }
+        // Only when it changed: setting a font re-lays-out the terminal, and
+        // updateUIView runs on every SwiftUI pass — an unconditional set here
+        // is a layout loop waiting for a trigger.
+        if abs(uiView.font.pointSize - size) > 0.1 {
+            uiView.font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        }
         uiView.applyTheme(light: lightTheme)
         context.coordinator.themeIsLight = lightTheme
         // Only on a new request. Re-running whenever anything else updated
@@ -533,6 +587,20 @@ struct TerminalScreen: UIViewRepresentable {
         /// follows TYPING, so the reclaim happens on the next real keystroke,
         /// not on layout noise.
         private var peerHoldsSize = false
+        /// Observer mode (fit-width): watch at the peer's geometry, claim
+        /// nothing — not even on typing. You chose to see their whole grid;
+        /// keystrokes go into THEIR layout, which is what answering a prompt
+        /// on the desk's screen means.
+        var observeOnly = false
+        var onGridChange: () -> Void = {}
+        /// The size the room elected, and how many times fit-width has nudged
+        /// the font smaller to reach it. Font metrics differ between our
+        /// measurement and SwiftTerm's rounding — measured: the analytic size
+        /// fit 84 of 90 columns — so the fit converges on SwiftTerm's own
+        /// reported column count instead of trusting any advance calculation.
+        var electedCols = 0
+        var electedRows = 0
+        var fitNudges = 0
         /// Latched when hop says the session is over. Reconnecting after that
         /// does not reattach — it creates a new session wearing the same name.
         private var sessionEnded = false
@@ -553,7 +621,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // grid, this keystroke makes us the recent typist — send our
                 // fitted size along with it so the terminal snaps back to this
                 // screen's shape the moment the user engages.
-                if peerHoldsSize, fittedCols > 1, fittedRows > 1 {
+                if peerHoldsSize, !observeOnly, fittedCols > 1, fittedRows > 1 {
                     peerHoldsSize = false
                     client.sendResize(cols: fittedCols, rows: fittedRows)
                 }
@@ -775,6 +843,8 @@ struct TerminalScreen: UIViewRepresentable {
                     // or a keyboard-driven refit) takes the size back, and
                     // their next keystroke reclaims it.
                     let mine = tv.getTerminal()
+                    self.electedCols = cols
+                    self.electedRows = rows
                     if cols == self.fittedCols && rows == self.fittedRows {
                         self.peerHoldsSize = false      // our size won; normal rules
                     } else if mine.cols != cols || mine.rows != rows {
@@ -782,6 +852,7 @@ struct TerminalScreen: UIViewRepresentable {
                             .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
                         self.peerHoldsSize = true
                         mine.resize(cols: cols, rows: rows)
+                        self.onGridChange()
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —
@@ -1192,7 +1263,7 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         private func sendAttachClaim() {
-            guard !claimed else { return }
+            guard !claimed, !observeOnly else { return }
             claimed = true
             let t = view?.getTerminal()
             let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
@@ -1216,9 +1287,29 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
+            // Observer mode's convergence: a font change refits the terminal
+            // locally, and if fewer columns fit than the room elected, the
+            // adopted grid has been silently defeated. Nudge the font smaller
+            // (bounded) until SwiftTerm itself reports enough columns, then
+            // snap the grid back to the exact elected size.
+            if observeOnly, electedCols > 1 {
+                if newCols < electedCols, fitNudges < 8 {
+                    fitNudges += 1
+                    DispatchQueue.main.async { self.onGridChange() }
+                } else if newCols != electedCols {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.observeOnly,
+                              let t = self.view?.getTerminal(),
+                              t.cols != self.electedCols else { return }
+                        t.resize(cols: self.electedCols, rows: self.electedRows)
+                    }
+                }
+            }
             // Before the claim, record only. Sending now would reshape the PTY
-            // at a height the keyboard is about to take away.
-            guard claimed, !peerHoldsSize else { return }
+            // at a height the keyboard is about to take away. Peer-held and
+            // observer mode both suppress the send: one borrows the geometry
+            // until typing reclaims it, the other borrows it on purpose.
+            guard claimed, !peerHoldsSize, !observeOnly else { return }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)

@@ -396,4 +396,5 @@ final class ScrollUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, "zebra",
                        "typing after opening Find must land in the find field")
     }
+
 }

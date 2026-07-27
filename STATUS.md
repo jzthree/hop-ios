@@ -236,6 +236,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Fit to width lands: the whole desk grid on one phone screen (iteration 144)
+
+The observer mode offered in the viewport answer is real now. `⋯ → Fit to
+width` shrinks the type until the peer's full grid width fits — the verified
+case renders a 90-column ruler on one unwrapped line — and flips back via
+`Actual size`. While it is on, the phone claims NOTHING: not on layout, not
+even on typing (you chose to watch; keystrokes go into their layout, which is
+what answering a prompt on the desk's screen means).
+
+Getting the width right took three attempts, each caught by the ruler:
+1. Analytic font scaling from measured glyph advances fit 84 of 90 columns —
+   SwiftTerm rounds cell widths differently than NSString measures them.
+2. A measure-at-candidate refinement loop still landed at 84 for the same
+   reason: any calculation trusts the wrong metric.
+3. The fix that works: converge on SwiftTerm's OWN reported column count —
+   nudge the font 3% smaller (bounded at 8 nudges) until sizeChanged reports
+   at least the elected width, then snap the grid to the exact elected size.
+   The observable you converge on must be the one that decides the outcome.
+
 ## The peer-size flap: found under the fit-width work, fixed at the root (iteration 143)
 
 Building the fit-width observer mode surfaced a pre-existing bug that is very

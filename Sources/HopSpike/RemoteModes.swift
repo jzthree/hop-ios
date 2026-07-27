@@ -126,3 +126,18 @@ func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> 
     return max(1, viewHeight / CGFloat(max(1, rows)))
 }
 
+/// The font size that makes `gridCols` columns fit in `viewWidth` points.
+///
+/// Observer mode's core: when a peer holds a 90-column grid, the phone can
+/// shrink its glyphs until the whole width fits instead of panning. Monospace
+/// advance scales linearly with point size, so the target cell width
+/// (viewWidth / gridCols) maps straight back to a point size. Clamped to a
+/// floor because a 2pt terminal is a texture, not text — below the floor,
+/// fitting is a lie and panning is honest.
+func fitFontSize(base: CGFloat, baseCellWidth: CGFloat, viewWidth: CGFloat,
+                 gridCols: Int, floor: CGFloat = 4) -> CGFloat {
+    guard base > 0, baseCellWidth > 0, viewWidth > 0, gridCols > 0 else { return base }
+    let target = base * (viewWidth / CGFloat(gridCols)) / baseCellWidth
+    return min(base, max(floor, target))
+}
+
