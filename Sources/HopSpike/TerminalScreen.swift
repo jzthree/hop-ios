@@ -368,6 +368,13 @@ struct TerminalHostView: View {
             }
             .task(id: session.internalName) {
                 chromeShown = true
+                // VoiceOver users keep the chrome. Hiding it trades
+                // discoverability for terminal rows, and the ways back — a tap
+                // on an unmarked strip, a drag toward the live edge — are
+                // gestures VoiceOver cannot see. For a VoiceOver user the
+                // hidden bar isn't minimal, it's GONE, and with it the back
+                // button, the switcher and every terminal action.
+                guard !UIAccessibility.isVoiceOverRunning else { return }
                 // Under test the bar stays put. The same launch argument
                 // already steadies the caret, for the same reason: XCUITest
                 // resolves elements against a moving target and reports the

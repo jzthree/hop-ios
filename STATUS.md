@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## VoiceOver keeps the chrome, and an idle-CPU baseline (iteration 135)
+
+An adversarial read of my own hidden-chrome design found who it locks out:
+VoiceOver users. The chrome auto-hides, and both ways back — a tap on an
+unmarked strip, a drag toward the live edge — are gestures VoiceOver cannot
+see. For a VoiceOver user the hidden bar is not minimal, it is GONE, with the
+back button, the switcher and every terminal action inside it. The auto-hide
+now skips entirely when VoiceOver is running. Not drivable by XCUITest (it
+cannot enable VoiceOver); the guard is three lines and reasoned, and the
+device checklist's VoiceOver item covers the rest.
+
+Idle CPU baseline, recorded so a future regression has something to regress
+FROM (simulator, Release-logic Debug build, 10 samples over 30s each):
+- In a terminal, idle: ~0%, one 7.9% spike on an output burst.
+- On the list (20 sessions, previews polling): ~0%, one 3.9% spike on a poll
+  tick. The 5s/9s poll loops cost nothing measurable between ticks.
+
 ## A "regression" that was the simulator, and one real improvement (iteration 134b)
 
 The landscape test failed twice in a row after the notification-body change —
