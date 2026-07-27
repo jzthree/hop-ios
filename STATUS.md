@@ -230,6 +230,19 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Notification bodies say the message, not the prompt (iteration 134)
+
+The bell drive in #131 left one nit on record: the banner's body was
+"jianzhou@MED-GEN-ML-15 hop2 %" — the prompt that returned after printf — when
+the thing worth waking a phone for was "answer me" one line above.
+
+The body picker is now a pure function that takes the last line the session
+SAID, skipping prompt-shaped lines. A prompt is recognised narrowly — ends in
+%, $ or # AND contains '@' (the user@host shape), or a bare ❯ composer — so
+"CPU 97%" is kept while "jian@host dir %" is skipped. If everything looks like
+a prompt, the last line ships anyway: a wrong-ish body beats an empty
+notification. Unit-tested, including the exact case from the bell drive.
+
 ## TestFlight dry run: one real bug fixed, two blockers mapped (iteration 133)
 
 Ran the archive/export pipeline end to end BEFORE Jian's first click, stopping

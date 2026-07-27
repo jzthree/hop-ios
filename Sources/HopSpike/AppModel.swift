@@ -399,9 +399,8 @@ final class AppModel: ObservableObject {
         } else {
             text = await fetchPreview(session.internalName)
         }
-        guard let line = text?.split(separator: "\n").last.map(String.init) else { return nil }
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.count > 2 ? String(trimmed.prefix(180)) : nil
+        guard let text else { return nil }
+        return notificationLine(from: text)
     }
 
     private func fetchPreview(_ internalName: String) async -> String? {

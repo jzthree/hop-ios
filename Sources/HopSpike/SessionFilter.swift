@@ -111,3 +111,32 @@ func shouldNotify(bellSeq: Int, lastNotified: Int?) -> Bool {
     return bellSeq != lastNotified
 }
 
+/// The line worth putting in a notification: the last thing the session SAID,
+/// skipping the shell prompt that follows it.
+///
+/// Measured origin: a bell rung by `printf 'answer me \a'` produced a banner
+/// whose body was "jianzhou@MED-GEN-ML-15 hop2 %" — the prompt returned after
+/// the printf, so "the last non-empty line" was the least informative line on
+/// the screen. A prompt is recognised narrowly: it ends in %, $ or # AND
+/// contains '@' (the user@host shape), or it is a bare ❯ composer line. A
+/// line like "CPU 97%" has no '@' and is kept — skipping real status lines
+/// would be worse than showing a prompt.
+///
+/// If every line looks like a prompt, the last one is returned anyway: a
+/// wrong-ish body beats an empty notification.
+func notificationLine(from preview: String) -> String? {
+    let lines = preview.split(separator: "\n")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { $0.count > 2 }
+    guard !lines.isEmpty else { return nil }
+
+    func promptLike(_ line: String) -> Bool {
+        if line.hasSuffix("❯") || line == "❯" { return true }
+        guard let last = line.last, "%$#".contains(last) else { return false }
+        return line.contains("@")
+    }
+
+    let said = lines.last { !promptLike($0) } ?? lines.last!
+    return String(said.prefix(180))
+}
+

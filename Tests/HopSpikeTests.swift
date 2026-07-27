@@ -624,4 +624,21 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(jsonInt(fromPush["bellSeq"]), 42)
     }
 
+    func testNotificationBodySkipsThePromptNotTheMessage() {
+        // The measured case: printf output, then the prompt returns. The body
+        // must be what the session SAID, not where it said it.
+        XCTAssertEqual(notificationLine(from:
+            "answer me \njianzhou@MED-GEN-ML-15 hop2 %"), "answer me")
+        // A claude question is the last line and must survive untouched.
+        XCTAssertEqual(notificationLine(from:
+            "2. Resume full session\nEnter to confirm · Esc to cancel"),
+            "Enter to confirm · Esc to cancel")
+        // "CPU 97%" ends in % but is not a prompt — no user@host shape.
+        XCTAssertEqual(notificationLine(from: "build ok\nCPU 97%"), "CPU 97%")
+        // A bare composer line is a prompt.
+        XCTAssertEqual(notificationLine(from: "done here\n❯"), "done here")
+        // All prompts: better a prompt than an empty notification.
+        XCTAssertEqual(notificationLine(from: "jian@host dir %"), "jian@host dir %")
+        XCTAssertNil(notificationLine(from: "  \n a "))
+    }
 }
