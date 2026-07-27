@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Copy flows audited: correct, with one honest caveat added (iteration 130)
+
+Both copies verified against a fixture session with known content (61 numbered
+lines), sizes read from the app's own log because the simulator's pbpaste
+lies (returned 1 byte while the app had copied 452 chars):
+
+- Copy screen: the visible rows, trimmed. Correct.
+- Copy all: the entire buffer, screen included — 453 chars ≥ the screen's 452,
+  the superset property that makes "all" mean all. Correct **once the snapshot
+  has landed.**
+
+The one real finding: copy-all in the first seconds after opening a session
+copies whatever has arrived — measured 300 of 453 chars — and LOOKS complete.
+The toast now says "Copied — history still syncing" until the snapshot lands,
+instead of letting a partial copy pass as the whole thing. Copy sizes stay in
+the log for diagnostics.
+
 ## Replying to a dead session: predicted bug, measured absent (iteration 129)
 
 The reply sheet's worst case on paper: the target dies mid-compose, Send opens

@@ -1022,15 +1022,23 @@ struct TerminalScreen: UIViewRepresentable {
                     lines.append(line.translateToString(trimRight: true))
                 }
             }
-            UIPasteboard.general.string = lines.joined(separator: "\n")
-            onToast("Screen copied")
+            let text = lines.joined(separator: "\n")
+            UIPasteboard.general.string = text
+            HopTermView.log.info("copy screen: \(text.count) chars, \(lines.count) lines")
+            onToast(snapshotLanded ? "Screen copied" : "Copied — screen still syncing")
         }
 
         @objc func copyAll() {
             guard let tv = view else { return }
             let data = tv.getTerminal().getBufferAsData()
-            UIPasteboard.general.string = String(data: data, encoding: .utf8) ?? ""
-            onToast("Scrollback copied")
+            let text = String(data: data, encoding: .utf8) ?? ""
+            UIPasteboard.general.string = text
+            HopTermView.log.info("copy all: \(text.count) chars")
+            // The full history arrives with the snapshot, which can still be in
+            // flight in the first seconds after opening — copying then LOOKS
+            // complete and silently isn't (measured: 300 chars of a session
+            // whose history was 453). Say so instead of letting it lie.
+            onToast(snapshotLanded ? "Scrollback copied" : "Copied — history still syncing")
         }
 
         // ── AccessoryKeyHandler ──
