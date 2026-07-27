@@ -230,6 +230,34 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## TestFlight dry run: one real bug fixed, two blockers mapped (iteration 133)
+
+Ran the archive/export pipeline end to end BEFORE Jian's first click, stopping
+short of upload. Findings:
+
+**Fixed: `make testflight` was archiving a DEBUG build.** The scheme never
+specified an archive configuration and XcodeGen's default turned out to be
+Debug — an unoptimised binary headed for TestFlight. The scheme now pins
+`archive: Release` (verified in the generated xcscheme). Note: the archive
+STAGE showing `aps-environment=development` is normal — archives sign with the
+development profile; the export re-signs for App Store.
+
+**Blocker 1 (known): no app record.** The ASC API confirms it live: bundle
+`io.zhoulab.hop.spike` is registered, the apps list is empty. App Store
+Connect → Apps → + → New App remains the ask.
+
+**Blocker 2 (new): cloud signing is refused.** Local export fails with
+"Cloud signing permission error / No profiles for 'io.zhoulab.hop.spike'".
+The API key (CCFL4WD4V4) reads fine but cannot mint an Apple Distribution
+certificate. One of, whichever Jian prefers:
+  - give that ASC key Admin role (cloud-managed distribution certs need it), or
+  - create one Apple Distribution certificate once (Xcode → Settings →
+    Accounts after signing in, or developer.apple.com → Certificates); after
+    that, automatic signing can use it and `make testflight` proceeds.
+
+ExportOptions uses `destination: upload`, so once both blockers clear, the one
+command really is archive → upload.
+
 ## Login failure path: verified against the real daemon, once (iteration 132)
 
 A deliberate bad login — exactly ONE, because hop locks an IP after five

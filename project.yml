@@ -94,6 +94,15 @@ schemes:
         HopSpikeTests: [test]
     test:
       targets: [HopSpikeTests]
+    # Explicit, because XcodeGen's default for an unspecified archive config
+    # turned out to be DEBUG: `make testflight` archived an unoptimised build
+    # with aps-environment=development — which TestFlight would sign but push
+    # could never reach — and ExportOptions uploads straight from the archive.
+    # Caught in a dry run before the first real upload spent it.
+    archive:
+      config: Release
+    run:
+      config: Debug
   HopSpikeUI:
     build:
       targets:
