@@ -230,6 +230,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The harness moves into the repo (iteration 136)
+
+Two days of verification built up eight near-identical probe scripts in a
+session-scoped scratchpad that dies with the session. Consolidated into
+`tools/probe.mjs` — ring / fill / type / clear / hold-size, one file, header-
+documented — and verified live before committing: fill put END-MARKER on a
+scratch session's screen, ring took its bellSeq 0 → 1.
+
+`tools/README.md` carries what cost the most to learn: the four patterns that
+produce trustworthy evidence (in-test screenshots, marker-file choreography,
+controls, discriminators) and the traps table — pbpaste lies, XCUITest
+delivers mods=0, the system keyboard's repeat never fires under a synthetic
+hold, sim rotation wedges, grep eats make's exit code, regex-edited probes
+fail silently. Each line in that table cost real time this session; the next
+session should only have to read it.
+
 ## VoiceOver keeps the chrome, and an idle-CPU baseline (iteration 135)
 
 An adversarial read of my own hidden-chrome design found who it locks out:
