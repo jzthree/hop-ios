@@ -140,3 +140,19 @@ func notificationLine(from preview: String) -> String? {
     return String(said.prefix(180))
 }
 
+/// Who belongs in the in-terminal switcher menu: live, joinable, part of the
+/// working set, and not the session you are already in.
+///
+/// Parked exclusion is the consistency rule: parking hides a session from
+/// browsing and silences its bells, so the switcher offering it anyway made
+/// "not my working set" mean three different things in three places. A parked
+/// session is still reachable by name through the list's filter — deliberate,
+/// like everything else about parking. Capped because a Menu is for the
+/// twelve most recent, not the whole fleet; the list is the fleet view.
+func switcherCandidates(_ sessions: [HopSession], excluding current: String,
+                        cap: Int = 12) -> [HopSession] {
+    Array(sessions.filter {
+        $0.internalName != current && $0.live && !$0.isPort && !$0.parked
+    }.prefix(cap))
+}
+

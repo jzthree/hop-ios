@@ -251,9 +251,8 @@ struct TerminalHostView: View {
                 ToolbarItem(placement: .principal) {
                     Menu {
                         Section("Switch session") {
-                            ForEach(model.sessions.filter {
-                                $0.internalName != session.internalName && $0.live && !$0.isPort
-                            }.prefix(12)) { other in
+                            ForEach(switcherCandidates(model.sessions,
+                                                       excluding: session.internalName)) { other in
                                 Button {
                                     model.requestedSession = other.internalName
                                 } label: {

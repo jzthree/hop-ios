@@ -641,4 +641,24 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(notificationLine(from: "jian@host dir %"), "jian@host dir %")
         XCTAssertNil(notificationLine(from: "  \n a "))
     }
+
+    func testSwitcherMenuMatchesTheParkedRules() {
+        let seen: [String: Int] = [:]
+        func mk(_ json: [String: Any]) -> HopSession { HopSession(json: json, seenBellSeq: seen)! }
+        let sessions = [
+            mk(["name": "here", "live": true]),
+            mk(["name": "other", "live": true]),
+            mk(["name": "napping", "live": true, "parked": true]),
+            mk(["name": "web", "live": true, "type": "port"]),
+            mk(["name": "dead", "live": false]),
+        ]
+        // Parked is "not my working set" — the same rule that hides it from
+        // browsing and silences its bells. The switcher offering it anyway
+        // made the rule mean different things in different places.
+        XCTAssertEqual(switcherCandidates(sessions, excluding: "here").map(\.name),
+                       ["other"])
+        // The cap is a cap.
+        let many = (0..<20).map { mk(["name": "s\($0)", "live": true]) }
+        XCTAssertEqual(switcherCandidates(many, excluding: "none").count, 12)
+    }
 }

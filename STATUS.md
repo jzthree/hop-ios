@@ -230,6 +230,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The plan, ranked (iteration 137)
+
+Everything interactive is audited; what remains is either gated or optional.
+Ranked so the next session (or the next loop fire) picks by value, not
+momentum:
+
+**Yours, in unblocking order:**
+1. **Device checklist** — four items only hardware answers: coast feel at
+   120Hz, the `background:` line in Copy diagnostics (decides how urgent APNs
+   is), ctrl combos on a hardware keyboard, walking out of wifi.
+2. **App Store record + one distribution cert** (STATUS #133 has the exact
+   steps) → `make testflight` becomes one command.
+3. **APNs greenlight** → APNS-PLAN.md executes against hop2, with Solstice.
+4. **One-line decision**: mark archived sessions as stopped in the list, or
+   leave them transparent?
+
+**Autonomous, if the loop keeps running (descending value):**
+- Preview-corruption *client-side* hardening if the hop2 fix stalls (strip
+  partial escape sequences from previews before rendering).
+- The switcher menu's 12-cap UX when the fleet outgrows it (a "More…" tail
+  into the list, if fleet growth continues).
+- Periodic re-run of `make strict` / `make tsan` after SwiftTerm updates.
+- Keep the idle-CPU baseline honest after any poll-loop change.
+
+**Consistency fix shipped with this entry:** parked sessions no longer appear
+in the in-terminal switcher menu. Parking hides a session from browsing and
+silences its bells; the switcher offering it anyway made "not my working set"
+mean three different things in three places. Pure function, unit-tested.
+
 ## The harness moves into the repo (iteration 136)
 
 Two days of verification built up eight near-identical probe scripts in a
