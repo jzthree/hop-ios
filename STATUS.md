@@ -230,6 +230,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Maintenance tick: two tail items closed by measurement (iteration 138)
+
+**Preview corruption: stale for this app — item crossed off.** Scanned all 20
+live previews: zero raw ESC bytes, and every "stripped-escape fragment" the
+scanner flagged was a false positive ("Cooked for 6m 21s", "250ms" — minutes
+and milliseconds, not escape remnants). The grid-preview architecture renders
+previews server-side from persistent terminals, so the getOutputSince
+mid-escape reset-tail bug — still unfixed in hop2 — does not reach the preview
+endpoint this app uses. Client-side hardening would have been building for a
+bug that does not manifest here. (The hop2 bug itself remains Solstice's,
+for the paths that DO use getOutputSince.)
+
+**Strict-concurrency baseline: holds at 6**, the same inherent set (deinit
+timers, SwiftTerm's nonisolated delegate) after all the rounds since #112c.
+
 ## The plan, ranked (iteration 137)
 
 Everything interactive is audited; what remains is either gated or optional.
@@ -247,8 +262,6 @@ momentum:
    leave them transparent?
 
 **Autonomous, if the loop keeps running (descending value):**
-- Preview-corruption *client-side* hardening if the hop2 fix stalls (strip
-  partial escape sequences from previews before rendering).
 - The switcher menu's 12-cap UX when the fleet outgrows it (a "More…" tail
   into the list, if fleet growth continues).
 - Periodic re-run of `make strict` / `make tsan` after SwiftTerm updates.
