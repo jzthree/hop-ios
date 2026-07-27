@@ -350,4 +350,31 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.buttons["escape"].exists, "the app died holding a key")
         XCTAssertTrue(app.buttons["down arrow"].exists)
     }
+
+    /// The summary line is the bell's last resort: it can read "1 wants you
+    /// (1 not shown here)" precisely when scope or filter hides the ringing
+    /// session — and until now it offered no way to reach it. Tapping it must
+    /// open that session, ignoring whatever the list is hiding.
+    func testWantsYouSummaryOpensTheHiddenSession() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_ATTENTION"] = "1"     // force one bell
+        app.launchEnvironment["HOP_DEV_FILTER"] = "zzz-no-match"  // hide it
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        // A BUTTON, not a static text: SwiftUI collapses the Text into the
+        // button's accessibility element. The first version of this test
+        // queried staticTexts, passed once standalone (the hierarchy happened
+        // to expose both), then failed in the suite — and the dump showed the
+        // summary present the whole time, wearing button clothes.
+        let summary = app.buttons.containing(
+            NSPredicate(format: "label CONTAINS 'not shown here'")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 25),
+                      "hidden-bell summary never appeared")
+        summary.tap()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25),
+                      "tapping the wants-you summary did not open the session")
+    }
 }

@@ -215,9 +215,32 @@ struct SessionsView: View {
                 // With nineteen sessions the header said nothing. The count you
                 // actually care about is how many want you — and when that's
                 // zero, saying so is the useful answer, not silence.
-                Text(fleetSummary)
-                    .font(.caption)
-                    .foregroundStyle(wanting > 0 ? Color.hopAttention : .secondary)
+                //
+                // TAPPABLE when something wants you. The line can read "1 wants
+                // you (1 not shown here)" precisely when scope or filter hides
+                // the ringing session — announcing a bell while offering no way
+                // to reach it. The tap opens the longest-standing wanting
+                // session directly, same navigation path a notification tap
+                // takes, so it works regardless of what the list is showing.
+                if wanting > 0 {
+                    Button { openWanting() } label: {
+                        Text(fleetSummary)
+                            .font(.caption)
+                            .foregroundStyle(Color.hopAttention)
+                    }
+                    .buttonStyle(.plain)
+                    // A HINT, not a label override. Replacing the label erased
+                    // the summary's actual text from the accessibility tree —
+                    // VoiceOver would say the action but never the counts, and
+                    // the UI test that looks for "not shown here" found a
+                    // button wearing different words. The text is the label;
+                    // what tapping does is the hint.
+                    .accessibilityHint("Opens the session that wants you")
+                } else {
+                    Text(fleetSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             ForEach(sections, id: \.label) { section in
                 Section {
@@ -422,6 +445,15 @@ struct SessionsView: View {
         let found = await model.searchContent(query)
         guard !Task.isCancelled else { return }
         contentMatches = found
+    }
+
+    /// The bell, answered from the summary line: open the first session that
+    /// wants attention, fleet-wide — deliberately ignoring scope and filter,
+    /// which are exactly what can be hiding it.
+    private func openWanting() {
+        let want = model.sessions.first { $0.attention && !$0.isPort && !$0.parked }
+        guard let want else { return }
+        path = [want.internalName]
     }
 
     private func startRename(_ session: HopSession) {

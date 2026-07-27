@@ -230,6 +230,32 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The bell you couldn't reach (iteration 126)
+
+List-screen interaction audit, first find: the summary line can read
+"1 wants you (1 not shown here)" — precisely when scope or filter hides the
+ringing session — and offered no way to reach it. The app announcing a bell
+while hiding the session is the worst version of its core promise.
+
+The summary is now a button when anything wants you: tapping it opens the
+longest-standing wanting session directly, fleet-wide, deliberately ignoring
+scope and filter (which are exactly what can be hiding it). Same navigation
+path a notification tap takes.
+
+Permanent UI test, deterministic via the dev flags (force attention + a
+filter that matches nothing). Getting it green taught two things worth keeping:
+
+- `.accessibilityLabel` on a button REPLACES its text in the accessibility
+  tree. VoiceOver would have said "Open the session that wants you" and never
+  the counts. It's a `.accessibilityHint` now — the text is the label, the
+  action is the hint.
+- `HOP_DEV_ATTENTION` forced `raw.first`, and the fleet reorders by activity —
+  a port or parked session at the top made the flag force nothing. It now
+  forces the first alertable session.
+
+Also kept: a per-refresh log line ("refresh: 20 sessions, wanting 1"), which
+is what proved the model was right while the UI query was wrong.
+
 ## Vertical reach on a peer-sized grid: verified, with a surprise (iteration 125)
 
 Staged the vertical twin of the RIGHT-EDGE experiment: a 90x44 probe fills its

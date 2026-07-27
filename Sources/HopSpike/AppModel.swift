@@ -228,7 +228,15 @@ final class AppModel: ObservableObject {
             // be reviewed by waiting for an agent to ring. DEBUG-only — it
             // fakes app state, which has no place in a shipping build.
 #if DEBUG
-            if ProcessInfo.processInfo.environment["HOP_DEV_ATTENTION"] == "1", let first = raw.first,
+            // The first ALERTABLE session, not raw.first: the fleet reorders by
+            // activity, and when a port or parked session drifts to the top,
+            // forcing "attention" onto it counts for nothing (wanting excludes
+            // both) — which made a test that relies on this flag flake with
+            // the fleet's mood.
+            if ProcessInfo.processInfo.environment["HOP_DEV_ATTENTION"] == "1",
+               let first = raw.first(where: {
+                   ($0["type"] as? String) != "port" && (($0["parked"] as? Bool) ?? false) == false
+               }),
                let key = (first["internalName"] as? String) ?? (first["name"] as? String) {
                 seen[key] = (jsonInt(first["bellSeq"]) ?? 0) - 1   // -1 is fine: any bellSeq beats it
             }
@@ -259,6 +267,8 @@ final class AppModel: ObservableObject {
                 [weak self] session in await self?.notificationSnippet(for: session)
             }
             QuickActions.publish(sessions)
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "model")
+                .info("refresh: \(self.sessions.count) sessions, wanting \(self.sessions.filter { $0.attention && !$0.isPort && !$0.parked }.count)")
         } catch {
             // Network failure: keep the user where they are, surface the reason.
             // Offline is worth naming — otherwise the phone having no signal
