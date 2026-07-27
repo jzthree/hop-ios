@@ -230,6 +230,20 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The backspace key is gone, on device evidence (iteration 123)
+
+Jian, from the phone: holding the SYSTEM keyboard's delete repeats on real
+hardware. The simulator measurement that justified adding ⌫ — one character
+per 2.5-second hold — was an XCUITest artifact: a synthetic press never
+drives the keyboard's own repeat timer. So ⌫ was redundant as a tap AND as a
+hold, and it is removed. The bar is back to exactly the keys the system
+keyboard cannot produce in any plane.
+
+The lesson joins the pile from this session: the harness lied about hardware
+ctrl combos (mods=0), about menus in overlays (a fixture had drifted), and now
+about key repeat. A simulator measurement of KEYBOARD behaviour is evidence
+about the simulator.
+
 ## Peer-sized grids: adopt and PAN, like hop's mobile web (iteration 122)
 
 Jian: "mobile does not seem to handle the case where the terminal is fitted to

@@ -1205,8 +1205,13 @@ struct TerminalScreen: UIViewRepresentable {
 
 // ── Accessory key bar ──
 enum AccessoryKey {
+    // No backspace here, though it was tried: the system keyboard's delete
+    // DOES auto-repeat on a real device (Jian confirmed on hardware). The
+    // simulator measurement that justified adding one — a single character
+    // per 2.5s hold — was an XCUITest artifact: a synthetic press never
+    // drives the keyboard's own repeat timer.
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
-    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace
+    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss
 
     /// What this key puts on the wire; nil for keys that only arm a modifier
     /// or dismiss the keyboard. Data rather than a switch full of send calls,
@@ -1224,9 +1229,6 @@ enum AccessoryKey {
         case .slash: return "/"
         case .dash: return "-"
         case .tilde: return "~"
-        // 0x7f, which is what the system keyboard's own delete sends here —
-        // measured, not assumed.
-        case .backspace: return "\u{7f}"
         case .pageUp: return "\u{1b}[5~"
         case .pageDown: return "\u{1b}[6~"
         case .up: return "\u{1b}[A"
@@ -1242,7 +1244,6 @@ enum AccessoryKey {
     var spokenName: String {
         switch self {
         case .shiftTab: return "shift tab"
-        case .backspace: return "backspace"
         case .pageUp: return "page up"
         case .pageDown: return "page down"
         default: return "\(self)"
@@ -1254,11 +1255,7 @@ enum AccessoryKey {
     /// modifier would just flap its armed state.
     var repeats: Bool {
         switch self {
-        // Backspace above all: holding delete on the system keyboard sends
-        // exactly ONE character to a view like this one (measured — iOS only
-        // repeats it for its own text views), so correcting a mistyped path
-        // meant tapping once per character.
-        case .up, .down, .left, .right, .pageUp, .pageDown, .backspace: return true
+        case .up, .down, .left, .right, .pageUp, .pageDown: return true
         default: return false
         }
     }
@@ -1764,12 +1761,6 @@ final class HopTermView: TerminalView {
             ("↓", .down, 34, "down arrow", nil),
             ("↑", .up, 34, "up arrow", nil),
             ("→", .right, 34, "right arrow", nil),
-            // Past the fold on purpose: a TAP is redundant with the system
-            // delete key — it exists only because a HELD system delete sends a
-            // single character to a custom key-input view (measured), so this
-            // is the one backspace that can repeat. It peeks at the edge,
-            // which is also the hint that the bar scrolls.
-            ("⌫", .backspace, 38, "backspace", nil),
             ("⇞", .pageUp, 38, "page up", nil),
             ("⇟", .pageDown, 38, "page down", nil),
             ("paste", .paste, 50, "paste", nil),
