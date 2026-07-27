@@ -230,6 +230,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The last tail items (iteration 139)
+
+**System-light appearance: already correct.** The whole UI is pinned dark via
+`.preferredColorScheme(.dark)` — screenshot under system-light is identical
+hop. Checked so it is never re-checked; the deliberate single-look is the
+design.
+
+**The switcher got its escape hatch.** The menu caps at twelve and the fleet
+runs nineteen, so the session you want is regularly not in it — and the way
+out was dismiss-the-menu, then back: two taps to discover the menu couldn't
+help. "All sessions…" at the menu's foot makes it one tap to the list.
+Covered by the permanent switcher test.
+
+The autonomous tail is now: baseline upkeep only. Everything else on the board
+is Jian's — the ranked list in #137 stands.
+
 ## Maintenance tick: two tail items closed by measurement (iteration 138)
 
 **Preview corruption: stale for this app — item crossed off.** Scanned all 20

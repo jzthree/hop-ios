@@ -260,6 +260,14 @@ struct TerminalHostView: View {
                                           systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
                                 }
                             }
+                            // The menu caps at twelve and the fleet runs
+                            // nineteen: when the session you want isn't here,
+                            // the way out used to be dismiss-the-menu, then
+                            // back — two taps to discover the menu couldn't
+                            // help. This makes it one.
+                            Button { dismiss() } label: {
+                                Label("All sessions…", systemImage: "square.grid.2x2")
+                            }
                         }
                     } label: {
                     HStack(spacing: 7) {
