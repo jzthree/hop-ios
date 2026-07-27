@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Replying to a dead session: predicted bug, measured absent (iteration 129)
+
+The reply sheet's worst case on paper: the target dies mid-compose, Send opens
+a fresh socket to the dead name, hop creates rooms on demand — the
+resurrection bug through a third door, with the reply EXECUTING in a fresh
+shell as a bonus.
+
+Staged it for real on the current build: scratch session, reply sheet open,
+killed from outside during compose, then Send. **It stayed dead.** The daemon
+404s a WS attach to a name it doesn't know; the #118 zombie needed the
+reconnect path with durable meta behind it, and that door is closed. QuickReply
+surfaces the failure as "couldn't send", which is the right outcome.
+
+Recorded because the alternative was shipping a guard for a bug that does not
+exist — this session's recurring lesson pointed the other way for once:
+evidence first, and the evidence said no.
+
 ## Find was typing into the session (iteration 128)
 
 Audit of the find bar under hidden chrome caught something worse than layout:
