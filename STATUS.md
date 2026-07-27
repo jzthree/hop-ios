@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Keyboard audit round: two null results, recorded (iteration 124)
+
+- **Text-input traits are already right.** SwiftTerm sets autocorrection,
+  spell-check, smart quotes, smart dashes and smart insert-delete to `.no` and
+  autocapitalization to `.none` — so `'` arrives as 0x27, not `’`, and
+  double-space cannot become ". ". Checked at the source; do not re-audit.
+  (One matrix cell overstated: with autocorrection off there IS no autocorrect
+  — the native win is dictation and the real keys, not correction.)
+- **The arrow keys cannot get bigger.** 40pt and 38pt were both tried after
+  ⌫'s removal freed width; both push → off the first screen — the "spare" was
+  already funding the ⇞ peek that hints at the scrollable tail. Fatter arrows
+  means thinner esc/tab/ctrl: the same miss rate, moved. 34pt stands, by
+  measurement rather than taste.
+
+Phone verified on build 154 from the device itself
+(`devicectl device info apps` → bundleVersion 154).
+
 ## The backspace key is gone, on device evidence (iteration 123)
 
 Jian, from the phone: holding the SYSTEM keyboard's delete repeats on real

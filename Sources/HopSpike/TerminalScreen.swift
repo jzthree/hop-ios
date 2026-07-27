@@ -1757,6 +1757,11 @@ final class HopTermView: TerminalView {
             ("ctrl", .ctrl, 42, "control", nil),
             ("alt", .alt, 38, "alt", nil),
             ("^C", .ctrlC, 38, "control C", nil),
+            // 34pt is the budget, and it is SPENT: 40 and 38 were both tried
+            // after ⌫'s removal freed width, and both push → off the first
+            // screen (screenshot-checked) — the "spare" was already funding the
+            // ⇞ peek that hints the bar scrolls. Fatter arrows would mean
+            // thinner esc/tab/ctrl, which is the same miss rate moved around.
             ("←", .left, 34, "left arrow", nil),
             ("↓", .down, 34, "down arrow", nil),
             ("↑", .up, 34, "up arrow", nil),
