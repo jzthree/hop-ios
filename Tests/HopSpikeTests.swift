@@ -675,4 +675,15 @@ final class HopSpikeTests: XCTestCase {
         // Degenerate inputs change nothing.
         XCTAssertEqual(fitFontSize(base: 12, baseCellWidth: 0, viewWidth: 402, gridCols: 90), 12)
     }
+
+    func testBackspaceRepeatsBecauseNothingElseCan() {
+        XCTAssertEqual(AccessoryKey.backspace.sequence, "\u{7f}")
+        // Removed once on the belief the system delete repeats on hardware.
+        // It does not — the observation that retired this key was made on a
+        // build where this key sat one row above the system delete. Hold-to-
+        // delete vanished the release after. This test is the tombstone.
+        XCTAssertTrue(AccessoryKey.backspace.repeats)
+        XCTAssertFalse(AccessoryKey.ctrlC.repeats)
+        XCTAssertFalse(AccessoryKey.paste.repeats)
+    }
 }

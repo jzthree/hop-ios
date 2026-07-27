@@ -236,6 +236,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The backspace, restored — and how two ⌫ keys fooled us both (iteration 145)
+
+Jian, from the phone: hold-to-delete DISAPPEARED after the ⌫ removal. That
+report unravels iteration 123's premise. The "system delete repeats on
+hardware" observation was made on build 153 — where the bar's repeating ⌫ sat
+one row above the system delete. Two ⌫ glyphs, one thumb: the key being held
+was almost certainly MINE. The simulator measurement (one character per held
+system delete) was right all along; the testimony and the measurement were
+about different keys, and I retired the measurement instead of running a
+discriminator — with both keys on screen, "which one are you holding?" was a
+one-line question never asked.
+
+⌫ is back, past the fold, hold-to-repeat intact, with the story in a comment
+and a tombstone test. The lesson joins the traps list in spirit: testimony
+and measurement disagreeing means the EXPERIMENT differs, not that one of
+them is wrong.
+
 ## Fit to width lands: the whole desk grid on one phone screen (iteration 144)
 
 The observer mode offered in the viewport answer is real now. `⋯ → Fit to
