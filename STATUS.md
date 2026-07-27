@@ -230,6 +230,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Vertical reach on a peer-sized grid: verified, with a surprise (iteration 125)
+
+Staged the vertical twin of the RIGHT-EDGE experiment: a 90x44 probe fills its
+screen so the last line (BOTTOM-MARKER) and the prompt sit on rows the phone
+cannot draw, then the phone attaches and drags up.
+
+The surprise: the BEFORE screenshot already showed the bottom. SwiftTerm
+follows the CURSOR, so on attach the view parks at the bottom of the peer's
+grid — marker, prompt and cursor all visible with no gesture at all. The drag
+then had nothing below to reveal (already clamped at maxY), which is why the
+before and after screenshots are byte-identical.
+
+That is the right default and it closes #96's actual fear twice over: the
+bottom of a peer's screen — where claude's input box lives — is what you SEE
+ON ARRIVAL, and panning covers everything else. Horizontal pan remains the
+screenshot-verified case; vertical shares panBy and its clamp maths, and its
+destination is now proven reachable by the attach itself.
+
 ## Keyboard audit round: two null results, recorded (iteration 124)
 
 - **Text-input traits are already right.** SwiftTerm sets autocorrection,
