@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Login failure path: verified against the real daemon, once (iteration 132)
+
+A deliberate bad login — exactly ONE, because hop locks an IP after five
+failures and the simulator shares the outbound IP with Jian's phone — driven
+through the full flow: sign out, wrong password, wrong code, Connect.
+
+The daemon's own reason ("Invalid password") reaches the screen in red, the
+password field clears, and Connect disables until the fields are refilled.
+Screenshot kept. The failure counter was checked in hop's source BEFORE
+spending any attempts: 5 failures → 30s lock, doubling; a successful login
+resets it.
+
+Not kept as a permanent test: each run costs a real login failure against the
+shared IP budget and drives a sign-out. The navigation it uses is already
+covered by the sign-out test; the error rendering is verified here, by
+evidence.
+
 ## The core promise, driven end to end with a real bell (iteration 131)
 
 Every attention feature had been verified in pieces or through the
