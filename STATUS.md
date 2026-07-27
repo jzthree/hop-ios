@@ -230,6 +230,16 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Upkeep tick: no upstream drift, suites green on the churned fleet (iteration 142)
+
+- hop2 has had **zero server-side commits** since the protocol audit — the
+  recent work (taglines, switcher filtering) is web-client only. The WS/API
+  contract this app is built against is unmoved.
+- Both suites green against today's fleet, which has churned several new
+  sessions in: 52 unit, 17 UI (1 skipped by design).
+
+Nothing to change; recorded so the next fire knows the baseline date.
+
 ## Plan v2: the boundary items carried to the boundary (iteration 141)
 
 With verification exhausted, the remaining autonomous value was at the hop2
