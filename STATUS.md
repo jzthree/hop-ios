@@ -230,6 +230,14 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Upkeep tick: TSan clean (iteration 142b)
+
+`make tsan` — attach, drag, reconnect, session-switch under Thread Sanitizer
+against live sessions: **0 races**. First run of the target since it was
+created; everything socket-adjacent that landed after the #112 race fixes
+(ended-session latch, existence check on reconnect, receive tidy-up) is
+covered by it. Baseline current.
+
 ## Upkeep tick: no upstream drift, suites green on the churned fleet (iteration 142)
 
 - hop2 has had **zero server-side commits** since the protocol audit — the
