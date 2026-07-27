@@ -35,6 +35,11 @@ final class AppModel: ObservableObject {
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).
     @Published var previews: [String: String] = [:]
+    /// Whole screens for tile mode: rendered text plus the grid's true column
+    /// count, so a tile can scale type to the session's real geometry — the
+    /// same shape the web switcher renders. Fetched from /api/sessions/screen,
+    /// the endpoint the fast paint already uses (~2 KB a screen).
+    @Published var screens: [String: ScreenPreview] = [:]
     // Optional access token (the daemon accepts it as Bearer / ?token=).
     // Dev/simulator runs can inject it via the HOP_DEV_TOKEN env var so the
     // real UI can be exercised without an authenticator code.
@@ -255,6 +260,7 @@ final class AppModel: ObservableObject {
             for s in sessions { lastKnown[s.internalName] = s }
             let alive = Set(sessions.map(\.internalName))
             previews = previews.filter { alive.contains($0.key) }
+            screens = screens.filter { alive.contains($0.key) }
             // Watching a session counts as seeing its bells: keep the marker
             // current so backing out doesn't leave a stale attention dot, and
             // never banner the terminal that's on screen.
@@ -403,6 +409,12 @@ final class AppModel: ObservableObject {
         return notificationLine(from: text)
     }
 
+    /// One fetch feeds both stores: /preview returns the WHOLE screen as plain
+    /// text plus its grid dimensions — the rows take their three meaningful
+    /// lines from it, the tiles take all of it. No second endpoint, no ANSI
+    /// stripping (the first tile attempt used /screen, whose output is escape
+    /// sequences meant for a terminal, and rendered them as literal "[38;2m"
+    /// confetti).
     private func fetchPreview(_ internalName: String) async -> String? {
         guard var comps = baseURL.map({ $0.appendingPathComponent("api/sessions/preview") })
             .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
@@ -415,6 +427,9 @@ final class AppModel: ObservableObject {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = obj["text"] as? String else { return nil }
+        screens[internalName] = ScreenPreview(text: text,
+                                              cols: jsonInt(obj["cols"]) ?? 80,
+                                              rows: jsonInt(obj["rows"]) ?? 24)
         return Self.meaningfulTail(of: text, lines: 3)
     }
 
@@ -584,4 +599,11 @@ struct HopSession: Identifiable {
         if s < 86400 { return "\(s / 3600)h" }
         return "\(s / 86400)d"
     }
+}
+
+/// One session's whole rendered screen, for a switcher tile.
+struct ScreenPreview {
+    let text: String
+    let cols: Int
+    let rows: Int
 }

@@ -31,6 +31,10 @@ struct SessionsView: View {
     @State private var replyTarget: HopSession?
     @State private var replyText = ""
     @AppStorage("groupByProject") private var groupByProject = false
+    /// The list/tiles choice is the user's: tiles are the web switcher's
+    /// space-efficient wall of live screens; the list keeps taglines, swipe
+    /// actions and grouping. Neither is objectively right — so a toggle.
+    @AppStorage("switcherTiles") private var switcherTiles = false
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var contentMatches: [ContentMatch] = []
     /// Rows currently on screen. Previews cost the daemon a render each, so the
@@ -242,12 +246,47 @@ struct SessionsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if switcherTiles {
+                Section {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                        GridItem(.flexible(), spacing: 10)],
+                              spacing: 10) {
+                        ForEach(visible) { session in
+                            Button { path.append(session.internalName) } label: {
+                                SessionTile(session: session,
+                                            screen: model.screens[session.internalName])
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    Task { _ = await model.setAgentAccess(session, allowed: !session.agentPermitted) }
+                                } label: {
+                                    Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
+                                          systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+                                }
+                                Button { replyTarget = session; replyText = "" } label: {
+                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                }
+                                Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+                                Button(role: .destructive) { killTarget = session } label: {
+                                    Label("Kill", systemImage: "xmark.circle")
+                                }
+                            }
+                            .onAppear { visibleRows.insert(session.internalName) }
+                            .onDisappear { visibleRows.remove(session.internalName) }
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                }
+            } else {
             ForEach(sections, id: \.label) { section in
                 Section {
                     ForEach(section.rows) { row(for: $0) }
                 } header: {
                     if !section.label.isEmpty { Text(section.label) }
                 }
+            }
             }
             if !inScopeMatches.isEmpty || outOfScopeMatches > 0 {
                 Section {
@@ -308,6 +347,9 @@ struct SessionsView: View {
                 }
                 Toggle(isOn: $groupByProject) {
                     Label("Group by project", systemImage: "folder")
+                }
+                Toggle(isOn: $switcherTiles) {
+                    Label("Tile view", systemImage: "square.grid.2x2")
                 }
                 Divider()
                 Button { showAccount = true } label: {

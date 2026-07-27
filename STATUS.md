@@ -236,6 +236,31 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Tiles or list: the user chooses (iteration 146)
+
+Jian: conflicted between the web switcher's tile wall and the app's list —
+"can we allow user to choose? i think our session switcher UI is neither very
+aesthetically well designed nor using the space efficiently."
+
+Both now exist and the choice is a toggle (⋯ → Tile view, persisted). Tile
+mode is the web wall's shape natively: a two-column grid where every tile is
+the session's WHOLE screen as monospaced text, scaled to the session's true
+column count, under a slim header with the name, state dot and app badge.
+Attention wears an amber ring and header wash. Six live screens fit where the
+list showed two and a half rows. Long-press a tile for the full context menu
+(reply, rename, kill, agent access); tap opens the terminal.
+
+Engineering notes:
+- One fetch feeds both modes. /preview turns out to return the WHOLE screen
+  as plain text plus its grid dimensions — the rows take their three
+  meaningful lines from it, tiles take all of it. The first tile build used
+  /screen and rendered its escape sequences as literal "[38;2m" confetti;
+  the fix was choosing the right endpoint, not writing an ANSI stripper.
+- Tiles use Button + path.append, not NavigationLink — List decorates nested
+  NavigationLinks with disclosure chevrons, one per tile.
+- The list keeps what tiles cannot offer: taglines, swipe actions, grouping.
+  Neither mode is objectively right, which is exactly why it's a toggle.
+
 ## The backspace, restored — and how two ⌫ keys fooled us both (iteration 145)
 
 Jian, from the phone: hold-to-delete DISAPPEARED after the ⌫ removal. That
