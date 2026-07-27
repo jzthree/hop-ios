@@ -377,4 +377,23 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25),
                       "tapping the wants-you summary did not open the session")
     }
+
+    /// Opening Find must move the keyboard to the find field. It used to stay
+    /// bound to the terminal, so typing a search term sent it into the live
+    /// session — a claude composer received "keyboard" while the find field
+    /// sat empty. Asserting on the FIELD's value keeps this away from the
+    /// flaky match-toast territory that kept find otherwise untested.
+    func testFindFocusesItsFieldNotTheTerminal() throws {
+        let app = launchIntoSession("Orion")
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.buttons["Terminal actions"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Find"].waitForExistence(timeout: 5))
+        app.buttons["Find"].tap()
+        sleep(1)
+        app.typeText("zebra")
+        let field = app.textFields["find in scrollback"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "zebra",
+                       "typing after opening Find must land in the find field")
+    }
 }

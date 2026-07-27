@@ -230,6 +230,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Find was typing into the session (iteration 128)
+
+Audit of the find bar under hidden chrome caught something worse than layout:
+opening Find left the keyboard bound to the TERMINAL. Type your search term
+and it went into the live session — the screenshot shows "keyboard" sitting in
+a claude composer while the find field displays its placeholder. A search
+that quietly feeds an agent's prompt is an input leak, not a nuisance.
+
+Find now focuses its field the moment it opens (FocusState), and Done releases
+it. The permanent test asserts on the FIELD's value after typing — which keeps
+it clear of the flaky match-toast territory that kept find untested before.
+
+The stray "keyboard" the audit typed into Orion's composer was erased with
+exactly eight deletes over a throwaway socket.
+
 ## Light mode had never been looked at (iteration 127)
 
 The light terminal palette landed weeks ago and the bg=ffffff announcement fix

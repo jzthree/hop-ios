@@ -35,6 +35,11 @@ struct TerminalHostView: View {
     /// the moment someone types at a desk.
     @State private var chromeShown = true
     @State private var findOpen = false
+    /// Focus lands in the find field the moment the bar opens. Without this
+    /// the keyboard stays bound to the TERMINAL, and typing a search term
+    /// sends it into the live session — screenshot-caught with "keyboard"
+    /// sitting in a claude composer instead of the find field.
+    @FocusState private var findFocused: Bool
     @State private var reconnectToken = 0
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
@@ -194,11 +199,15 @@ struct TerminalHostView: View {
                         .task { try? await Task.sleep(for: .seconds(2)); self.toast = nil }
                 }
             }
+            .onChange(of: findOpen) { _, open in
+                if open { findFocused = true }
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                         TextField("find in scrollback", text: $findText)
+                            .focused($findFocused)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.system(.body, design: .monospaced))
@@ -217,7 +226,7 @@ struct TerminalHostView: View {
                             findSeq += 1
                         } label: { Image(systemName: "chevron.down") }
                             .accessibilityLabel("Next match")
-                        Button("Done") { findOpen = false; findText = "" }
+                        Button("Done") { findFocused = false; findOpen = false; findText = "" }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(Color.hopRaised)
