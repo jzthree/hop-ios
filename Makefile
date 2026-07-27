@@ -131,7 +131,11 @@ sim: simbuild
 # concurrency checking (a race on the socket's retired-generation guard, #112b)
 # and Thread Sanitizer over the tests that actually open, close and reopen
 # sockets. Neither is on by default; both are cheap to re-run.
+# Clean first, always: warnings only re-emit for files that actually
+# recompile, so an incremental pass on an unchanged tree reports ZERO — a
+# false clean that looks like an improvement. Measured: baseline 6 read as 0.
 strict:
+	@rm -rf build-strict build-strict.log
 	@xcodebuild -project $(PROJECT) -scheme HopSpike \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-strict CODE_SIGNING_ALLOWED=NO \
