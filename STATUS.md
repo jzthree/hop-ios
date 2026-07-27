@@ -230,6 +230,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A "regression" that was the simulator, and one real improvement (iteration 134b)
+
+The landscape test failed twice in a row after the notification-body change —
+unrelated code, so it looked like a mystery regression. The in-test screenshot
+settled it: the app was not rotating at all. Orientations were declared,
+the code was unchanged — the SIMULATOR's rotation state was stuck after hours
+of temp tests, and a reboot fixed it (the test then passed in 5 seconds).
+Lesson filed with the others: when a UI test fails on untouched code, suspect
+the simulator before the app.
+
+Kept from the diagnosis, because it matches the landscape rule: rotating to
+landscape now dismisses the chrome immediately instead of waiting out the 3s
+timer — every point to the terminal the moment the phone turns. The top strip
+still summons it.
+
 ## Notification bodies say the message, not the prompt (iteration 134)
 
 The bell drive in #131 left one nit on record: the banner's body was

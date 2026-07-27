@@ -202,6 +202,16 @@ struct TerminalHostView: View {
             .onChange(of: findOpen) { _, open in
                 if open { findFocused = true }
             }
+            // Landscape gives every point to the terminal — Jian's rule, and
+            // the keyboard already eats half the height there. Rotating
+            // dismisses the chrome even under the test-mode pin (the pin
+            // exists to stop TIMERS moving the UI mid-test, not to override
+            // an explicit state change); the top strip still summons it.
+            .onChange(of: landscapePhone) { _, landscape in
+                if landscape {
+                    withAnimation(.easeOut(duration: 0.2)) { chromeShown = false }
+                }
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
                     HStack(spacing: 8) {
