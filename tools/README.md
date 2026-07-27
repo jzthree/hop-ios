@@ -1,5 +1,8 @@
 # tools/ — the verification harness
 
+`upkeep.sh` runs the whole maintenance tick in one command: upstream drift,
+both suites, strict concurrency, TSan, and what build the device actually has.
+
 `probe.mjs` drives a hop session from outside the app: real bells, size
 elections, known fixtures. Its header documents the actions. Everything here
 sends REAL input — use scratch sessions.
