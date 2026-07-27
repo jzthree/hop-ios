@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The peer-size flap: found under the fit-width work, fixed at the root (iteration 143)
+
+Building the fit-width observer mode surfaced a pre-existing bug that is very
+likely the roughness behind Jian's original "mobile does not handle the other
+user's size well": while a desk holds the session, the phone's grid FLAPPED
+51↔90 every ~3 seconds, forever. The cycle: adopt the elected size → any
+layout event (keyboard, rotation) refits the terminal and re-sends our fitted
+size → the server rejects it (the desk is typing) and re-broadcasts
+active_size → adopt again. Measured on the shipped build: 6+ adopts in 20s,
+indefinitely.
+
+Fix follows hop's own rule — size follows TYPING. After adopting a peer's
+size, layout changes no longer re-send ours; the reclaim rides on the next
+real keystroke (fitted size sent alongside it, so the terminal snaps back the
+moment the user engages). Verified with the probe: two adopts at attach (join
++ the one deliberate claim's answer), then silence for the rest of the hold.
+
+The fit-width (observer mode) feature itself is STASHED, not landed: its
+wiring amplified the flap 60× before the root cause was understood, and it
+deserves a clean round on top of this fix. The pure fitFontSize maths and its
+tests are in the stash with it.
+
 ## Upkeep tick: TSan clean (iteration 142b)
 
 `make tsan` — attach, drag, reconnect, session-switch under Thread Sanitizer

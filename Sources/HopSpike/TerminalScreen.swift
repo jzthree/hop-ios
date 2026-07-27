@@ -525,6 +525,14 @@ struct TerminalScreen: UIViewRepresentable {
         private let room: String
         private let pushStatus: (TerminalHostView.ConnState) -> Void
         private var isLive = false
+        /// A peer holds the PTY size (we adopted theirs). While true, layout
+        /// changes do NOT re-send our fitted size: every keyboard show/hide
+        /// was sending a resize the server rejected, which re-broadcast
+        /// active_size, which re-adopted — a 3-second flap of 51↔90 columns
+        /// for as long as a desk held the session. hop's rule is that size
+        /// follows TYPING, so the reclaim happens on the next real keystroke,
+        /// not on layout noise.
+        private var peerHoldsSize = false
         /// Latched when hop says the session is over. Reconnecting after that
         /// does not reattach — it creates a new session wearing the same name.
         private var sessionEnded = false
@@ -541,6 +549,14 @@ struct TerminalScreen: UIViewRepresentable {
         private func deliver(_ text: String) {
             guard !text.isEmpty else { return }
             if isLive {
+                // Typing is how a size is reclaimed in hop. If a peer held the
+                // grid, this keystroke makes us the recent typist — send our
+                // fitted size along with it so the terminal snaps back to this
+                // screen's shape the moment the user engages.
+                if peerHoldsSize, fittedCols > 1, fittedRows > 1 {
+                    peerHoldsSize = false
+                    client.sendResize(cols: fittedCols, rows: fittedRows)
+                }
                 client.sendInput(text)
                 markTyping()
                 return
@@ -759,9 +775,12 @@ struct TerminalScreen: UIViewRepresentable {
                     // or a keyboard-driven refit) takes the size back, and
                     // their next keystroke reclaims it.
                     let mine = tv.getTerminal()
-                    if mine.cols != cols || mine.rows != rows {
+                    if cols == self.fittedCols && rows == self.fittedRows {
+                        self.peerHoldsSize = false      // our size won; normal rules
+                    } else if mine.cols != cols || mine.rows != rows {
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                             .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
+                        self.peerHoldsSize = true
                         mine.resize(cols: cols, rows: rows)
                     }
                 case .ended(let message):
@@ -1199,7 +1218,7 @@ struct TerminalScreen: UIViewRepresentable {
             view?.drawnCols = newCols
             // Before the claim, record only. Sending now would reshape the PTY
             // at a height the keyboard is about to take away.
-            guard claimed else { return }
+            guard claimed, !peerHoldsSize else { return }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)
