@@ -230,6 +230,21 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Light mode had never been looked at (iteration 127)
+
+The light terminal palette landed weeks ago and the bg=ffffff announcement fix
+yesterday — and no one had ever LOOKED at light mode. Screenshot audit found
+the white terminal floating letterboxed in near-black bands: the strips around
+the terminal (padding, safe areas) were hardcoded to hopSurface, which is the
+DARK background's exact hex. They follow the terminal's theme now; dark mode
+is unchanged by construction.
+
+What the audit could NOT fix, recorded so it isn't chased: an existing session
+keeps painting dark-theme colors on the white background, because claude picks
+its theme from the terminal's answer at ITS startup (hop 2522c3e). A session
+started while a light client is attached paints light. That is hop's design,
+not an iOS bug.
+
 ## The bell you couldn't reach (iteration 126)
 
 List-screen interaction audit, first find: the summary line can read

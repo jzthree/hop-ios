@@ -368,7 +368,12 @@ struct TerminalHostView: View {
                 // disappear, and a blind clear would wipe the new one.
                 if model.openSession == session.internalName { model.openSession = nil }
             }
-            .background(Color.hopSurface)
+            // The strips AROUND the terminal (padding, safe areas) follow the
+            // terminal's theme. hopSurface is the dark background's exact hex,
+            // so dark mode is unchanged — but in light mode the white terminal
+            // sat letterboxed in near-black bands, screenshot-caught.
+            .background(lightTheme ? Color(uiColor: TerminalTheme.light.background)
+                                   : Color.hopSurface)
     }
 }
 
