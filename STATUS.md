@@ -35,8 +35,14 @@ every functional commit through iteration 111 is on it.
    Apple's half is done — explicit App ID, Push enabled, entitlement in the
    signed app, client obtaining and displaying a token.
 
-**Open question for you, one line:** should `archived` sessions (stopped but
-resumable) be marked as stopped in the list? They are parsed and hidden with
+**Open questions for you, one line each:**
+- Should `archived` sessions (stopped but resumable) be marked as stopped in
+  the list?
+- Web previews now render the WHOLE screen at grid geometry, scaled to fit
+  (hop2 b7b8aaa, 7/27). Should phone rows follow suit, or stay 3-line text?
+  Cost note before choosing: scaled-screen rows are heavier per render and the
+  phone polls up to 8 previews on a cellular budget — the answer isn't
+  automatically "match the web". They are parsed and hidden with
 parked ones today; opening one resumes it transparently.
 
 **Handed over, not done here:** the preview-corruption bug in hop
