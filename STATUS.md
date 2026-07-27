@@ -230,6 +230,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Plan v2: the boundary items carried to the boundary (iteration 141)
+
+With verification exhausted, the remaining autonomous value was at the hop2
+boundary — carried as far as the boundary allows:
+
+- **HOP2-NOTES.md** now holds the ready-to-apply patch for the size-election
+  bug (scrolling counts as typing; a phone reading claude steals the size from
+  a desk that's typing), with an anchored-regex fix, the reasoning, and a
+  verification recipe using tools/probe.mjs. One read for Solstice, zero
+  archaeology.
+- The same note narrows the preview-corruption bug's blast radius with this
+  week's measurement: previews are clean (grid path); only getOutputSince
+  consumers are affected. The mobile-track urgency flag is withdrawn.
+- **The PWA-push mandate item is formally retired**, not silently ignored: it
+  was the hedge for a world where the native app failed. The native app is
+  installed and verified; APNS-PLAN.md is the push path.
+
 ## The banner reply, driven for real (iteration 140)
 
 The one headline feature never exercised end to end was the REPLY action on a
