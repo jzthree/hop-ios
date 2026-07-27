@@ -35,3 +35,4 @@ sends REAL input — use scratch sessions.
 | `make x 2>&1 \| grep …` | the pipeline's exit code is grep's — failures ship |
 | Regex-editing probe scripts | substitutions fail silently; write whole files |
 | A simulator measurement of keyboard/push/background behaviour | is evidence about the simulator |
+| A metric that improves without a cause | is a check that stopped running (incremental builds re-emit no warnings; `make strict` cleans first for this reason) |
