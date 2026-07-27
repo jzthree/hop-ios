@@ -230,6 +230,30 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The core promise, driven end to end with a real bell (iteration 131)
+
+Every attention feature had been verified in pieces or through the
+HOP_DEV_ATTENTION flag. This round drove the real thing, no forcing: a probe
+ran `printf 'answer me \a'` in a scratch session's PTY while the app sat on
+the list with notifications freshly authorized (first-run offer → system
+dialog → Allow, all driven).
+
+One screenshot holds the whole pipeline: the banner (session name, tagline as
+subtitle, last output line as body), the summary flipped to amber "1 wants
+you", the row washed amber with the attention dot and sorted to the top — and
+the test then tapped the BANNER and asserted it landed in that session, which
+it did. BEL → bellSeq → poll → attention → notification → banner → tap →
+the right terminal: all real, all in one run.
+
+The first attempt failed and the failure was the harness again: the ring probe
+was built by regex-editing an old script, the substitution silently didn't
+match, and no BEL was ever sent — while the app correctly showed "nothing
+waiting on you" and I nearly read it as the app's bug. bellSeq: 0 from the
+daemon settled it. Probes are written as whole files now, never regex-derived.
+
+Not kept as a permanent test: it needs an externally-timed ring and springboard
+choreography. The screenshots and this entry are the record.
+
 ## Copy flows audited: correct, with one honest caveat added (iteration 130)
 
 Both copies verified against a fixture session with known content (61 numbered
