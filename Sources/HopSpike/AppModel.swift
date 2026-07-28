@@ -93,8 +93,13 @@ final class AppModel: ObservableObject {
         // from the environment — inert on iOS either way, but a TestFlight
         // build has no business containing it.
 #if DEBUG
+        // normalizedServerURL, NOT the raw stored value: a schemeless
+        // "hop.zhoulab.io" parses with a nil host, and the seed silently
+        // no-ops — which wiped out an entire UI suite (every test bounced to
+        // login) the first time a schemeless value landed in the container.
+        // Requests always normalized; the seed must too.
         if let devCookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"],
-           let host = URL(string: serverURL)?.host,
+           let host = URL(string: normalizedServerURL)?.host,
            let cookie = HTTPCookie(properties: [
                .name: "tunnel_session", .value: devCookie, .domain: host,
                .path: "/", .secure: "TRUE"
@@ -189,6 +194,9 @@ final class AppModel: ObservableObject {
             // screen — that made a momentary network glitch look like a lost
             // session and hid the real error.
             let isJSON = (http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("json")
+#if DEBUG
+            HopSceneDelegate.mark("refresh status=\(http.statusCode) json=\(isJSON) hadCookie=\(hadSessionCookie)")
+#endif
             if http.statusCode == 401 || http.statusCode == 403 || (!isJSON && http.statusCode == 200) {
                 // Distinguish "expired" from "never signed in" by whether we
                 // actually presented a cookie, and drop the dead one so it

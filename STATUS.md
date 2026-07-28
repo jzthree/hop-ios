@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The wipeout: one latent line, and a half-learned lesson (iteration 172, addendum)
+
+The 172 ship went out on a RED UI suite — 33 failures, every test — and
+the pipeline committed and deployed build 210 anyway, because the chain
+ECHOED the exit code without GATING on it. That is the 159 lesson
+half-learned: narrating a failure is not stopping on one. The ship
+chain now dies on red (and the trap table says so).
+
+The wipeout itself was not the Spotlight change the timing implicated.
+Root cause, found by the file-marker instrument in three cycles
+(refresh status=200 json=false hadCookie=false → seed host=NIL): the
+DEBUG cookie seeding parsed the RAW stored serverURL, and this sim
+container held a schemeless "hop.zhoulab.io" — URL(string:).host is
+nil for that, the seed silently no-ops, every launch bounces to login,
+every test times out. Requests never noticed because they use
+normalizedServerURL; the seed now does too, eliminating the class. How
+the schemeless value got INTO the container is honestly unknown (a
+stray probe keystroke into the login's server field is the leading
+suspect); it no longer matters, because the seed no longer cares.
+
+After the one-line fix: 17/17 UI in normal time, unit green, gated.
+
 ## Health re-swept; the debt was mine and is paid (iteration 172)
 
 Loop iteration on verification, since a lot of code landed after the
