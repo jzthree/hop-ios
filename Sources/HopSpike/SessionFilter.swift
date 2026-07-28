@@ -172,6 +172,19 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// One utterance per session, shared by row and tile. VoiceOver walking a
+/// tile's twenty rendered terminal lines element-by-element is noise, not
+/// access — the summary is the session, not its pixels.
+func sessionSpokenSummary(_ session: HopSession) -> String {
+    var parts = [session.name]
+    if session.attention { parts.append("wants attention") }
+    parts.append(session.live ? "running" : "stopped")
+    if !session.runningApp.isEmpty { parts.append(session.runningApp) }
+    if !session.tagline.isEmpty { parts.append(session.tagline) }
+    parts.append("active \(session.relativeTime) ago")
+    return parts.joined(separator: ", ")
+}
+
 /// The query, lit inside its snippet: every case-insensitive occurrence
 /// brightened and bolded. The server already FOUND the text — the eye
 /// shouldn't have to find it again inside the snippet.

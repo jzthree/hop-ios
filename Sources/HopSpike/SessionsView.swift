@@ -125,6 +125,10 @@ struct SessionsView: View {
             Button(role: .destructive) { killTarget = session } label: {
                 Label("Kill", systemImage: "xmark.circle")
             }
+        } preview: {
+            // The same long-press peek the tiles have — the two modes differ
+            // in layout, not in capability.
+            TilePeek(session: session, screen: model.screens[session.internalName])
         }
         // On the ROW, not inside it: listRowBackground only takes effect on the
         // element the List owns. A wash the width of the row is what makes the
@@ -823,14 +827,7 @@ struct SessionRow: View {
     }
 
     /// Internal rather than private so the test can hold it to what a row
-    /// should actually say.
-    var spokenSummary: String {
-        var parts = [session.name]
-        if session.attention { parts.append("wants attention") }
-        parts.append(session.live ? "running" : "stopped")
-        if !session.runningApp.isEmpty { parts.append(session.runningApp) }
-        if !session.tagline.isEmpty { parts.append(session.tagline) }
-        parts.append("active \(session.relativeTime) ago")
-        return parts.joined(separator: ", ")
-    }
+    /// should actually say. Shared with the tiles via sessionSpokenSummary —
+    /// the two switcher modes must SOUND the same, whatever they look like.
+    var spokenSummary: String { sessionSpokenSummary(session) }
 }

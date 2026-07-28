@@ -43,6 +43,11 @@ struct SessionTile: View {
         .shadow(color: session.attention ? Color.hopAttention.opacity(0.30) : .black.opacity(0.5),
                 radius: session.attention ? 10 : 7, y: 4)
         .contentShape(RoundedRectangle(cornerRadius: 14))
+        // One utterance, same words as the list row. Without this VoiceOver
+        // walks every rendered terminal line in the thumbnail.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(sessionSpokenSummary(session))
+        .accessibilityHint("Opens the terminal")
     }
 
     private var hairline: some View {
@@ -165,11 +170,15 @@ struct SonarPulse: ViewModifier {
     let active: Bool
     let color: Color
     @State private var expand = false
+    /// Reduce Motion means the ring never rings — the dot's glow already
+    /// says "live", and an endlessly expanding circle is exactly the motion
+    /// the setting asks to be spared.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .background {
-                if active {
+                if active, !reduceMotion {
                     Circle()
                         .stroke(color.opacity(expand ? 0 : 0.7), lineWidth: 1.5)
                         .scaleEffect(expand ? 3.2 : 1)

@@ -236,6 +236,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The two modes sound the same (iteration 163)
+
+Loop iteration: the accessibility-and-parity debts the new surfaces had
+quietly accrued.
+
+- **Tiles speak one utterance.** VoiceOver was walking every rendered
+  terminal line inside a thumbnail — noise, not access. Tiles now speak
+  the same summary the rows always have (sessionSpokenSummary, shared,
+  so the two modes cannot drift apart in what they SAY even as they
+  differ in what they show).
+- **The sonar respects Reduce Motion.** An endlessly expanding ring is
+  exactly the motion the setting asks to be spared; the dot's glow
+  already says "live".
+- **Rows got the peek.** The long-press preview was tile-only; the two
+  modes differ in layout, not capability, so the list's context menu now
+  rises with the same full-colour screen.
+
+Suites: green by exit code, both.
+
 ## Find joins the material — and the pill learns to yield (iteration 162)
 
 Loop iteration. The find bar was the terminal's last stock strip: flat
