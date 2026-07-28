@@ -30,14 +30,17 @@ result. Candidate fixes, in order of promise:
   the holder lapses. Probe-verified end to end: chip under a live hold,
   no tap, healed and cleared once the hold ended. Backgrounded phones
   run no retries, so nothing steals from a pocket.
-- The underfill case (grid rows ≪ fitted): consider centering or
-  opportunistic claim even when cols fit.
+- [CLOSED by tracing 2026-07-28] Underfill: a smaller-than-fitted grid
+  still reaches the adopt→chip→retry path via the refusal rebroadcast
+  (snapshot re-fits to ours first, so the rebroadcast always mismatches
+  the drawn grid). No separate machinery needed.
 
 ## 2. Full-bleed polish on device
 Jian to judge rows-under-status-text clearance (40pt) on hardware;
 adjust if the top row kisses the clock on the real island.
 
-## 3. Peek/tip placement sanity under the new top geometry
-PeekTip popover position after full-bleed; arrowEdge choices.
+## 3. [VERIFIED FINE 2026-07-28] Peek/tip placement under new geometry
+Probe-shot: PeekTip anchors below the first tile, arrow up, no island
+collision. No change needed.
 
 ## 4. (space intentionally left for Jian's next reports)

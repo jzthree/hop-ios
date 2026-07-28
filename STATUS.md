@@ -236,6 +236,17 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## A verification round (iteration 182)
+
+Loop round three, deliberately light: PLAN's remaining items were a
+trace and a look, not builds. The underfill sub-case closes by tracing
+— a smaller-than-fitted grid still reaches the adopt→chip→retry path,
+because the snapshot re-fits to our size first and the refusal
+rebroadcast therefore always mismatches the drawn grid. The PeekTip
+placement closes by probe: it anchors below the first tile, arrow up,
+clear of the island. No binary change; build 221 stands. Next on PLAN:
+Jian's on-device verdicts.
+
 ## The wake path heals itself (iteration 181)
 
 Loop round two on PLAN.md item 1. The persistent case of Jian's
