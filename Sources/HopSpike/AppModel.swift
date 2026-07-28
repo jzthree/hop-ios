@@ -450,13 +450,13 @@ final class AppModel: ObservableObject {
         // screen contents back into the store.
         let epoch = authEpoch
         await withTaskGroup(of: (String, String?).self) { group in
-            // Twelve, not eight: tile mode's grid keeps more cells alive than
-            // the list did (LazyVGrid renders ahead of the viewport), and a
-            // budget below the live-cell count starves the SAME tiles every
-            // tick — measured as a wall where some sessions showed "…"
-            // forever. The caller also sweeps its off-screen tail so the
-            // remainder of the fleet takes turns with what's left.
-            for name in names.prefix(12) {
+            // Sixteen, and the caller CAPS the visible head's share of it:
+            // every budget below the wall's live-cell count has produced the
+            // same starvation twice (marker logs showed a ~16-cell head
+            // eating all twelve slots, so off-screen names never fetched).
+            // The daemon renders a preview in ~1ms, so sixteen is cheap and
+            // warms a 21-session fleet in two or three polls.
+            for name in names.prefix(16) {
                 group.addTask { [weak self] in
                     guard let self else { return (name, nil) }
                     return (name, await self.fetchPreview(name))

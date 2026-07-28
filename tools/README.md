@@ -42,3 +42,4 @@ sends REAL input — use scratch sessions.
 | `simctl openurl` exits 0 and silently drops custom-scheme URLs | cold fire doesn't even launch the app; reinstall doesn't fix it | verify on DEVICE: `devicectl device process launch --payload-url` — even a locked phone routes it, and a WS attach is the daemon-side observable |
 | `simctl spawn log` shows nothing for os.Logger lines that provably ran | logd predicates in the sim lie | instrument with a marker FILE in the app container and read it via get_app_container |
 | echoing `$?` is not GATING on it | iteration 172 echoed "ui exit: 2" and the chain committed + deployed anyway | `EXIT=$?; [ $EXIT -ne 0 ] && stop` — the ship chain must die on red, not narrate it |
+| a diagnostic marker sliced prefix(12) while the code fetched prefix(16) | the instrument reported zero coverage for names the code was actually fetching | a marker must log the SAME expression the code executes, never a copy of it |

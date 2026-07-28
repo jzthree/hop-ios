@@ -236,6 +236,34 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The starvation's third face (iteration 176)
+
+Jian, from the device (and: the loop is stopped, at his word): some
+sessions still showed "…" in the preview. Third face of the same bug,
+found by marker logs of the actual fetch batches:
+
+- Face one (iteration 149): a fixed prefix in a never-changing order.
+- Face two (161's shots, misread then): the off-screen sweep can't help
+  names that never leave the "visible" set.
+- Face three, the real mechanism: the visible-first HEAD alone can
+  exceed the whole budget — the grid keeps ~16 cells alive against a
+  budget of 12 — so the off-screen segment got ZERO slots, forever.
+  Rotating inside the head (this session's first fix) shuffled who
+  starved without feeding the tail.
+
+The durable fix has two parts: the head's share of the budget is CAPPED
+(12 of 16), so the tail is guaranteed slots every poll; and the budget
+rose to 16 — the daemon renders a preview in ~1ms (measured), so the
+whole 21-session fleet warms in two or three polls. Verified twice
+over: marker logs show every session name in every batch, and the
+deep-scroll probe screenshot shows the exact tiles that starved
+(Altair, Accessibility) rendering their screens.
+
+One instrument lesson en route, now in the traps table: the diagnostic
+marker sliced prefix(12) while the code fetched prefix(16), reporting
+zero coverage for names being fetched fine. A marker must log the same
+expression the code executes — never a copy of it.
+
 ## The double-scroll, latched out (iteration 175)
 
 Jian, from the device: scrolling a claude session sometimes scrolled

@@ -178,17 +178,31 @@ struct SessionsView: View {
     /// daemon, pointed where the eyes are.
     private var previewCandidates: [String] {
         let rendered = sections.flatMap(\.rows).filter(\.live).map(\.internalName)
-        let onScreen = rendered.filter { visibleRows.contains($0) }
+        var onScreen = rendered.filter { visibleRows.contains($0) }
         var off = rendered.filter { !visibleRows.contains($0) }
-        // Rotate the off-screen tail a little each poll: the budget only
-        // reaches a couple past the viewport, and without the sweep it was
-        // the SAME couple every tick — the rest of the fleet stayed "…"
-        // until scrolled to.
+        // Rotate BOTH segments each poll. The tail sweep alone wasn't
+        // enough: LazyVGrid keeps more cells alive than the fetch budget
+        // covers, so the "visible" head could exceed the budget by itself —
+        // and prefix() then starved the SAME overflow tiles every tick,
+        // which is exactly "some sessions just show …" (Jian, on device;
+        // also visible in the iteration-161 probe shots, misread then as
+        // the sweep not having arrived yet). Round-robin inside each
+        // segment keeps visible-first priority while guaranteeing every
+        // tile takes a turn.
+        if onScreen.count > 1 {
+            let shift = previewSweep % onScreen.count
+            onScreen = Array(onScreen[shift...]) + Array(onScreen[..<shift])
+        }
         if off.count > 1 {
             let shift = previewSweep % off.count
             off = Array(off[shift...]) + Array(off[..<shift])
         }
-        return onScreen + off
+        // The head must never eat the whole budget: the marker logs showed
+        // ~16 "visible" cells consuming every slot, so off-screen names
+        // NEVER fetched — the third face of the same starvation bug. Cap
+        // the head's share; the tail is guaranteed the rest.
+        let headCap = 12
+        return Array(onScreen.prefix(headCap)) + off + Array(onScreen.dropFirst(headCap))
     }
 
     private var listView: some View {
