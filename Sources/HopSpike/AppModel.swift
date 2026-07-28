@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 import os
 
 // One shared model: server URL, auth state, cookie-carrying URLSession used by
@@ -248,6 +249,7 @@ final class AppModel: ObservableObject {
 #endif
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
+            publishFleetSnapshot()
             authenticated = true
             // A refresh that worked is proof the last failure is over. Without
             // this, one tunnel blip pinned a red banner to the top of the list
@@ -328,6 +330,28 @@ final class AppModel: ObservableObject {
     func setAgentAccess(_ s: HopSession, allowed: Bool) async -> Bool {
         await post("api/sessions/agent-permission", ["internalName": s.internalName, "allowed": allowed])
     }
+    /// The widget's copy of the fleet. Reload only when the glanceable facts
+    /// changed — WidgetKit budgets timeline reloads, and burning the budget
+    /// on every 2-second poll would leave none for the changes that matter.
+    private var lastSnapshotRows: [FleetSnapshot.Row] = []
+    private func publishFleetSnapshot() {
+        let browsable = sessions.filter { !$0.isPort && !$0.parked }
+        let rows = browsable.prefix(4).map {
+            FleetSnapshot.Row(name: $0.name, attention: $0.attention,
+                              live: $0.live,
+                              tagline: $0.tagline.isEmpty ? $0.shortCwd : $0.tagline)
+        }
+        let snap = FleetSnapshot(updatedAt: Date(),
+                                 wanting: browsable.filter(\.attention).count,
+                                 total: browsable.count,
+                                 rows: Array(rows))
+        snap.save()
+        if rows != lastSnapshotRows {
+            lastSnapshotRows = Array(rows)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
     /// Parking is "not part of my working set right now", not "gone" — the
     /// session keeps running, it just leaves the browse list (and stays
     /// searchable). The refresh makes the change visible immediately instead

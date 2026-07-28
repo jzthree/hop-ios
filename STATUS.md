@@ -236,6 +236,32 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The widget: written, sim-verified, parked at the signing gate (iteration 160)
+
+Loop iteration. The Home Screen widget — the purest native advantage
+left — is fully built: FleetSnapshot (Sources/Shared, compiled into both
+targets so the wire format can't fork), a small widget (the attention
+count, or "all quiet"), a medium one (four rows: dot, name, tagline),
+and an app-side publisher that saves on every refresh but reloads
+timelines only when the glanceable facts change, because WidgetKit
+budgets reloads.
+
+It stops at provisioning, precisely: xcodebuild has NO signed-in account
+("No Accounts"), and the ASC API key is rejected outright
+("Authentication failed: bearer token") — so neither path can register
+the App Group or mint the widget profile. That key failing at AUTH, not
+at role, is new information for the TestFlight column too: the key may
+be revoked or the issuer stale, not merely under-privileged.
+
+Everything is parked in place: project.yml carries the commented target
+with unlock instructions (sign into Xcode OR fix the key, uncomment
+three blocks, make install). The app builds, installs and passes both
+suites with the widget parked; the publisher is inert without the app
+group and costs nothing.
+
+Jian's unlock, verbatim: Xcode → Settings → Accounts → sign in the team
+(5AD7QB9795) account — that alone un-parks the widget.
+
 ## Correction, and two new traps (iteration 159, addendum)
 
 The 159 gate printed TEST FAILED and the ship pipeline sailed past it:
