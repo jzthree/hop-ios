@@ -720,6 +720,24 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testNeighborSessionWrapsAndRefusesToGuess() {
+        func s(_ name: String, live: Bool = true) -> HopSession {
+            HopSession(json: ["internalName": name, "name": name,
+                              "live": live, "type": "terminal"], seenBellSeq: [:])!
+        }
+        let fleet = [s("a"), s("b"), s("c")]
+        XCTAssertEqual(neighborSession(fleet, of: "a", step: 1)?.internalName, "b")
+        XCTAssertEqual(neighborSession(fleet, of: "c", step: 1)?.internalName, "a", "wraps forward")
+        XCTAssertEqual(neighborSession(fleet, of: "a", step: -1)?.internalName, "c", "wraps back")
+        // Nowhere to go: lone session, or a current that already left the
+        // fleet — a stale swipe must not jump somewhere random.
+        XCTAssertNil(neighborSession([s("a")], of: "a", step: 1))
+        XCTAssertNil(neighborSession(fleet, of: "ghost", step: 1))
+        // Dead sessions are not stops on the ring.
+        XCTAssertEqual(neighborSession([s("a"), s("dead", live: false), s("c")],
+                                       of: "a", step: 1)?.internalName, "c")
+    }
+
     func testMeaningfulTailIndicesAgreeWithTheStringVersion() {
         // The indices are the contract between the plain screen and its
         // colour report: mapping them back must reproduce meaningfulTail.

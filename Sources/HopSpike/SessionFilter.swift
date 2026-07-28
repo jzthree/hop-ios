@@ -172,3 +172,16 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// The pill-swipe ring: the neighbouring live session in switcher order,
+/// wrapping at the ends — Safari's address-bar swipe, for terminals. Nil
+/// when there is nowhere to go (lone session, or the current one has
+/// already left the fleet — a stale swipe must not jump somewhere random).
+func neighborSession(_ sessions: [HopSession], of current: String,
+                     step: Int) -> HopSession? {
+    let ring = sessions.filter { $0.live && !$0.isPort && !$0.parked }
+    guard ring.count > 1,
+          let idx = ring.firstIndex(where: { $0.internalName == current }) else { return nil }
+    let n = ring.count
+    return ring[((idx + step) % n + n) % n]
+}
+

@@ -349,6 +349,17 @@ struct TerminalHostView: View {
         // consume the only gesture that hides it. Controls still win; this
         // catches taps on the bar's empty background.
         .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { chromeShown = false } }
+        // Safari's address-bar swipe, for terminals: drag the pill sideways
+        // to step through the fleet in switcher order. Horizontal-dominant
+        // and 50pt of travel, so bar taps and menu touches never misfire.
+        .gesture(DragGesture(minimumDistance: 25).onEnded { v in
+            let dx = v.translation.width
+            guard abs(dx) > 50, abs(dx) > abs(v.translation.height) * 2,
+                  let next = neighborSession(model.sessions,
+                                             of: session.internalName,
+                                             step: dx < 0 ? 1 : -1) else { return }
+            model.requestedSession = next.internalName
+        })
         .padding(.horizontal, 5)
         .padding(.top, 1)
     }

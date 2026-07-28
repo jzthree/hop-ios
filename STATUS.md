@@ -236,6 +236,25 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Swipe the pill, change the terminal (iteration 154)
+
+Loop iteration. Safari's address-bar swipe, for terminals: drag the
+chrome pill sideways and the terminal becomes the next (or previous)
+live session in switcher order, wrapping at the ends. The gesture is
+horizontal-dominant with 50pt of travel, so bar taps and menu touches
+never misfire; the switch rides the existing requestedSession path (the
+same in-place swap the title menu does), and every navigation change now
+answers with a selection tick — without it, the swipe's only feedback
+was a repainted screen.
+
+neighborSession() is a pure ring-stepper with the edges tested: wraps
+both directions, skips dead sessions, and returns nil rather than guess
+when the fleet has one session or the current one already left it — a
+stale swipe must not jump somewhere random.
+
+Probe: launched into Orion, one leftward drag on the pill, landed in
+Solstice with the key bar intact. Suites: 67 unit, 17 UI, green.
+
 ## The key bar joins the material system (iteration 153)
 
 Loop iteration. The bar under your thumbs was the last stock-looking

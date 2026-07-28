@@ -433,8 +433,11 @@ struct SessionsView: View {
                 }
                 // A physical tick when the scope changes — the dropdown is in
                 // the toolbar now, and the haptic closes the loop the moment
-                // the wall re-filters.
+                // the wall re-filters. And on every navigation change: opening
+                // a session, leaving one, and above all the pill-swipe switch,
+                // whose whole feedback would otherwise be a repainted screen.
                 .sensoryFeedback(.selection, trigger: scope)
+                .sensoryFeedback(.selection, trigger: path)
                 .refreshable { await model.refreshSessions() }
                 .alert("Get told when a session wants you?", isPresented: $offerNotifications) {
                     Button("Turn on") { Task { await notifier.setEnabled(true) } }
