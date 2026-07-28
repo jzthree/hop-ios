@@ -43,3 +43,17 @@ sends REAL input — use scratch sessions.
 | `simctl spawn log` shows nothing for os.Logger lines that provably ran | logd predicates in the sim lie | instrument with a marker FILE in the app container and read it via get_app_container |
 | echoing `$?` is not GATING on it | iteration 172 echoed "ui exit: 2" and the chain committed + deployed anyway | `EXIT=$?; [ $EXIT -ne 0 ] && stop` — the ship chain must die on red, not narrate it |
 | a diagnostic marker sliced prefix(12) while the code fetched prefix(16) | the instrument reported zero coverage for names the code was actually fetching | a marker must log the SAME expression the code executes, never a copy of it |
+
+
+## The history-anchor probe (rerun recipe)
+
+The anchor (scrolled-up view holding position under streaming output) needs a
+TICKING fixture, so its probe is a temp test, not a permanent one:
+
+1. `curl -X POST …/api/sessions {"name":"scratch-anchor"}` then
+   `node tools/probe.mjs scratch-anchor type 'for i in $(seq 1 2000); do echo tick $i $(date +%T); sleep 1; done\n'`
+2. Temp test: open scratch-anchor, three drags into history, screenshot,
+   sleep 12, screenshot, assert the Live pill still exists; Bash pixel-diffs
+   the two shots' text region (identical = anchored).
+3. Kill the scratch. Two regressions this catches: the feed pin yanking the
+   reader to live, and hasHistory misreporting (the Live pill dying).

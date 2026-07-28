@@ -866,8 +866,17 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.feed(text: data)
                     // After the feed's display pass: SwiftTerm re-pins the
                     // offset on output, which would undo a pan while the desk
-                    // is typing.
-                    DispatchQueue.main.async { [weak tv] in tv?.reapplyPan() }
+                    // is typing — and yank a scrolled-up reader back to the
+                    // live edge in any session that prints steadily.
+                    DispatchQueue.main.async { [weak tv, weak self] in
+                        tv?.reapplyPan()
+                        // The pin fired onScroll(false) through scrolled();
+                        // the restore doesn't reliably fire it back. Say the
+                        // true thing ourselves or the Live pill dies the
+                        // first second a ticking session is read from
+                        // history.
+                        if tv?.restoreHistoryAnchor() == true { self?.onScroll(true) }
+                    }
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
@@ -881,6 +890,7 @@ struct TerminalScreen: UIViewRepresentable {
                     // ("35;197;31M") at a prompt that never asked for them.
                     // This path runs on EVERY return from background.
                     tv.getTerminal().resetToInitialState()
+                    tv.sawScrollback = false     // a reset terminal has none
                     // Back to the size this screen actually fits. The fast
                     // paint deliberately resizes the grid to the session's real
                     // size so the pre-snapshot screen isn't wrapped into mush,
@@ -1232,8 +1242,12 @@ struct TerminalScreen: UIViewRepresentable {
 
         @objc func jumpToLive() {
             guard let tv = view else { return }
+            // A user scroll like any other — the flag lets scrolled() clear
+            // the anchor, or the next feed would drag us back into history.
+            tv.userScrollInFlight = true
             // Scroll past the end; SwiftTerm clamps to the live edge.
             tv.scrollTo(row: Int.max / 2)
+            tv.historyAnchor = nil          // belt for the clamp's braces
             onScroll(false)
         }
 
@@ -1433,8 +1447,18 @@ struct TerminalScreen: UIViewRepresentable {
             // "Live" button sit there permanently on a fresh TUI session —
             // offering to return you to a place you had never left.
             let t = source.getTerminal()
-            let hasHistory = t.getLine(row: t.rows) != nil
-            onScroll(hasHistory && position < 0.999)
+            let hv = source as? HopTermView
+            if t.buffer.yDisp > 0 { hv?.sawScrollback = true }
+            let hasHistory = t.buffer.yDisp > 0 || hv?.sawScrollback == true
+            let inHistory = hasHistory && position < 0.999
+            onScroll(inHistory)
+            // Only USER scrolls may move the anchor. SwiftTerm's live-edge
+            // pin arrives through this same callback, and letting it write
+            // cleared the anchor the moment any output landed.
+            if let hv = source as? HopTermView, hv.userScrollInFlight {
+                hv.userScrollInFlight = false
+                hv.historyAnchor = inHistory ? t.buffer.yDisp : nil
+            }
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             // OSC 8 hyperlinks come from session output, which for an agent
@@ -1746,7 +1770,10 @@ final class HopTermView: TerminalView {
             guard rows != 0 else { return }
             scrollDebt -= CGFloat(rows) * cell
             let target = max(0, terminal.buffer.yDisp - rows)
-            if target != terminal.buffer.yDisp { scrollTo(row: target) }
+            if target != terminal.buffer.yDisp {
+                userScrollInFlight = true
+                scrollTo(row: target)
+            }
         }
     }
 
@@ -1754,6 +1781,41 @@ final class HopTermView: TerminalView {
     /// says — see drawnCellHeight. Pushed in from SwiftTerm's sizeChanged.
     var drawnRows = 0
     var drawnCols = 0
+
+    /// The user's place in HISTORY, held against the stream. SwiftTerm pins
+    /// the viewport to the live edge on every feed — fine when reading live,
+    /// hostile when scrolled up in a session that prints every second
+    /// (music's training loop yanked the view back within a line of any
+    /// scroll; Jian's "scrolling bug still exists for some sessions").
+    /// Maintained by the scrolled() delegate: set while in history, nil at
+    /// the live edge — so Jump to Live, find, drags and momentum all keep it
+    /// honest without special cases.
+    var historyAnchor: Int?
+    /// Whether this terminal has EVER had scrollback — latched from observed
+    /// yDisp motion. The old probe (getLine one row past the viewport)
+    /// returns nil in current SwiftTerm regardless of scrollback, which
+    /// killed the Live pill for every plain session and let the drag test
+    /// skip forever ("no scrollback") while masking it. yDisp > 0 is truth
+    /// the API can't misreport; the latch covers the top-of-history moment
+    /// where yDisp legitimately returns to 0.
+    var sawScrollback = false
+    /// True for the beat between a USER-initiated scroll and its scrolled()
+    /// callback. SwiftTerm's own live-edge pin fires the same callback, and
+    /// without this flag the pin CLEARED the anchor before the post-feed
+    /// restore could use it — the fix defeating itself, probe-caught.
+    var userScrollInFlight = false
+
+    /// Put the viewport back where the reader left it, after a feed's
+    /// display pass re-pinned it. Returns whether an anchor is HELD, so the
+    /// caller can keep the Live pill honest — scrollTo does not reliably
+    /// fire the scrolled() delegate (jumpToLive's manual onScroll(false)
+    /// was already compensating for the same gap).
+    @discardableResult
+    func restoreHistoryAnchor() -> Bool {
+        guard let anchor = historyAnchor else { return false }
+        if getTerminal().buffer.yDisp != anchor { scrollTo(row: anchor) }
+        return true
+    }
 
     /// A peer owns the PTY size and the grid is bigger than this view can
     /// draw. In this state a drag PANS over the full grid, 1:1 with the
@@ -1938,6 +2000,7 @@ final class HopTermView: TerminalView {
         guard let row = findMatchRow(from: start, direction: direction, needle: needle, line: { r in
             t.getLine(row: r)?.translateToString(trimRight: true)
         }) else { return nil }
+        userScrollInFlight = true
         scrollTo(row: max(0, row - t.rows / 2))
         return row
     }

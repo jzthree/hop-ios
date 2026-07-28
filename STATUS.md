@@ -236,6 +236,44 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The reader's anchor (iteration 177)
+
+Jian: "scrolling bug still exists for some sessions, for example
+music." Music is a training loop — plain shell, steady output, local
+scrollback — a different mechanism from the claude double-scroll:
+
+**Bug 1, the snap-back:** nothing preserved scrollback position across
+feeds (reapplyPan guards peer grids only), so every printed line yanked
+a scrolled-up reader to the live edge. Fix: a HISTORY ANCHOR — set by
+user scrolls, held through the coast, restored after every feed's
+display pass, cleared at the live edge. A first version died to
+friendly fire (SwiftTerm's own pin fires the same scrolled() callback
+and cleared the anchor); a userScrollInFlight flag now separates user
+scrolls from the terminal's pin.
+
+**Bug 2, found under bug 1:** the Live pill has been structurally DEAD
+for plain sessions — hasHistory probed getLine one row past the
+viewport, which current SwiftTerm answers nil regardless of scrollback.
+The drag test has skipped on "no scrollback" in every suite run,
+masking it. Fix: latch scrollback existence from observed yDisp motion
+(truth the API can't misreport), reset on terminal reset.
+
+Verified against a live 1/s ticker fixture: three drags into history,
+twelve seconds of output, pixel-identical text region (the anchor), and
+the Live pill present throughout. Recipe in tools/README.
+
+**Ship exception, documented:** the full UI suite is red on two tests —
+both failing ONLY because their fixture sessions (Orion, Titan) have
+VANISHED from the daemon (curl-verified; a freshly created Orion
+evaporated in seconds). That is a hop2-side incident, not this repo's
+regression; the affected paths are covered by the dedicated probe and
+unit suite. Also on the incident's casualty list: a rename probe of
+mine landed while "Titan" was unexpectedly free, so the session
+internally named Solstice currently DISPLAYS as "Titan" — and the
+daemon refuses the revert (its collision check matches the session's
+own internalName). Needs a daemon-side untangle; no further fleet
+mutations from here.
+
 ## The starvation's third face (iteration 176)
 
 Jian, from the device (and: the loop is stopped, at his word): some
