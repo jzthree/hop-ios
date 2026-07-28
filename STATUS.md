@@ -236,6 +236,42 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The top of the screen, claimed — and one back story (iteration 178)
+
+Jian, three at once: the terminal wasn't using the top of the screen;
+the switcher's top was a small text over blank space; and the big back
+button + a menu below it still read as two ways out.
+
+**Terminal, full-bleed.** The grid extends under the status bar now —
+rows start 40pt from the display top (26 ran row zero through the
+clock, probe-caught), reclaiming the ~59pt band the safe area reserved.
+Everything floating re-anchored below the status text: the chrome pill,
+the find bar (material runs to the display edge, content below the
+clock), the toast. The chrome-summon strip grew by the same inset — at
+a fixed 46pt it sat almost entirely inside the status area and the
+summon tap fell through to the keyboard (probe-caught).
+
+**Switcher: the summary IS the title.** "hop" as a title said nothing
+while a row below said the useful thing over blank space. The fleet
+summary sits in the toolbar principal slot now (tappable when a session
+wants you, same contract), the summary row is gone, and tiles start
+immediately under the toolbar.
+
+**One back story.** The pill's chevron is gone; the edge swipe is the
+way back and the title menu regains "All sessions…" as the explicit
+exit. This inverts iteration 150's choice — Jian flagged the pair
+twice, and the second flag decides it. The pill-swipe TipKit hint died
+in the same stroke: its popover ballooned over the island once the pill
+moved under the status bar.
+
+**The suite is fully green for the first time — 17/17, zero skips.**
+The fleet churned again mid-work (Orion and Titan vanished daemon-side;
+sessions renamed under us), so every fixture reference collapsed to ONE
+constant (Self.fixture, env-overridable, currently "Meridian") per the
+coupling convention. The perpetual "1 skipped" died too: the drag test
+finally runs, because the hasHistory fix and a live fixture arrived
+together.
+
 ## The reader's anchor (iteration 177)
 
 Jian: "scrolling bug still exists for some sessions, for example

@@ -6,6 +6,18 @@ import os
 // Native terminal host: SwiftTerm view + a key accessory bar above the iOS
 // keyboard (Esc / Tab / sticky-Ctrl / arrows / paste — the keys the soft
 // keyboard lacks), connection-state chrome, and haptic bells.
+/// The window's top safe inset, read from UIKit — the same reach the
+/// keyboard-frame handler already uses. Needed because the terminal now
+/// extends UNDER the status bar (Jian: "the top part of the screen in the
+/// terminal mode was not used"), and the floating chrome must not follow it
+/// up beneath the clock.
+@MainActor
+func windowTopInset() -> CGFloat {
+    UIApplication.shared.connectedScenes
+        .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }
+        .first ?? 59
+}
+
 struct TerminalHostView: View {
     @EnvironmentObject var model: AppModel
     let session: HopSession
@@ -130,6 +142,11 @@ struct TerminalHostView: View {
     var body: some View {
         screen
             .padding(.horizontal, 2)
+            // Rows begin just under the status text (probe-caught at 26:
+            // row zero ran straight through the clock). ~19pt reclaimed over
+            // the old safe-area start, and the band above reads as the
+            // terminal's own surface instead of dead space.
+            .padding(.top, 40)
             .padding(.bottom, accessoryInset)
             // Deliberately NOT ignoring the bottom safe area. Doing so let the
             // terminal run under the home indicator with the keyboard down, and
@@ -201,7 +218,7 @@ struct TerminalHostView: View {
                         .font(.footnote)
                         .padding(.horizontal, 12).padding(.vertical, 7)
                         .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.top, 6)
+                        .padding(.top, windowTopInset() + 6)
                         .task { try? await Task.sleep(for: .seconds(2)); self.toast = nil }
                 }
             }
@@ -265,6 +282,7 @@ struct TerminalHostView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)
+                    .padding(.top, windowTopInset())
                     .background(.ultraThinMaterial)
                     .overlay(alignment: .bottom) {
                         Color.white.opacity(0.06).frame(height: 0.5)
@@ -342,6 +360,9 @@ struct TerminalHostView: View {
             // sat letterboxed in near-black bands, screenshot-caught.
             .background(lightTheme ? Color(uiColor: TerminalTheme.light.background)
                                    : Color.hopSurface)
+            // The whole band above was reserved and empty. The grid owns it
+            // now; every floating element re-anchors below the status text.
+            .ignoresSafeArea(.container, edges: .top)
     }
 
     // MARK: floating chrome
@@ -352,15 +373,14 @@ struct TerminalHostView: View {
     /// changes the terminal's frame.
     private var chromeBar: some View {
         HStack(spacing: 8) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Back")
+            // No back chevron. Jian flagged the pair twice: a big back
+            // button beside a menu is two ways out standing shoulder to
+            // shoulder. The edge swipe is the way back; the title menu
+            // carries the explicit "All sessions…" for anyone who needs
+            // words. (The swipe-hint tip died here too — its popover
+            // ballooned over the island once the pill moved under the
+            // status bar.)
             titleMenu
-                .popoverTip(PillSwipeTip(), arrowEdge: .top)
             Spacer(minLength: 4)
             actionsMenu
         }
@@ -385,12 +405,10 @@ struct TerminalHostView: View {
                   let next = neighborSession(model.sessions,
                                              of: session.internalName,
                                              step: dx < 0 ? 1 : -1) else { return }
-            // Used it = learned it: the hint never shows again.
-            PillSwipeTip().invalidate(reason: .actionPerformed)
             model.requestedSession = next.internalName
         })
         .padding(.horizontal, 5)
-        .padding(.top, 1)
+        .padding(.top, windowTopInset() + 1)
     }
 
     private var titleMenu: some View {
@@ -405,10 +423,13 @@ struct TerminalHostView: View {
                               systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
                     }
                 }
-                // No "All sessions…" row here anymore: the chrome bar's back
-                // chevron sits directly beside this menu, and two adjacent
-                // ways back read as unfinished work (Jian said exactly that).
-                // The chevron is the way out; this menu only switches.
+                // The one explicit way out, now that the pill carries no
+                // chevron: the menu caps at twelve and the fleet runs
+                // twenty, so this also rescues "the session I want isn't
+                // listed".
+                Button { dismiss() } label: {
+                    Label("All sessions…", systemImage: "square.grid.2x2")
+                }
             }
         } label: {
             HStack(spacing: 7) {
@@ -1588,8 +1609,11 @@ final class HopTermView: TerminalView {
     var onChromeTap: (() -> Void)?
     private weak var chromeTap: UITapGestureRecognizer?
     /// Big enough for a thumb, small enough not to steal taps meant for the
-    /// first line of output.
-    static let chromeStrip: CGFloat = 46
+    /// first line of output. The grid extends under the status bar now, so
+    /// the strip must too — a fixed 46 left the tappable band almost
+    /// entirely inside the status area (probe-caught: the summon tap fell
+    /// through to the keyboard).
+    static var chromeStrip: CGFloat { windowTopInset() + 46 }
 
     @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
 

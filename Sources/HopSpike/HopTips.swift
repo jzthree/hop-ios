@@ -8,14 +8,6 @@ import TipKit
 // hand-rolled coach-marks layer and a place to persist "seen"; here both are
 // the OS's job.
 
-struct PillSwipeTip: Tip {
-    var title: Text { Text("Swipe to switch") }
-    var message: Text? {
-        Text("Drag the title sideways to step through your sessions without leaving the terminal.")
-    }
-    var image: Image? { Image(systemName: "arrow.left.arrow.right") }
-}
-
 struct PeekTip: Tip {
     var title: Text { Text("Hold for a peek") }
     var message: Text? {

@@ -247,44 +247,11 @@ struct SessionsView: View {
                 }
             }
             Section {
-                // The scope control lived here as a full-width row (stock
-                // segmented, then chips). Jian: it "does not need to occupy
-                // that much space" — it's a dropdown in the toolbar now, and
-                // this section keeps only the fleet summary.
-                //
-                // The summary: with nineteen sessions a header said nothing.
-                // The count you actually care about is how many want you —
-                // and when that's zero, saying so is the useful answer.
-                //
-                // TAPPABLE when something wants you. The line can read "1
-                // wants you (1 not shown here)" precisely when scope or
-                // filter hides the ringing session — announcing a bell while
-                // offering no way to reach it. The tap opens the
-                // longest-standing wanting session directly, same navigation
-                // path a notification tap takes.
-                Group {
-                    if wanting > 0 {
-                        Button { openWanting() } label: {
-                            Text(fleetSummary)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(Color.hopAttention)
-                        }
-                        .buttonStyle(.plain)
-                        // A HINT, not a label override. Replacing the label
-                        // erased the summary's actual text from the
-                        // accessibility tree — VoiceOver would say the action
-                        // but never the counts, and the UI test that looks for
-                        // "not shown here" found a button wearing different
-                        // words. The text is the label; the tap is the hint.
-                        .accessibilityHint("Opens the session that wants you")
-                    } else {
-                        Text(fleetSummary)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+                // This section held the scope row, then just the summary.
+                // Both live in the toolbar now (Jian: "the top part just
+                // displays a small text message and still has a lot of blank
+                // space") — nothing left here but the wall itself.
+                EmptyView()
             }
             if switcherTiles {
                 // The wall honours project grouping the same way the list
@@ -399,7 +366,7 @@ struct SessionsView: View {
         // ~20pt on each side — a fifth of the screen and two tile columns'
         // worth of gutter saying nothing. Sessions above the fold, wall to
         // the glass.
-        .contentMargins(.top, 4, for: .scrollContent)
+        .contentMargins(.top, 0, for: .scrollContent)
         .contentMargins(.horizontal, 6, for: .scrollContent)
         .listSectionSpacing(14)
     }
@@ -409,6 +376,26 @@ struct SessionsView: View {
         ToolbarItem(placement: .topBarLeading) {
             Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
                 .accessibilityHidden(true)          // decoration, not a control
+        }
+        // The summary IS the title: "hop" said nothing while a whole row
+        // below said the useful thing over blank space. Tappable when a
+        // session wants you — same contract the old footer row carried.
+        ToolbarItem(placement: .principal) {
+            if wanting > 0 {
+                Button { openWanting() } label: {
+                    Text(fleetSummary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.hopAttention)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the session that wants you")
+            } else {
+                Text(fleetSummary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         // Scope as a dropdown, not a row: You/Agents/All spent a full row of
         // the screen on a choice made once in a while. A Picker inside a Menu

@@ -9,6 +9,11 @@ import XCTest
 // Auth comes from the daemon's own token, forwarded by the Makefile as
 // TEST_RUNNER_HOP_DEV_COOKIE (xcodebuild strips the prefix for the runner).
 final class ScrollUITests: XCTestCase {
+    /// THE fixture session. One constant, per the coupling convention: when
+    /// the fleet churns (it did — Orion and Titan vanished daemon-side on
+    /// 2026-07-28), the fix is this one string, or the HOP_E2E_FIXTURE env.
+    static let fixture = ProcessInfo.processInfo.environment["HOP_E2E_FIXTURE"] ?? "Meridian"
+
     /// Couples to a session that exists in the live fleet. Tried removing that
     /// by tapping the first row instead — XCUITest's element model for a
     /// SwiftUI List didn't cooperate (neither index nor label predicates
@@ -39,7 +44,7 @@ final class ScrollUITests: XCTestCase {
         // regression. Worse, it only ever passed because attaching to a dead
         // name CREATED it — the resurrection bug fixed in #118. A missing
         // session is an environment fact, so skip rather than fail.
-        let app = launchIntoSession("Altair")
+        let app = launchIntoSession(Self.fixture)
         // The key bar only exists inside a session, so it's the signal that
         // navigation landed rather than a guess at timing.
         try XCTSkipUnless(app.buttons["escape"].waitForExistence(timeout: 25),
@@ -75,7 +80,7 @@ final class ScrollUITests: XCTestCase {
     /// load-bearing: ctrl+something is how you interrupt, clear, or search a
     /// terminal. Nothing had ever pressed this key.
     func testCtrlArmsAndDisarms() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         let ctrl = app.buttons["control"]
         XCTAssertTrue(ctrl.waitForExistence(timeout: 25))
         // XCUITest reports a nil accessibilityValue as "", not nil.
@@ -92,7 +97,7 @@ final class ScrollUITests: XCTestCase {
     /// keyboard takes over half the height, so the nav bar gets out of the way
     /// and the terminal keeps its keys.
     func testLandscapeHidesChromeButKeepsTheKeyBar() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         XCTAssertTrue(app.buttons["Terminal actions"].exists, "portrait shows the nav bar")
 
@@ -171,11 +176,11 @@ final class ScrollUITests: XCTestCase {
     /// navigation it would have covered is exercised by quick actions and
     /// notification taps, which reach the same requestedSession path.
     func testSwitchSessionFromTheTitleMenu() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         // Chrome hides itself after a moment; a tap on the top strip is how
         // you get it back.
-        app.staticTexts["Orion"].tap()
+        app.staticTexts[Self.fixture].tap()
         XCTAssertTrue(app.staticTexts["Switch session"].waitForExistence(timeout: 5),
                       "tapping the session name did not open the switcher")
     }
@@ -197,7 +202,7 @@ final class ScrollUITests: XCTestCase {
     /// XCUITest can see — that the session stays usable across it, which the
     /// second teardown was quietly disrupting.
     func testReconnectKeepsTheSessionUsable() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].tap()
         app.buttons["Reconnect"].tap()
@@ -218,9 +223,9 @@ final class ScrollUITests: XCTestCase {
         app.launch()
         // The CELL containing the label, not the label: swipe actions belong
         // to the row, and swiping a text element inside it does nothing.
-        let label = app.staticTexts["Orion"].firstMatch
+        let label = app.staticTexts[Self.fixture].firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 25), "session list never loaded")
-        let row = app.cells.containing(.staticText, identifier: "Orion").element
+        let row = app.cells.containing(.staticText, identifier: Self.fixture).element
         row.swipeRight()
         let reply = app.buttons["Reply"].firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 5), "leading swipe offered no Reply")
@@ -239,7 +244,7 @@ final class ScrollUITests: XCTestCase {
     /// usable. What it actually sends (wheel events) is verified in the log —
     /// `scroll back N via wheel` — since XCUITest cannot see into a terminal.
     func testDragOnAgentSessionKeepsSessionUsable() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         let low = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
@@ -250,7 +255,7 @@ final class ScrollUITests: XCTestCase {
 
     /// Regression cover for the tap that did nothing on a mouse-mode session.
     func testTapRaisesTheKeyboard() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["hide keyboard"].tap()
         XCTAssertFalse(app.keys["a"].waitForExistence(timeout: 3), "keyboard should be down")
@@ -269,11 +274,11 @@ final class ScrollUITests: XCTestCase {
     /// coast reaches the remote app is verified in the log, where wheel events
     /// keep arriving for about a second after the gesture ends.
     func testFlickKeepsSessionUsable() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after a flick")
-        XCTAssertTrue(app.staticTexts["Orion"].exists, "session title gone after a flick")
+        XCTAssertTrue(app.staticTexts[Self.fixture].exists, "session title gone after a flick")
     }
 
     /// The swipe back to the session list must not double as a scroll. Our pan
@@ -281,13 +286,13 @@ final class ScrollUITests: XCTestCase {
     /// way out of a session also flings wheel events at the agent — and with
     /// momentum, keeps flinging them after the screen is gone.
     func testSwipeBackLeavesTheSessionInsteadOfScrolling() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
         edge.press(forDuration: 0.05, thenDragTo: right)
         // Back at the list: the key bar is gone and sessions are listed again.
-        XCTAssertTrue(app.staticTexts["hop"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 10),
                       "swipe from the edge didn't leave the session")
         XCTAssertFalse(app.buttons["escape"].exists, "key bar survived the swipe back")
     }
@@ -297,7 +302,7 @@ final class ScrollUITests: XCTestCase {
     /// without the brake, the tap that stops a coast also raises the keyboard,
     /// which shrinks the screen you were reading.
     func testTapDuringCoastOnlyStopsIt() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["hide keyboard"].tap()
         XCTAssertFalse(app.keys["a"].waitForExistence(timeout: 3), "keyboard should be down")
@@ -323,11 +328,11 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_COOKIE"] = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
         app.launchArguments += ["-hop-ui-testing"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["hop"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25))
         app.buttons["New session"].tap()
         let field = app.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 8))
-        field.typeText("Orion")                      // a name already taken
+        field.typeText(Self.fixture)                      // a name already taken
         app.buttons["Create"].tap()
 
         let refusal = app.staticTexts.containing(
@@ -343,7 +348,7 @@ final class ScrollUITests: XCTestCase {
     /// (#112c). If that assertion is ever wrong the app TRAPS rather than
     /// misbehaving, so this holds the key and checks the app is still there.
     func testHoldToRepeatDoesNotTrap() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         let down = app.buttons["down arrow"].firstMatch
         XCTAssertTrue(down.waitForExistence(timeout: 5), "no down key in the bar")
@@ -386,7 +391,7 @@ final class ScrollUITests: XCTestCase {
     /// sat empty. Asserting on the FIELD's value keeps this away from the
     /// flaky match-toast territory that kept find otherwise untested.
     func testFindFocusesItsFieldNotTheTerminal() throws {
-        let app = launchIntoSession("Orion")
+        let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Find"].waitForExistence(timeout: 5))
