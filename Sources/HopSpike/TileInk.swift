@@ -9,6 +9,9 @@ struct ColorRun {
     let f: String?
     let b: String?
     let o: Bool
+    /// Inverse video — a cursor, a selected menu row, a status bar. The web
+    /// renderer swaps ink and paper for these; so do we.
+    let i: Bool
 }
 
 enum TileInk {
@@ -22,7 +25,8 @@ enum TileInk {
             row.compactMap { run in
                 guard let t = run["t"] as? String else { return nil }
                 return ColorRun(t: t, f: run["f"] as? String, b: run["b"] as? String,
-                                o: (run["o"] as? Int ?? 0) == 1)
+                                o: (run["o"] as? Int ?? 0) == 1,
+                                i: (run["i"] as? Int ?? 0) == 1)
             }
         }
     }
@@ -54,9 +58,16 @@ enum TileInk {
             }
             for run in runs {
                 var piece = AttributedString(run.t)
-                let fg = color(hex: run.f) ?? base
-                piece.foregroundColor = run.o ? fg.opacity(0.55) : fg
-                if let bg = color(hex: run.b) { piece.backgroundColor = bg }
+                if run.i {
+                    // Inverse: ink becomes paper and paper becomes ink, same
+                    // fallbacks the web renderer uses.
+                    piece.foregroundColor = color(hex: run.b) ?? Color.hopSurface
+                    piece.backgroundColor = color(hex: run.f) ?? base
+                } else {
+                    let fg = color(hex: run.f) ?? base
+                    piece.foregroundColor = run.o ? fg.opacity(0.55) : fg
+                    if let bg = color(hex: run.b) { piece.backgroundColor = bg }
+                }
                 out += piece
             }
         }

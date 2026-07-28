@@ -236,6 +236,39 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The peek, the haptics, and the hero that lost to muscle memory (iteration 151)
+
+Loop iteration under the design directive: know the web/terminal designs,
+build to native advantages, don't copy.
+
+**Long-press peek (TilePeek).** Hold a tile and the whole screen rises at
+reading size, in colour, with the context menu beneath — reading a session
+without opening it, which the web wall simply cannot do across a
+navigation. Fidelity note: the peek's mid-word wraps are the PTY's own
+66-column wraps, faithfully rendered; fixedSize() both axes so the system
+scales an oversized preview rather than adding wraps of its own.
+
+**Inverse video.** The web renderer's PreviewRun has an `i` flag (cursor,
+selected rows, status bars — ink and paper swapped). TileInk now honours
+it with the same fallbacks; visible in the peek as claude's highlighted
+message bars.
+
+**Haptics.** Scope change ticks (.selection); the Face ID gate opening
+answers with .success — the Apple Pay cue. Attached to the Group ABOVE the
+lock view, because feedback attached to the view that disappears dies
+with it.
+
+**The zoom hero: tried, measured, reverted.** iOS 18's
+.navigationTransition(.zoom) — tile grows into terminal — is exactly the
+native-advantage showpiece the directive asks for, and it cost swipe-back:
+zoom's interactive dismissal claims the left edge but never answered the
+swipe on our bar-less destination. Failed with our edge recognizer beside
+it AND with ours removed in deference. Swipe-back is muscle memory; the
+hero is delight; muscle memory wins. Tombstone comment in SessionTile.swift
+so the next reader doesn't re-fight this.
+
+Suites: 63 unit, 17 UI, green.
+
 ## Face ID, the reclaim latch, and one way back (iteration 150)
 
 Three from Jian in one stretch: biometric login ("which mobile hop already

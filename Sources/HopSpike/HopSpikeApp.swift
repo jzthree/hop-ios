@@ -103,6 +103,7 @@ struct RootView: View {
     @ObservedObject private var lock = BioLock.shared
 
     var body: some View {
+        Group {
         if model.checkingAuth {
             VStack(spacing: 12) {
                 Image(systemName: "hare.fill")
@@ -126,6 +127,13 @@ struct RootView: View {
             }
         } else {
             LoginView()
+        }
+        }
+        // On the Group, not the LockView: the view that unlocks is the view
+        // that DISAPPEARS, and feedback attached to a disappearing view dies
+        // with it. The same cue Apple Pay uses for a successful scan.
+        .sensoryFeedback(.success, trigger: lock.locked) { old, new in
+            old && !new
         }
     }
 }

@@ -284,6 +284,12 @@ struct SessionsView: View {
                                 Button(role: .destructive) { killTarget = session } label: {
                                     Label("Kill", systemImage: "xmark.circle")
                                 }
+                            } preview: {
+                                // The long-press peek: the whole screen at
+                                // reading size — a native "glance without
+                                // opening" the web wall has no equivalent of.
+                                TilePeek(session: session,
+                                         screen: model.screens[session.internalName])
                             }
                             .onAppear { visibleRows.insert(session.internalName) }
                             .onDisappear { visibleRows.remove(session.internalName) }
@@ -424,6 +430,10 @@ struct SessionsView: View {
                         ContentUnavailableView("Session not found", systemImage: "questionmark.folder")
                     }
                 }
+                // A physical tick when the scope changes — the dropdown is in
+                // the toolbar now, and the haptic closes the loop the moment
+                // the wall re-filters.
+                .sensoryFeedback(.selection, trigger: scope)
                 .refreshable { await model.refreshSessions() }
                 .alert("Get told when a session wants you?", isPresented: $offerNotifications) {
                     Button("Turn on") { Task { await notifier.setEnabled(true) } }

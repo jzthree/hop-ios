@@ -722,7 +722,7 @@ final class HopSpikeTests: XCTestCase {
 
     func testTileInkDecodesRunsAndTolneratesJunk() {
         let rows = TileInk.decode([
-            [["t": "hi", "f": "#ffcc00", "o": 1], ["t": " there"]],
+            [["t": "hi", "f": "#ffcc00", "o": 1], ["t": " there", "i": 1]],
             [],
             [["notext": true]],
         ])
@@ -731,7 +731,9 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(rows[0][0].t, "hi")
         XCTAssertEqual(rows[0][0].f, "#ffcc00")
         XCTAssertTrue(rows[0][0].o)
+        XCTAssertFalse(rows[0][0].i)
         XCTAssertNil(rows[0][1].f)
+        XCTAssertTrue(rows[0][1].i, "inverse flag survives decoding")
         XCTAssertTrue(rows[1].isEmpty)
         XCTAssertTrue(rows[2].isEmpty, "a run without text is dropped, not crashed on")
         // Absent or malformed field → empty, which means "plain render".

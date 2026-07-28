@@ -121,3 +121,41 @@ struct SessionTile: View {
             .padding(.vertical, 5)
     }
 }
+
+/// The long-press peek: the WHOLE screen at reading size, in colour. The tile
+/// windows and shrinks; this is the honest document — big enough that the
+/// context menu becomes a way to READ a session without opening it.
+struct TilePeek: View {
+    let session: HopSession
+    let screen: ScreenPreview?
+
+    var body: some View {
+        if let screen {
+            let lines = screen.text.split(separator: "\n",
+                                          omittingEmptySubsequences: false).map(String.init)
+            let pt: CGFloat = 8
+            Text(TileInk.attributed(rows: screen.colorRows, lines: lines,
+                                    range: 0..<lines.count))
+                .font(.system(size: pt, design: .monospaced))
+                .lineSpacing(0)
+                // Both axes fixed: the system scales an oversized preview
+                // down whole; letting it wrap instead broke every line that
+                // mattered (screenshot-caught: "BioLock.swi / ft").
+                .fixedSize()
+                .padding(10)
+                .background(Color.hopSurface)
+        } else {
+            Text(session.tagline.isEmpty ? session.shortCwd : session.tagline)
+                .font(.callout)
+                .padding(20)
+                .background(Color.hopSurface)
+        }
+    }
+}
+
+// NOTE: no zoom hero transition here, and that's deliberate. iOS 18's
+// .navigationTransition(.zoom) was tried and reverted: its interactive
+// dismissal claims the left edge but never actually answered the swipe on a
+// bar-less destination — the swipe-back test failed with the terminal wedged
+// in-session, with our own edge recognizer removed OR beside it. Swipe-back
+// is muscle memory; the hero is delight. Muscle memory wins.
