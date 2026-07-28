@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The health sweep (iteration 165)
+
+Loop iteration spent on verification, not features — strict and tsan
+hadn't run since before Face ID, TileInk, the gestures and the widget
+code landed.
+
+- **tsan: 0 races**, suite green.
+- **strict: 5 warnings**, all Swift-6-language-mode concurrency
+  advisories, all in TerminalScreen's OLD input machinery (repeat-timer
+  and momentum deinit, the typing-signal closure, the SwiftTerm delegate
+  conformance). None trace to this stretch's work. Deliberately LEFT:
+  they are warnings under the shipping Swift 5.9 mode, tsan finds no
+  race behind them, and the code they sit in is the most trap-dense in
+  the repo (hold-to-repeat, coast momentum) — churning it for
+  warning-count vanity is how regressions happen. They are the named
+  baseline now; the Swift 6 migration is the right occasion to clear
+  them.
+
+No binary change this round; nothing to deploy. Build 202 remains
+current on the device.
+
 ## Idle screens stop repainting (iteration 164)
 
 Loop iteration, a perf round fixed at the SOURCE rather than cached at
