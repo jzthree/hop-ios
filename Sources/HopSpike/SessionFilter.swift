@@ -172,6 +172,15 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// What Siri says when asked for status — spoken aloud, so a sentence, not
+/// a summary line with dots and parens.
+func fleetStatusLine(wanting: Int, total: Int) -> String {
+    guard total > 0 else { return "No sessions running." }
+    let base = "\(total) session\(total == 1 ? "" : "s") running"
+    guard wanting > 0 else { return base + ", nothing waiting on you." }
+    return base + ", \(wanting) want\(wanting == 1 ? "s" : "") you."
+}
+
 /// What each session contributes to the system Spotlight index: the name to
 /// find it by, and the tagline (or cwd) so the result card says what it's
 /// for. Pure so the shape is testable; the donation side effect stays thin.

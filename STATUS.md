@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Siri learns the fleet (iteration 169)
+
+Loop iteration, the Spotlight sibling: App Intents. Two actions, no
+extension, no app group, no signing — AppIntents run in the app's own
+process, so the entities read AppModel directly and the app's cookie
+authenticates the refresh even on a cold background launch.
+
+- **Open Session** — a Shortcuts action and Siri phrase with a session
+  picker whose entries are the LIVE fleet (the query does one silent
+  refresh when the model arrives empty). Opening rides requestedSession,
+  the same road Spotlight and notification taps travel.
+- **Fleet Status** — answers without opening the app: "19 sessions
+  running, 2 want you." Spoken aloud, so it's a SENTENCE
+  (fleetStatusLine, pure + tested), not the switcher's dot-separated
+  summary. Usable in automations: a morning routine can ask hop whether
+  anything waited overnight.
+
+Verified to the honest boundary: both suites green, the AppIntents
+metadata extractor ran in the build (that registration is what surfaces
+actions in Shortcuts), the dialog line is unit-tested. Driving Siri
+itself isn't automatable from here — first spoken run is Jian's.
+
 ## The fleet in Spotlight (iteration 168)
 
 Loop iteration. Sessions are in the SYSTEM search index now: pull down

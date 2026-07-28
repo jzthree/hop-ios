@@ -720,6 +720,16 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testFleetStatusLineSpeaksLikeASentence() {
+        XCTAssertEqual(fleetStatusLine(wanting: 0, total: 0), "No sessions running.")
+        XCTAssertEqual(fleetStatusLine(wanting: 0, total: 1),
+                       "1 session running, nothing waiting on you.")
+        XCTAssertEqual(fleetStatusLine(wanting: 1, total: 19),
+                       "19 sessions running, 1 wants you.")
+        XCTAssertEqual(fleetStatusLine(wanting: 3, total: 19),
+                       "19 sessions running, 3 want you.")
+    }
+
     func testSpotlightEntriesShapeAndExclusions() {
         func s(_ name: String, tagline: String = "", cwd: String = "",
                port: Bool = false) -> HopSession {
