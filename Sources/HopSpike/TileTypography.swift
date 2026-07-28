@@ -23,25 +23,31 @@ enum TileTypography {
     /// normal phone-holding distance and the tile degrades to noise.
     static let floorPt: CGFloat = 7
 
-    /// Returns the text to render and the point size to render it at.
+    /// The row window to render and the point size to render it at.
     /// When the whole grid fits at ≥ floorPt, that's the answer. When it
     /// doesn't, hold the floor and window the screen: trailing blank rows go
     /// first, then history from the top until what remains fits the tile's
     /// height. Columns need no slicing — layout clips the right edge.
-    static func window(text: String, cols: Int,
-                       width: CGFloat, height: CGFloat) -> (text: String, pt: CGFloat) {
+    /// Range-based so the coloured render and the plain fallback show the
+    /// same rows by construction.
+    static func window(lines: [String], cols: Int,
+                       width: CGFloat, height: CGFloat) -> (range: Range<Int>, pt: CGFloat) {
         let fitPt = width / CGFloat(max(20, cols)) / charAdvance
-        guard fitPt < floorPt else { return (text, fitPt) }
+        guard fitPt < floorPt else { return (0..<lines.count, fitPt) }
 
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        while let last = lines.last,
-              last.unicodeScalars.allSatisfy({ CharacterSet.whitespaces.contains($0) }) {
-            lines.removeLast()
+        var end = lines.count
+        while end > 0, lines[end - 1].unicodeScalars
+            .allSatisfy({ CharacterSet.whitespaces.contains($0) }) {
+            end -= 1
         }
         let rowsThatFit = max(3, Int(height / (floorPt * lineHeight)))
-        if lines.count > rowsThatFit {
-            lines.removeFirst(lines.count - rowsThatFit)
-        }
-        return (lines.joined(separator: "\n"), floorPt)
+        return (max(0, end - rowsThatFit)..<end, floorPt)
+    }
+
+    static func window(text: String, cols: Int,
+                       width: CGFloat, height: CGFloat) -> (text: String, pt: CGFloat) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let w = window(lines: lines, cols: cols, width: width, height: height)
+        return (lines[w.range].joined(separator: "\n"), w.pt)
     }
 }

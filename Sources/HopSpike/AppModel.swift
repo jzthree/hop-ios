@@ -346,11 +346,13 @@ final class AppModel: ObservableObject {
         // screen contents back into the store.
         let epoch = authEpoch
         await withTaskGroup(of: (String, String?).self) { group in
-            // Eight, not six: a phone screen holds about seven rows, and the
-            // caller now hands these over in viewport order — so the budget
-            // covering less than a screenful was the difference between "the
-            // list shows what sessions are saying" and "most of it doesn't".
-            for name in names.prefix(8) {
+            // Twelve, not eight: tile mode's grid keeps more cells alive than
+            // the list did (LazyVGrid renders ahead of the viewport), and a
+            // budget below the live-cell count starves the SAME tiles every
+            // tick — measured as a wall where some sessions showed "…"
+            // forever. The caller also sweeps its off-screen tail so the
+            // remainder of the fleet takes turns with what's left.
+            for name in names.prefix(12) {
                 group.addTask { [weak self] in
                     guard let self else { return (name, nil) }
                     return (name, await self.fetchPreview(name))
@@ -429,7 +431,8 @@ final class AppModel: ObservableObject {
               let text = obj["text"] as? String else { return nil }
         screens[internalName] = ScreenPreview(text: text,
                                               cols: jsonInt(obj["cols"]) ?? 80,
-                                              rows: jsonInt(obj["rows"]) ?? 24)
+                                              rows: jsonInt(obj["rows"]) ?? 24,
+                                              colorRows: TileInk.decode(obj["color"]))
         return Self.meaningfulTail(of: text, lines: 3)
     }
 
@@ -606,4 +609,7 @@ struct ScreenPreview {
     let text: String
     let cols: Int
     let rows: Int
+    /// Styled runs per row (TileInk). Empty when the daemon has no colour
+    /// for this session — the tile falls back to plain text.
+    let colorRows: [[ColorRun]]
 }

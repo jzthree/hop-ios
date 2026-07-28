@@ -710,6 +710,42 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(out.first, "row26")
     }
 
+    func testTileInkDecodesRunsAndTolneratesJunk() {
+        let rows = TileInk.decode([
+            [["t": "hi", "f": "#ffcc00", "o": 1], ["t": " there"]],
+            [],
+            [["notext": true]],
+        ])
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[0].count, 2)
+        XCTAssertEqual(rows[0][0].t, "hi")
+        XCTAssertEqual(rows[0][0].f, "#ffcc00")
+        XCTAssertTrue(rows[0][0].o)
+        XCTAssertNil(rows[0][1].f)
+        XCTAssertTrue(rows[1].isEmpty)
+        XCTAssertTrue(rows[2].isEmpty, "a run without text is dropped, not crashed on")
+        // Absent or malformed field → empty, which means "plain render".
+        XCTAssertTrue(TileInk.decode(nil).isEmpty)
+        XCTAssertTrue(TileInk.decode("nope").isEmpty)
+    }
+
+    func testTileInkStylesTheSameWindowThePlainRenderShows() {
+        // Colour report covers row 0 only; the window asks for rows 1..<3.
+        // Row 1 must fall back to the plain line, row 2 to empty — never a
+        // crash, never rows the plain render wouldn't show.
+        let rows = TileInk.decode([[["t": "row0", "f": "#ff0000"]], [], []])
+        let out = TileInk.attributed(rows: rows, lines: ["row0", "row1", "row2"],
+                                     range: 1..<3)
+        XCTAssertEqual(String(out.characters), "row1\nrow2")
+    }
+
+    func testAppTintSeparatesAppsAndDefaultsNeutral() {
+        XCTAssertEqual(appTint("claude"), appTint("CLAUDE"))
+        XCTAssertNotEqual(appTint("claude"), appTint("vim"))
+        XCTAssertNotEqual(appTint("vim"), appTint("somethingelse"))
+        XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
+    }
+
     func testTileTypeDropsTrailingBlanksBeforeHistory() {
         // A 44-row grid holding 6 rows of content: the blank tail is not
         // "recent activity", it is empty screen — trim it first so the window

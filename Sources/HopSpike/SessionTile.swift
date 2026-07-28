@@ -60,12 +60,13 @@ struct SessionTile: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             if !session.runningApp.isEmpty {
+                let tint = appTint(session.runningApp)
                 Text(session.runningApp)
                     .font(.system(size: 9, weight: .semibold))
                     .padding(.horizontal, 6).padding(.vertical, 1.5)
-                    .background(Color.hopPurple.opacity(0.22), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.hopGlow.opacity(0.35), lineWidth: 0.5))
-                    .foregroundStyle(Color.hopGlow)
+                    .background(tint.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
+                    .foregroundStyle(tint)
             }
         }
         .padding(.horizontal, 9)
@@ -80,13 +81,17 @@ struct SessionTile: View {
                 // Scale-to-fit until the type would stop being readable, then
                 // hold the floor and show the LAST rows of the screen instead
                 // (TileTypography has the full argument). The right edge clips;
-                // line starts carry the information.
-                let fit = TileTypography.window(text: screen.text, cols: screen.cols,
+                // line starts carry the information. TileInk styles the same
+                // row window the daemon coloured — a real miniature of the
+                // terminal, not a grey ghost of it.
+                let lines = screen.text.split(separator: "\n",
+                                              omittingEmptySubsequences: false).map(String.init)
+                let fit = TileTypography.window(lines: lines, cols: screen.cols,
                                                 width: geo.size.width - 8,
                                                 height: geo.size.height - 8)
-                Text(fit.text)
+                Text(TileInk.attributed(rows: screen.colorRows, lines: lines,
+                                        range: fit.range))
                     .font(.system(size: fit.pt, design: .monospaced))
-                    .foregroundStyle(Color(hex: 0xe6edf3).opacity(0.85))
                     .lineSpacing(0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity,
                            alignment: .topLeading)

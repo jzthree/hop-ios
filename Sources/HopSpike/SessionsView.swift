@@ -40,6 +40,7 @@ struct SessionsView: View {
     /// Rows currently on screen. Previews cost the daemon a render each, so the
     /// budget is small and fixed — this decides WHERE it is spent.
     @State private var visibleRows: Set<String> = []
+    @State private var previewSweep = 0
     /// Asked once, ever. The whole point of this app is being told when an
     /// agent wants you, and that shipped OFF and three taps deep in a menu —
     /// so the one person who'd benefit had to already know it existed.
@@ -165,7 +166,16 @@ struct SessionsView: View {
     private var previewCandidates: [String] {
         let rendered = sections.flatMap(\.rows).filter(\.live).map(\.internalName)
         let onScreen = rendered.filter { visibleRows.contains($0) }
-        return onScreen + rendered.filter { !visibleRows.contains($0) }
+        var off = rendered.filter { !visibleRows.contains($0) }
+        // Rotate the off-screen tail a little each poll: the budget only
+        // reaches a couple past the viewport, and without the sweep it was
+        // the SAME couple every tick — the rest of the fleet stayed "…"
+        // until scrolled to.
+        if off.count > 1 {
+            let shift = previewSweep % off.count
+            off = Array(off[shift...]) + Array(off[..<shift])
+        }
+        return onScreen + off
     }
 
     private var listView: some View {
@@ -210,65 +220,44 @@ struct SessionsView: View {
                 }
             }
             Section {
-                // Capsule chips instead of the stock segmented control: the
-                // one control everyone sees first shouldn't be the one piece
-                // of default-issue UI on the page. Purple marks the selection
-                // — hop's accent doing its job — and each chip is its own
-                // plain Button so the List doesn't swallow the taps.
-                HStack(spacing: 8) {
-                    ForEach(SessionScope.allCases, id: \.self) { s in
-                        Button {
-                            withAnimation(.easeOut(duration: 0.15)) { scope = s }
-                        } label: {
-                            Text(s.rawValue)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(scope == s ? .white : .secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 7)
-                                .background(scope == s ? Color.hopPurple.opacity(0.85)
-                                                       : Color.white.opacity(0.06),
-                                            in: Capsule())
-                                .overlay(Capsule().strokeBorder(
-                                    scope == s ? Color.hopGlow.opacity(0.5)
-                                               : Color.white.opacity(0.05),
-                                    lineWidth: 0.5))
+                // The scope control lived here as a full-width row (stock
+                // segmented, then chips). Jian: it "does not need to occupy
+                // that much space" — it's a dropdown in the toolbar now, and
+                // this section keeps only the fleet summary.
+                //
+                // The summary: with nineteen sessions a header said nothing.
+                // The count you actually care about is how many want you —
+                // and when that's zero, saying so is the useful answer.
+                //
+                // TAPPABLE when something wants you. The line can read "1
+                // wants you (1 not shown here)" precisely when scope or
+                // filter hides the ringing session — announcing a bell while
+                // offering no way to reach it. The tap opens the
+                // longest-standing wanting session directly, same navigation
+                // path a notification tap takes.
+                Group {
+                    if wanting > 0 {
+                        Button { openWanting() } label: {
+                            Text(fleetSummary)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(Color.hopAttention)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityAddTraits(scope == s ? [.isSelected] : [])
+                        // A HINT, not a label override. Replacing the label
+                        // erased the summary's actual text from the
+                        // accessibility tree — VoiceOver would say the action
+                        // but never the counts, and the UI test that looks for
+                        // "not shown here" found a button wearing different
+                        // words. The text is the label; the tap is the hint.
+                        .accessibilityHint("Opens the session that wants you")
+                    } else {
+                        Text(fleetSummary)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
-            } footer: {
-                // With nineteen sessions the header said nothing. The count you
-                // actually care about is how many want you — and when that's
-                // zero, saying so is the useful answer, not silence.
-                //
-                // TAPPABLE when something wants you. The line can read "1 wants
-                // you (1 not shown here)" precisely when scope or filter hides
-                // the ringing session — announcing a bell while offering no way
-                // to reach it. The tap opens the longest-standing wanting
-                // session directly, same navigation path a notification tap
-                // takes, so it works regardless of what the list is showing.
-                if wanting > 0 {
-                    Button { openWanting() } label: {
-                        Text(fleetSummary)
-                            .font(.caption)
-                            .foregroundStyle(Color.hopAttention)
-                    }
-                    .buttonStyle(.plain)
-                    // A HINT, not a label override. Replacing the label erased
-                    // the summary's actual text from the accessibility tree —
-                    // VoiceOver would say the action but never the counts, and
-                    // the UI test that looks for "not shown here" found a
-                    // button wearing different words. The text is the label;
-                    // what tapping does is the hint.
-                    .accessibilityHint("Opens the session that wants you")
-                } else {
-                    Text(fleetSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
             }
             if switcherTiles {
                 Section {
@@ -355,9 +344,12 @@ struct SessionsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        // Inset-grouped defaults spend ~140pt before the first control — a
-        // fifth of the screen saying nothing. Sessions above the fold instead.
+        // Inset-grouped defaults spend ~140pt before the first control and
+        // ~20pt on each side — a fifth of the screen and two tile columns'
+        // worth of gutter saying nothing. Sessions above the fold, wall to
+        // the glass.
         .contentMargins(.top, 4, for: .scrollContent)
+        .contentMargins(.horizontal, 6, for: .scrollContent)
         .listSectionSpacing(14)
     }
 
@@ -366,6 +358,23 @@ struct SessionsView: View {
         ToolbarItem(placement: .topBarLeading) {
             Image(systemName: "hare.fill").foregroundStyle(Color.hopPurple)
                 .accessibilityHidden(true)          // decoration, not a control
+        }
+        // Scope as a dropdown, not a row: You/Agents/All spent a full row of
+        // the screen on a choice made once in a while. A Picker inside a Menu
+        // gets the system checkmark treatment for free.
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Picker("Scope", selection: $scope) {
+                    ForEach(SessionScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(scope.rawValue).font(.footnote.weight(.semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+                .foregroundStyle(Color.hopGlow)
+            }
+            .accessibilityLabel("Scope: \(scope.rawValue)")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -572,6 +581,7 @@ struct SessionsView: View {
             // top 6 of the wrong order leaves visible rows preview-less while
             // off-screen ones stay fresh.
             await model.refreshPreviews(for: previewCandidates)
+            previewSweep &+= 2
             try? await Task.sleep(for: .seconds(every))
         }
     }
@@ -734,11 +744,12 @@ struct SessionRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     if !session.runningApp.isEmpty {
+                        let tint = appTint(session.runningApp)
                         Text(session.runningApp)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.hopPurple.opacity(0.18), in: Capsule())
-                            .foregroundStyle(Color.hopGlow)
+                            .background(tint.opacity(0.16), in: Capsule())
+                            .foregroundStyle(tint)
                     }
                     if session.createdBy == "agent" {
                         Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)

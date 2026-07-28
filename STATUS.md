@@ -236,6 +236,38 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Colour, and the wall goes to the glass (iteration 149)
+
+Jian: "better - continue!" Then, mid-round: some tiles stay "…", the left
+and right borders are wasted, and the You/Agents/All row "does not need to
+occupy that much space."
+
+**Tiles are real miniatures now.** /preview's `color` field turns out to be
+rows of runs with palette already resolved to hex ({t, f, b, o}) — the
+daemon did the ANSI work, so TileInk is forty lines of decode + an
+AttributedString builder, no parser. Purple comments, blue paths, dim
+status lines at reduced opacity, even diff-highlight backgrounds render in
+the tiles. TileTypography went range-based so the coloured render and the
+plain fallback show the same rows by construction; sessions without colour
+(no persistent terminal) fall back to plain automatically.
+
+**The "…" tiles were a starvation bug, not slowness.** refreshPreviews
+took prefix(8) of a list whose order never changed between polls; tile
+mode's LazyVGrid keeps 10+ cells alive, so the same tiles missed the
+budget every tick, forever. Budget is 12 now, and the off-screen tail
+rotates a little each poll so the whole fleet takes turns.
+
+**Space:** contentMargins pulls the wall to ~6pt of the glass (the
+inset-grouped sides spent ~20pt each saying nothing). Scope became a
+toolbar dropdown — Picker in a Menu, system checkmarks for free — and the
+row it occupied is gone; the fleet summary is a quiet clear-background
+line under the bar.
+
+**Badges scan by colour:** appTint() — claude keeps purple, editors teal,
+python blue, node green, ssh amber, unknown neutral. Both modes share it.
+
+Suites: 61 unit (4 new), 17 UI, green.
+
 ## The design pass: depth, light, typography (iteration 148)
 
 Jian, after 147: "it is better now but you can still do better! i found you

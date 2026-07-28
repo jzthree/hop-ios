@@ -1,9 +1,25 @@
 import Foundation
+import SwiftUI
 
 // Pure list-shaping, extracted from the view so it can be unit-tested:
 // which sessions a scope shows, and how a filter query matches.
 enum SessionScope: String, CaseIterable {
     case user = "You", agent = "Agents", all = "All"
+}
+
+/// Badge hue per running app, so a wall of tiles scans by colour before it
+/// scans by name: claude keeps hop's purple; editors, runtimes and remotes
+/// each get a tone; anything unrecognised stays neutral instead of wearing
+/// claude's colour dishonestly.
+func appTint(_ app: String) -> SwiftUI.Color {
+    switch app.lowercased() {
+    case "claude": return .hopGlow
+    case "vim", "nvim", "vi", "emacs": return SwiftUI.Color(hex: 0x2fbf9a)
+    case "python", "python3", "ipython": return SwiftUI.Color(hex: 0x5aa7e0)
+    case "node", "npm", "yarn", "bun": return SwiftUI.Color(hex: 0x7fcf6a)
+    case "ssh", "mosh": return SwiftUI.Color(hex: 0xe0a45a)
+    default: return SwiftUI.Color(hex: 0x93a0b4)
+    }
 }
 
 /// Group label for a session: the first couple of path segments under home
