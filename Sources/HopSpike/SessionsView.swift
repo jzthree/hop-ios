@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 // Home screen: the fleet, attention-first — the native sibling of the web
 // switcher. Search, user/agent/all scope, optional project grouping, and
@@ -286,6 +287,8 @@ struct SessionsView: View {
                                             screen: model.screens[session.internalName])
                             }
                             .buttonStyle(.plain)
+                            .tipIf(session.internalName == tileSection.rows.first?.internalName,
+                                   PeekTip())
                             .contextMenu {
                                 Button {
                                     Task { _ = await model.setAgentAccess(session, allowed: !session.agentPermitted) }

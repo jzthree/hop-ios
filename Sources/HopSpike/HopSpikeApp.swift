@@ -95,6 +95,7 @@ struct HopApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     HopNotifier.shared.configure()
+                    HopTips.configure()
                     await model.bootstrap()
                 }
                 .onChange(of: scenePhase) { _, phase in

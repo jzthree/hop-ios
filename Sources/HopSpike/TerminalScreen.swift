@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftTerm
+import TipKit
 import os
 
 // Native terminal host: SwiftTerm view + a key accessory bar above the iOS
@@ -359,6 +360,7 @@ struct TerminalHostView: View {
             }
             .accessibilityLabel("Back")
             titleMenu
+                .popoverTip(PillSwipeTip(), arrowEdge: .top)
             Spacer(minLength: 4)
             actionsMenu
         }
@@ -383,6 +385,8 @@ struct TerminalHostView: View {
                   let next = neighborSession(model.sessions,
                                              of: session.internalName,
                                              step: dx < 0 ? 1 : -1) else { return }
+            // Used it = learned it: the hint never shows again.
+            PillSwipeTip().invalidate(reason: .actionPerformed)
             model.requestedSession = next.internalName
         })
         .padding(.horizontal, 5)

@@ -236,6 +236,31 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The invisible, introduced (iteration 166)
+
+Loop iteration. The app's best interactions are deliberately invisible —
+the pill swipe, the long-press peek — which makes them undiscoverable by
+the same stroke. TipKit is the native fix, and a real native advantage:
+a web app hand-rolls coach marks and persists "seen" itself; here both
+are the OS's job.
+
+Two tips, each shown once, dismissible, gone forever after use:
+- "Swipe to switch" on the chrome pill, invalidated by the first real
+  swipe (used it = learned it).
+- "Hold for a peek" on the wall's first tile (one tile, not a wall of
+  popovers — tipIf() exists for exactly that).
+
+Under -hop-ui-testing tips never configure (a popover is a hit-test
+wall in front of whatever a test taps — the probe proved it by failing
+until it closed the tip first); -hop-show-tips force-shows them for
+screenshots.
+
+Also probed for later: the daemon HAS api/sessions/tagline ("Session
+not found" for a fake name, not "Unknown endpoint") — tagline editing
+from the phone is possible when a round wants it.
+
+Suites: green by exit code, both.
+
 ## The health sweep (iteration 165)
 
 Loop iteration spent on verification, not features — strict and tsan
