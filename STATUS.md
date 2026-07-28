@@ -236,6 +236,20 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Correction, and two new traps (iteration 159, addendum)
+
+The 159 gate printed TEST FAILED and the ship pipeline sailed past it:
+`make test | grep` hands the chain grep's exit code, and grep MATCHING
+"TEST FAILED" is a success exit. The failure itself was simulator
+container churn ("Failed to create a bundle instance …
+containermanagerd/Dead") — zero tests ran, and the immediate rerun
+passed 67/67, so build 196 was never actually broken. Both lessons are
+in tools/README's traps now.
+
+While auditing: recent entries quoted "69/70 unit tests" — those counts
+were base-plus-tests-I-wrote, not the meter. The measured suite today is
+67 passed, 0 failed. Counts below come from the run's own output.
+
 ## Replying means seeing the question (iteration 159)
 
 Loop iteration. The Reply flow was an alert with one trimmed line of

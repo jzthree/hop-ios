@@ -36,3 +36,6 @@ sends REAL input — use scratch sessions.
 | Regex-editing probe scripts | substitutions fail silently; write whole files |
 | A simulator measurement of keyboard/push/background behaviour | is evidence about the simulator |
 | A metric that improves without a cause | is a check that stopped running (incremental builds re-emit no warnings; `make strict` cleans first for this reason) |
+| `make test \| grep` runs the whole chain on FAILED | grep exits 0 on match, so `&& next-step` proceeds past a red suite | capture make's own exit status before grepping the log |
+| "Failed to create a bundle instance … containermanagerd/Dead" | sim container churn — ZERO tests ran, which is not the same as tests failing | rerun; if the rerun is green with full counts, the suite was never red |
+| test counts quoted from memory drift upward | "N tests" in STATUS was base + new-tests-written, not the meter | state counts only from the run's own Executed/passed line |
