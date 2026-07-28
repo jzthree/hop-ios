@@ -1017,11 +1017,13 @@ struct TerminalScreen: UIViewRepresentable {
                     if cols == self.fittedCols && rows == self.fittedRows {
                         self.peerHoldsSize = false      // our size won; normal rules
                         self.onSizeState(nil)
+                        self.stopReclaimRetry()
                     } else if mine.cols != cols || mine.rows != rows {
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                             .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
                         self.peerHoldsSize = true
                         self.onSizeState("\(cols)×\(rows)")
+                        self.startReclaimRetry()
                         mine.resize(cols: cols, rows: rows)
                         self.onGridChange()
                     } else {
@@ -1030,6 +1032,7 @@ struct TerminalScreen: UIViewRepresentable {
                         // so the next keystroke keeps trying.
                         self.peerHoldsSize = true
                         self.onSizeState("\(cols)×\(rows)")
+                        if self.reclaimTimer == nil { self.startReclaimRetry() }
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —
@@ -1224,6 +1227,7 @@ struct TerminalScreen: UIViewRepresentable {
 
         func detach() {
             alive = false
+            stopReclaimRetry()
             typingTimer?.invalidate()
             if typingActive { client.sendTyping(false) }
             retryTask?.cancel()
@@ -1440,6 +1444,34 @@ struct TerminalScreen: UIViewRepresentable {
         /// reflows both times — a desk terminal redrawing twice because someone
         /// glanced at their phone.
         private var claimed = false
+
+        /// The wake-path heal (PLAN.md item 1): while the app is FOREGROUND
+        /// and a peer/default size holds the grid, re-assert the attach
+        /// intent every few seconds. The server refuses while anyone typed
+        /// inside the idle window and grants the moment they lapse — so the
+        /// size converges to this screen without a tap, and a pocketed
+        /// phone can't steal (backgrounded apps run no timers here).
+        /// Returning to an open session IS the same intent attaching is.
+        private var reclaimTimer: Timer?
+
+        private func startReclaimRetry() {
+            reclaimTimer?.invalidate()
+            reclaimTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                // Main-actor by assertion, the #112c pattern: traps loudly if
+                // the scheduling assumption ever breaks.
+                MainActor.assumeIsolated {
+                    guard let self, self.peerHoldsSize, !self.observeOnly,
+                          UIApplication.shared.applicationState == .active,
+                          self.fittedCols > 1, self.fittedRows > 1 else { return }
+                    self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
+                }
+            }
+        }
+
+        private func stopReclaimRetry() {
+            reclaimTimer?.invalidate()
+            reclaimTimer = nil
+        }
 
         private func claimSizeOnAttach() {
             // Let the keyboard's layout land first, then claim once at the

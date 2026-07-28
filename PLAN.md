@@ -25,8 +25,11 @@ result. Candidate fixes, in order of promise:
 - [DONE 2026-07-28] SIZE CHIP: "90×44 — take mine" appears top-trailing
   whenever a peer/default size holds the grid; tap claims; a refusal
   re-arms it (probe-verified against a held 90×44).
-- Claim RETRY: when the refusing typist goes idle past the window,
-  re-claim automatically (needs care: never fight an active desk).
+- [DONE 2026-07-28] Claim RETRY: while foreground with a peer-held
+  grid, the attach intent re-asserts every 5s; the server grants when
+  the holder lapses. Probe-verified end to end: chip under a live hold,
+  no tap, healed and cleared once the hold ended. Backgrounded phones
+  run no retries, so nothing steals from a pocket.
 - The underfill case (grid rows ≪ fitted): consider centering or
   opportunistic claim even when cols fit.
 

@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The wake path heals itself (iteration 181)
+
+Loop round two on PLAN.md item 1. The persistent case of Jian's
+return-from-idle wrongness is the REFUSED attach claim: the phone comes
+back, asks for its size, and someone typed recently enough that the
+server says no — silently, forever, until the user typed.
+
+Now the intent persists: while the app is foreground and a peer size
+holds the grid, the attach claim re-asserts every five seconds. The
+server keeps refusing while anyone is actively typing — the retry is
+one small message, not a fight — and grants the moment they lapse past
+the idle window. The chip shows the state meanwhile; the heal clears
+it without a tap. A pocketed phone can't steal: backgrounded apps run
+no timers here, and returning to an open session is the same intent
+attaching expresses.
+
+Probe-verified end to end against a harness-held 90×44: chip up under
+the hold, no interaction, healed and cleared once the holder went
+idle. Timer uses the #112c main-actor-assertion pattern and stops on
+detach and on every our-size-won event.
+
 ## The size chip, and the loop reborn (iteration 180)
 
 Jian refined the study mid-round: the wrong size strikes on RETURN FROM
