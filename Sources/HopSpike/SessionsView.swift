@@ -67,16 +67,6 @@ struct SessionsView: View {
 
     private var outOfScopeMatches: Int { contentMatches.count - inScopeMatches.count }
 
-    /// What the session last said, falling back to what it's for.
-    private var replyPrompt: String {
-        guard let target = replyTarget else { return "" }
-        let lastLine = model.previews[target.internalName]?
-            .split(separator: "\n").last.map(String.init)?
-            .trimmingCharacters(in: .whitespaces)
-        if let lastLine, lastLine.count > 2 { return lastLine }
-        return target.tagline
-    }
-
     /// Parked sessions are left out on purpose: they don't ring the phone (see
     /// `alertable`), so counting them here would promise a bell that never
     /// comes, for a row that isn't in the list either.
@@ -472,16 +462,14 @@ struct SessionsView: View {
                     // sized to the content instead of a fixed half-sheet.
                     AccountView().presentationDetents([.fraction(0.75), .large])
                 }
-                .alert("Reply to \(replyTarget?.name ?? "")",
-                       isPresented: Binding(get: { replyTarget != nil },
-                                            set: { if !$0 { replyTarget = nil } })) {
-                    TextField("Answer", text: $replyText)
-                        .textInputAutocapitalization(.never)
-                    Button("Cancel", role: .cancel) { replyTarget = nil }
-                    Button("Send") {
-                        guard let target = replyTarget else { return }
-                        let text = replyText
-                        replyTarget = nil
+                // A sheet, not an alert: answering blind is how you send "y"
+                // to something that asked which of three options you wanted.
+                // The sheet shows the last meaningful rows in colour — the
+                // question itself — above the composer.
+                .sheet(item: $replyTarget) { target in
+                    ReplySheet(session: target,
+                               screen: model.screens[target.internalName],
+                               fallback: model.previews[target.internalName] ?? "") { text in
                         Task {
                             let ok = await QuickReply.send(text, to: target.internalName,
                                                            model: model)
@@ -497,15 +485,6 @@ struct SessionsView: View {
                             if ok { model.markSeen(target) }
                         }
                     }
-                    // An empty reply isn't a failed send, it's not a send —
-                    // reporting "couldn't send" for it would be a lie.
-                    .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
-                } message: {
-                    // The question, not the job title. Answering blind is how
-                    // you send "y" to something that asked which of three
-                    // options you wanted — the preview's last line is already
-                    // on screen in the row, and it's what you're replying to.
-                    Text(replyPrompt)
                 }
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,

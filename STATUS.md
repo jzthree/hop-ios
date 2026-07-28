@@ -236,6 +236,22 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Replying means seeing the question (iteration 159)
+
+Loop iteration. The Reply flow was an alert with one trimmed line of
+context — exactly how you send "y" to something that asked which of
+three options you wanted. It's a sheet now: the session's last
+meaningful rows in their real colours (TileInk again — inverse pills,
+error reds, the prompt itself) inside a terminal-dark box, over a mono
+composer with a purple send. Same QuickReply path underneath, same
+success/error haptic, same markSeen-on-answer.
+
+The swipe-to-reply UI test drove the old alert's Cancel button; it now
+asserts the sheet and dismisses by drag — the test changed because the
+UI's contract changed, not to make a red bar green.
+
+Suites: 70 unit, 17 UI, green.
+
 ## The sonar, and triage from the banner (iteration 158)
 
 Loop iteration. Two capability signals now that the surfaces agree.

@@ -225,11 +225,13 @@ final class ScrollUITests: XCTestCase {
         let reply = app.buttons["Reply"].firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 5), "leading swipe offered no Reply")
         reply.tap()
-        XCTAssertTrue(app.textFields["Answer"].waitForExistence(timeout: 5),
-                      "Reply did not open a compose field")
-        app.buttons["Cancel"].tap()
-        XCTAssertFalse(app.textFields["Answer"].waitForExistence(timeout: 2),
-                       "Cancel left the dialog up")
+        // The alert became a SHEET with a context snippet and a mono
+        // composer; drag-down is its cancel.
+        XCTAssertTrue(app.textFields["Answer…"].waitForExistence(timeout: 5),
+                      "Reply did not open the compose sheet")
+        app.swipeDown(velocity: .fast)
+        XCTAssertFalse(app.textFields["Answer…"].waitForExistence(timeout: 2),
+                       "dismissing the sheet left it up")
     }
 
     /// An agent session has no local scrollback, so this asserts the only thing
