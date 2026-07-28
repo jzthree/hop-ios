@@ -57,6 +57,22 @@ enum QuickActions {
 }
 
 final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
+    /// DEBUG instrumentation with an instrument that cannot lie: logd via
+    /// `simctl spawn log` produced zero lines even for handlers that were
+    /// provably running, so markers go to a FILE in the app container.
+    static func mark(_ what: String) {
+#if DEBUG
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("route-markers.log")
+        let line = what + "\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile(); handle.write(line.data(using: .utf8)!); try? handle.close()
+        } else {
+            try? line.data(using: .utf8)!.write(to: url)
+        }
+#endif
+    }
+
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
                options connectionOptions: UIScene.ConnectionOptions) {
         // Cold launch. The list isn't loaded yet; requestedSession is read once
@@ -64,6 +80,7 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
         if let item = connectionOptions.shortcutItem {
             Task { @MainActor in QuickActions.handle(item) }
         }
+        Self.mark("sceneDelegate.willConnectTo urls=\(connectionOptions.urlContexts.count)")
         for ctx in connectionOptions.urlContexts { Self.route(ctx.url) }
         for activity in connectionOptions.userActivities { Self.route(activity) }
     }
@@ -87,14 +104,12 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
     /// .onOpenURL — measured: simctl openurl foregrounded the app and
     /// nothing navigated. URLs must be handled here, warm and cold both.
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
-            .info("openURLContexts: \(URLContexts.count)")
+        Self.mark("sceneDelegate.openURLContexts n=\(URLContexts.count)")
         for ctx in URLContexts { Self.route(ctx.url) }
     }
 
     static func route(_ url: URL) {
-        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
-            .info("route url: \(url.absoluteString)")
+        mark("route \(url.absoluteString)")
         guard url.scheme == "hop", url.host == "session" else { return }
         let id = url.lastPathComponent
         guard !id.isEmpty, id != "session" else { return }
@@ -149,8 +164,7 @@ final class PushRegistry: ObservableObject {
 final class HopAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ app: UIApplication, open url: URL,
                      options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
-            .info("appDelegate open url: \(url.absoluteString)")
+        HopSceneDelegate.mark("appDelegate.open \(url.absoluteString)")
         HopSceneDelegate.route(url)
         return true
     }

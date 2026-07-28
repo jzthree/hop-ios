@@ -39,3 +39,5 @@ sends REAL input — use scratch sessions.
 | `make test \| grep` runs the whole chain on FAILED | grep exits 0 on match, so `&& next-step` proceeds past a red suite | capture make's own exit status before grepping the log |
 | "Failed to create a bundle instance … containermanagerd/Dead" | sim container churn — ZERO tests ran, which is not the same as tests failing | rerun; if the rerun is green with full counts, the suite was never red |
 | test counts quoted from memory drift upward | "N tests" in STATUS was base + new-tests-written, not the meter | state counts only from the run's own Executed/passed line |
+| `simctl openurl` exits 0 and silently drops custom-scheme URLs | cold fire doesn't even launch the app; reinstall doesn't fix it | verify on DEVICE: `devicectl device process launch --payload-url` — even a locked phone routes it, and a WS attach is the daemon-side observable |
+| `simctl spawn log` shows nothing for os.Logger lines that provably ran | logd predicates in the sim lie | instrument with a marker FILE in the app container and read it via get_app_container |

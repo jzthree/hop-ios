@@ -236,6 +236,33 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The landmine defused: the sim was lying, the phone routes (iteration 171)
+
+The focused session iteration 170 asked for. Verdict: the deep-link
+code has been CORRECT since the scene-delegate fix — both instruments
+were broken, and one of them was the simulator itself.
+
+The experiment chain, each step falsifying a theory:
+- File markers replaced logd (`simctl spawn log` shows nothing for
+  os.Logger lines that provably run — instrument one, broken).
+- Markers showed willConnectTo firing → the custom scene delegate IS
+  connected; quick-actions plumbing intact.
+- A COLD `simctl openurl` didn't even launch the app — exit 0, home
+  screen sitting there. Full uninstall/reinstall changed nothing.
+  `simctl openurl` silently drops custom-scheme URLs in this sim —
+  instrument two, broken. (Both are in tools/README's traps now.)
+- The arbiter: `devicectl device process launch --payload-url
+  "hop://session/Solstice"` at the REAL phone. devicectl reported
+  "device locked, launch failed" — and three seconds later Solstice's
+  `attached` flag flipped False→True on the daemon. The phone had
+  launched hop behind its lock screen, routed the URL, pushed the
+  terminal, and attached. The observable was server-side truth, not a
+  screenshot.
+
+hop:// deep links work on hardware. The widget's row links will work
+the day the widget unparks. (Jian: your phone likely has Solstice open
+from the experiment — that was me, once, deliberately.)
+
 ## The chord palette ships; the deep link hits a landmine (iteration 170)
 
 Loop iteration, two halves, one honest split.
