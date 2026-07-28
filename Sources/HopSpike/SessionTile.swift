@@ -67,6 +67,14 @@ struct SessionTile: View {
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
+            // Same agent glyphs the rows carry: created-by-agent quiet,
+            // agent-permitted in glow.
+            if session.createdBy == "agent" {
+                Image(systemName: "cpu").font(.system(size: 8)).foregroundStyle(.secondary)
+            } else if session.agentPermitted {
+                Image(systemName: "cpu").font(.system(size: 8))
+                    .foregroundStyle(Color.hopGlow.opacity(0.8))
+            }
             Spacer(minLength: 4)
             if !session.runningApp.isEmpty {
                 let tint = appTint(session.runningApp)
@@ -121,13 +129,20 @@ struct SessionTile: View {
     /// and missed in the first tile build. Always present so tiles in a row
     /// stay the same height; the cwd stands in when a session has no tagline.
     private var footer: some View {
-        Text(session.tagline.isEmpty ? session.shortCwd : session.tagline)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
+        HStack(spacing: 6) {
+            Text(session.tagline.isEmpty ? session.shortCwd : session.tagline)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            // How stale is this screen — the same clock the rows show.
+            Text(session.relativeTime)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
     }
 }
 

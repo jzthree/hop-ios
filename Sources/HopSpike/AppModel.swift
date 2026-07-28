@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 import WidgetKit
 import os
@@ -135,6 +136,7 @@ final class AppModel: ObservableObject {
         authEpoch += 1
         HopNotifier.shared.reset()
         QuickActions.clear()
+        clearSpotlight()
     }
 
     func login(password: String, totp: String) async {
@@ -250,6 +252,7 @@ final class AppModel: ObservableObject {
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             publishFleetSnapshot()
+            publishSpotlight()
             authenticated = true
             // A refresh that worked is proof the last failure is over. Without
             // this, one tunnel blip pinned a red banner to the top of the list
@@ -359,6 +362,40 @@ final class AppModel: ObservableObject {
             lastSnapshotRows = Array(rows)
             WidgetCenter.shared.reloadAllTimelines()
         }
+    }
+
+    /// The fleet in the system Spotlight index: search a session's name from
+    /// the Home Screen and land in it. Re-donated only when names/taglines
+    /// change — the index outlives the process, so idle polls need not touch
+    /// it. Sign-out must clear it: session names on a signed-out phone are
+    /// exactly what signOut() promises to remove.
+    private var lastSpotlightKey = 0
+    private func publishSpotlight() {
+        let entries = spotlightEntries(sessions)
+        var hasher = Hasher()
+        for e in entries { hasher.combine(e.id); hasher.combine(e.title); hasher.combine(e.description) }
+        let key = hasher.finalize()
+        guard key != lastSpotlightKey else { return }
+        lastSpotlightKey = key
+        let items = entries.map { e in
+            let attrs = CSSearchableItemAttributeSet(contentType: .item)
+            attrs.title = e.title
+            attrs.contentDescription = e.description
+            attrs.keywords = ["hop", "terminal", e.title]
+            return CSSearchableItem(uniqueIdentifier: e.id,
+                                    domainIdentifier: "io.zhoulab.hop.sessions",
+                                    attributeSet: attrs)
+        }
+        let index = CSSearchableIndex.default()
+        index.deleteSearchableItems(withDomainIdentifiers: ["io.zhoulab.hop.sessions"]) { _ in
+            index.indexSearchableItems(items)
+        }
+    }
+
+    func clearSpotlight() {
+        lastSpotlightKey = 0
+        CSSearchableIndex.default()
+            .deleteSearchableItems(withDomainIdentifiers: ["io.zhoulab.hop.sessions"])
     }
 
     /// Parking is "not part of my working set right now", not "gone" — the

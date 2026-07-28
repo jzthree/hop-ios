@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 import UIKit
 
@@ -97,6 +98,14 @@ struct HopApp: App {
                     HopNotifier.shared.configure()
                     HopTips.configure()
                     await model.bootstrap()
+                }
+                // Spotlight tapped: the activity carries the internalName we
+                // donated; requestedSession is the same road a notification
+                // tap takes, cold launch included.
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String {
+                        model.requestedSession = id
+                    }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     model.foreground = phase == .active

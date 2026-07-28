@@ -720,6 +720,24 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testSpotlightEntriesShapeAndExclusions() {
+        func s(_ name: String, tagline: String = "", cwd: String = "",
+               port: Bool = false) -> HopSession {
+            HopSession(json: ["internalName": name, "name": name, "live": true,
+                              "type": port ? "port" : "terminal",
+                              "tagline": tagline, "cwd": cwd], seenBellSeq: [:])!
+        }
+        let entries = spotlightEntries([
+            s("Orion", tagline: "Improving the switcher"),
+            s("bare", cwd: "/Users/x/Code/hop2"),
+            s("prt", port: true),
+        ])
+        XCTAssertEqual(entries.map(\.id), ["Orion", "bare"], "ports never index")
+        XCTAssertEqual(entries[0].description, "Improving the switcher")
+        XCTAssertEqual(entries[1].description, projectKey("/Users/x/Code/hop2"),
+                       "cwd stands in when there is no tagline")
+    }
+
     func testScreenPreviewEqualityGatesTheStoreWrite() {
         let rows = TileInk.decode([[["t": "x", "f": "#ff0000"]]])
         let a = ScreenPreview(text: "same", cols: 80, rows: 24, colorRows: rows)

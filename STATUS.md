@@ -236,6 +236,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The fleet in Spotlight (iteration 168)
+
+Loop iteration. Sessions are in the SYSTEM search index now: pull down
+on the Home Screen, type a session's name, land in its terminal — the
+result card shows the tagline (or cwd) so it says what the session is
+for. No entitlements, no signing; pure native reach the web cannot have.
+
+The details that make it right:
+- Donations are change-gated (names/taglines hash) — the index outlives
+  the process, so idle polls never touch it.
+- Sign-out CLEARS the index: session names on a signed-out phone are
+  exactly what signOut() promises to remove.
+- The tap routes through requestedSession — the same road notification
+  taps take, cold launch included.
+- spotlightEntries() is pure and tested: ports never index, tagline
+  first, cwd stands in.
+
+Tile parity, small and real: footers carry the same relative clock the
+rows show (how stale is this screen), headers the same agent glyphs
+(created-by-agent quiet, agent-permitted in glow).
+
+Suites: green by exit code, both.
+
 ## Taglines from the phone (iteration 167)
 
 Loop iteration, cashing the endpoint probed last round. The tagline is

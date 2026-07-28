@@ -172,6 +172,18 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// What each session contributes to the system Spotlight index: the name to
+/// find it by, and the tagline (or cwd) so the result card says what it's
+/// for. Pure so the shape is testable; the donation side effect stays thin.
+func spotlightEntries(_ sessions: [HopSession])
+    -> [(id: String, title: String, description: String)] {
+    sessions.filter { !$0.isPort }.map {
+        (id: $0.internalName,
+         title: $0.name,
+         description: $0.tagline.isEmpty ? $0.shortCwd : $0.tagline)
+    }
+}
+
 /// One utterance per session, shared by row and tile. VoiceOver walking a
 /// tile's twenty rendered terminal lines element-by-element is noise, not
 /// access — the summary is the session, not its pixels.
