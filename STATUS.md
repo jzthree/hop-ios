@@ -236,6 +236,20 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Idle screens stop repainting (iteration 164)
+
+Loop iteration, a perf round fixed at the SOURCE rather than cached at
+the edge: every poll wrote fresh ScreenPreview structs into the
+@Published stores even when the screen hadn't changed, and a @Published
+dict mutation re-renders every visible tile — an idle fleet rebuilt a
+dozen AttributedStrings every two seconds to draw the same pixels.
+ScreenPreview and ColorRun are Equatable now and both stores skip
+equal writes (text compares first, short-circuiting the rows for the
+common idle case). A test pins the equality semantics the skip rests
+on: identical screens equal, a colour-only change still invalidates.
+
+Suites: green by exit code, both.
+
 ## The two modes sound the same (iteration 163)
 
 Loop iteration: the accessibility-and-parity debts the new surfaces had

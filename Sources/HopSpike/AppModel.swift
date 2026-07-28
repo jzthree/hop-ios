@@ -405,7 +405,7 @@ final class AppModel: ObservableObject {
             }
             for await (name, text) in group {
                 guard epoch == authEpoch else { return }   // signed out mid-flight
-                if let text, !text.isEmpty { previews[name] = text }
+                if let text, !text.isEmpty, previews[name] != text { previews[name] = text }
             }
         }
     }
@@ -474,10 +474,13 @@ final class AppModel: ObservableObject {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = obj["text"] as? String else { return nil }
-        screens[internalName] = ScreenPreview(text: text,
-                                              cols: jsonInt(obj["cols"]) ?? 80,
-                                              rows: jsonInt(obj["rows"]) ?? 24,
-                                              colorRows: TileInk.decode(obj["color"]))
+        let sp = ScreenPreview(text: text,
+                               cols: jsonInt(obj["cols"]) ?? 80,
+                               rows: jsonInt(obj["rows"]) ?? 24,
+                               colorRows: TileInk.decode(obj["color"]))
+        // Same screen → no write → no re-render. The text comparison
+        // short-circuits the colour-rows one for the common idle case.
+        if screens[internalName] != sp { screens[internalName] = sp }
         return Self.meaningfulTail(of: text, lines: 3)
     }
 
@@ -668,8 +671,12 @@ struct HopSession: Identifiable {
     }
 }
 
-/// One session's whole rendered screen, for a switcher tile.
-struct ScreenPreview {
+/// One session's whole rendered screen, for a switcher tile. Equatable so
+/// the fetch can SKIP the store write when nothing changed — a @Published
+/// dict mutation re-renders every visible tile, and an idle fleet was
+/// rebuilding a dozen AttributedStrings every two seconds to draw the same
+/// pixels.
+struct ScreenPreview: Equatable {
     let text: String
     let cols: Int
     let rows: Int

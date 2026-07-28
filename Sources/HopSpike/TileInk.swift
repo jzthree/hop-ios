@@ -4,7 +4,7 @@ import SwiftUI
 /// reports it: text, optional foreground/background hex, optional faint flag.
 /// The daemon has already resolved every palette index to #rrggbb — the whole
 /// reason tiles can be colored without this app growing an ANSI parser.
-struct ColorRun {
+struct ColorRun: Equatable {
     let t: String
     let f: String?
     let b: String?

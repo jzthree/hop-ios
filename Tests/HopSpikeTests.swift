@@ -720,6 +720,16 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testScreenPreviewEqualityGatesTheStoreWrite() {
+        let rows = TileInk.decode([[["t": "x", "f": "#ff0000"]]])
+        let a = ScreenPreview(text: "same", cols: 80, rows: 24, colorRows: rows)
+        let b = ScreenPreview(text: "same", cols: 80, rows: 24, colorRows: rows)
+        XCTAssertEqual(a, b, "identical screens must compare equal, or the skip never fires")
+        let c = ScreenPreview(text: "same", cols: 80, rows: 24,
+                              colorRows: TileInk.decode([[["t": "x", "f": "#00ff00"]]]))
+        XCTAssertNotEqual(a, c, "a colour-only change must still invalidate")
+    }
+
     func testHighlightMatchesLightsEveryHitAndKeepsTheText() {
         let out = highlightMatches(in: "Error in hopper: hop failed", query: "hop")
         XCTAssertEqual(String(out.characters), "Error in hopper: hop failed",
