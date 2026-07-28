@@ -365,13 +365,10 @@ struct TerminalHostView: View {
                               systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
                     }
                 }
-                // The menu caps at twelve and the fleet runs nineteen: when
-                // the session you want isn't here, the way out used to be
-                // dismiss-the-menu, then back — two taps to discover the menu
-                // couldn't help. This makes it one.
-                Button { dismiss() } label: {
-                    Label("All sessions…", systemImage: "square.grid.2x2")
-                }
+                // No "All sessions…" row here anymore: the chrome bar's back
+                // chevron sits directly beside this menu, and two adjacent
+                // ways back read as unfinished work (Jian said exactly that).
+                // The chevron is the way out; this menu only switches.
             }
         } label: {
             HStack(spacing: 7) {
@@ -665,6 +662,7 @@ struct TerminalScreen: UIViewRepresentable {
         private var lastDeadToast = Date.distantPast
 
         private var pending = PendingInput()
+        private var lastReclaimAt = Date.distantPast
 
         /// Every keystroke goes through here: straight out on a live socket,
         /// buffered otherwise. A terminal's echo comes from the SERVER, so
@@ -677,8 +675,19 @@ struct TerminalScreen: UIViewRepresentable {
                 // grid, this keystroke makes us the recent typist — send our
                 // fitted size along with it so the terminal snaps back to this
                 // screen's shape the moment the user engages.
-                if peerHoldsSize, !observeOnly, fittedCols > 1, fittedRows > 1 {
-                    peerHoldsSize = false
+                //
+                // The flag is NOT cleared here. Clearing on send was a latch:
+                // the server refuses a reclaim while the peer typed <60s ago,
+                // the refusal rebroadcast repeats the size we had already
+                // adopted (so the adopt path saw nothing new), and with the
+                // flag optimistically false every later keystroke skipped
+                // reclaiming — measured on device as "never autofits back no
+                // matter how much I type". Now the reclaim retries with each
+                // keystroke, throttled, and only a CONFIRMED win (active_size
+                // matching our fitted grid) clears the flag.
+                if peerHoldsSize, !observeOnly, fittedCols > 1, fittedRows > 1,
+                   Date().timeIntervalSince(lastReclaimAt) > 1 {
+                    lastReclaimAt = Date()
                     client.sendResize(cols: fittedCols, rows: fittedRows)
                 }
                 client.sendInput(text)
@@ -909,6 +918,11 @@ struct TerminalScreen: UIViewRepresentable {
                         self.peerHoldsSize = true
                         mine.resize(cols: cols, rows: rows)
                         self.onGridChange()
+                    } else {
+                        // Grid already drawn at the peer's size — this is what
+                        // a REFUSED reclaim's rebroadcast looks like. Re-arm,
+                        // so the next keystroke keeps trying.
+                        self.peerHoldsSize = true
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —

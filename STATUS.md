@@ -236,6 +236,50 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Face ID, the reclaim latch, and one way back (iteration 150)
+
+Three from Jian in one stretch: biometric login ("which mobile hop already
+support"), a double back affordance ("i dont know whether you are half way
+done"), and the size that "does not autofit back even when i type".
+
+**Face ID lock (BioLock.swift).** The native answer, not the web's password
+prompt: the session stays authenticated; what Face ID protects is the phone
+changing hands. Locks on background and from the first frame of a cold
+launch (never a flash of fleet before the gate); .deviceOwnerAuthentication
+so a failed scan degrades to the passcode sheet; the lock screen keeps a
+sign-out escape hatch so nothing can hold the app hostage. A softer shield
+covers the app-switcher snapshot — iOS captures it as the app leaves, and
+without that the "locked" fleet is readable in the carousel. Toggle:
+Account → Security. NSFaceIDUsageDescription lives in project.yml (the
+plist is GENERATED; editing it directly lasted exactly one `make gen`).
+Sim probe: gate holds, fleet never renders behind it, sign-out reaches
+login. The system prompt itself can't rise under -hop-ui-testing — it's
+OS-owned UI with no Cancel on the sim, and it was eating the probe's taps.
+
+**The reclaim latch.** deliver() cleared peerHoldsSize on SEND. When the
+server refused the reclaim (peer typed <60s ago), the refusal rebroadcast
+repeated the size we had already adopted — the adopt path saw nothing new,
+so nothing re-armed, and with the flag false every later keystroke skipped
+reclaiming. One refused reclaim = "never autofits back no matter how much
+I type." Now: the flag clears only on CONFIRMED wins (active_size ==
+fitted), reclaim retries per keystroke (1s throttle), and the
+rebroadcast-of-what-we-drew case explicitly re-arms.
+
+**One way back.** The chrome bar's chevron sat beside a title menu that
+also carried "All sessions…" — two adjacent ways back reading as
+unfinished work. The menu row is gone; the chevron is the way out.
+
+**Keyboard-app question, answered:** no to a system keyboard extension.
+It can't auto-activate per-app (the HOST chooses keyboards, not the
+extension), needs Settings enrollment plus globe-key switching, and runs
+in a sandbox that can't see hop's state. The accessory bar already IS the
+"hop mode only when needed" behaviour — in-app, zero friction. If more
+keys are wanted, the bar grows (second row, long-press combos); the
+native ceiling for in-app input is a full custom inputView, still without
+any extension.
+
+Suites: 62 unit, 17 UI, green.
+
 ## Colour, and the wall goes to the glass (iteration 149)
 
 Jian: "better - continue!" Then, mid-round: some tiles stay "…", the left

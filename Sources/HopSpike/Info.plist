@@ -28,6 +28,8 @@
 	<string>$(HOP_GIT_DESCRIBE)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>hop locks your terminal sessions behind Face ID.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>hop connects to your hop daemon on the local network.</string>
 	<key>UIBackgroundModes</key>

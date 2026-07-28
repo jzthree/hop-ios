@@ -38,6 +38,7 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        NSFaceIDUsageDescription: "hop locks your terminal sessions behind Face ID."
         NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [io.zhoulab.hop.spike.refresh]

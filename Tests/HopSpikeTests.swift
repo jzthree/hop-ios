@@ -710,6 +710,16 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(out.first, "row26")
     }
 
+    func testBioLockLocksOnBackgroundOnly() {
+        // .inactive fires for the app-switcher flash, permission alerts and
+        // notification pulls — locking there is churn, not protection.
+        XCTAssertTrue(BioLock.shouldLock(enabled: true, phase: .background))
+        XCTAssertFalse(BioLock.shouldLock(enabled: true, phase: .inactive))
+        XCTAssertFalse(BioLock.shouldLock(enabled: true, phase: .active))
+        // Off means off, in every phase.
+        XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
+    }
+
     func testTileInkDecodesRunsAndTolneratesJunk() {
         let rows = TileInk.decode([
             [["t": "hi", "f": "#ffcc00", "o": 1], ["t": " there"]],

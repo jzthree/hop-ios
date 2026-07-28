@@ -6,6 +6,7 @@ struct AccountView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmSignOut = false
+    @State private var bioLockOn = BioLock.shared.enabled
     @State private var copied = false
     @StateObject private var network = NetworkConditions.shared
     @StateObject private var notifier = HopNotifier.shared
@@ -71,6 +72,20 @@ struct AccountView: View {
                         Label(err, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote).foregroundStyle(.orange)
                     }
+                }
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { bioLockOn },
+                        set: { on in
+                            bioLockOn = on
+                            BioLock.shared.enabled = on
+                        })) {
+                        Label("Require \(BioLock.biometryName)", systemImage: "faceid")
+                    }
+                } header: {
+                    Text("Security")
+                } footer: {
+                    Text("Locks hop when the app leaves the screen and on launch. Your passcode is the fallback when \(BioLock.biometryName) fails; the lock screen can always sign out.")
                 }
                 Section {
                     Button("Sign out", role: .destructive) { confirmSignOut = true }

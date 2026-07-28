@@ -60,6 +60,9 @@ struct HopApp: App {
     init() {
         // Must register before the app finishes launching.
         BackgroundRefresh.register(model: AppModel.shared)
+        // Locked from the first frame: the fleet must never flash before
+        // the gate on a cold launch.
+        BioLock.shared.armOnLaunch()
         // Dev-only: set the navigation request HERE, before any view exists,
         // so `make sim OPEN=X` exercises the real cold-launch path — the one a
         // quick action or a notification tap takes, where onChange can never
@@ -86,6 +89,7 @@ struct HopApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     model.foreground = phase == .active
+                    BioLock.shared.noteScene(phase)
                     // Ask for a background slot whenever we leave the
                     // foreground, so bells rung in a pocket still land.
                     if phase == .background { BackgroundRefresh.schedule() }
@@ -96,6 +100,7 @@ struct HopApp: App {
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject private var lock = BioLock.shared
 
     var body: some View {
         if model.checkingAuth {
@@ -106,7 +111,19 @@ struct RootView: View {
                 ProgressView()
             }
         } else if model.authenticated {
-            SessionsView()
+            if lock.locked {
+                // REPLACED, not overlaid: an overlay's content still exists
+                // in the hierarchy for accessibility tools to read.
+                LockView()
+            } else {
+                SessionsView()
+                    .overlay {
+                        // The app-switcher snapshot: iOS captures it as the
+                        // app leaves the foreground, and without this the
+                        // "locked" fleet is readable in the carousel.
+                        if lock.shielded { LockView(interactive: false) }
+                    }
+            }
         } else {
             LoginView()
         }
