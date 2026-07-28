@@ -720,6 +720,20 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testHighlightMatchesLightsEveryHitAndKeepsTheText() {
+        let out = highlightMatches(in: "Error in hopper: hop failed", query: "hop")
+        XCTAssertEqual(String(out.characters), "Error in hopper: hop failed",
+                       "highlighting must never alter the text")
+        // Two hits ("hopper", "hop"), each its own styled run.
+        let styled = out.runs.filter { $0.foregroundColor != nil }.count
+        XCTAssertEqual(styled, 2)
+        // Case-insensitive, and an empty query styles nothing.
+        XCTAssertEqual(highlightMatches(in: "HOP", query: "hop").runs
+            .filter { $0.foregroundColor != nil }.count, 1)
+        XCTAssertTrue(highlightMatches(in: "text", query: "  ").runs
+            .allSatisfy { $0.foregroundColor == nil })
+    }
+
     func testSessionBusyToleratesBothUnitsAndExpires() {
         let nowS = 1_785_226_000.0
         // Milliseconds (what the daemon actually sends) and seconds both work:

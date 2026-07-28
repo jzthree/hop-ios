@@ -172,6 +172,26 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// The query, lit inside its snippet: every case-insensitive occurrence
+/// brightened and bolded. The server already FOUND the text — the eye
+/// shouldn't have to find it again inside the snippet.
+func highlightMatches(in snippet: String, query: String) -> AttributedString {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    guard !q.isEmpty else { return AttributedString(snippet) }
+    var out = AttributedString()
+    var rest = Substring(snippet)
+    while let r = rest.range(of: q, options: .caseInsensitive) {
+        out += AttributedString(String(rest[..<r.lowerBound]))
+        var hit = AttributedString(String(rest[r]))
+        hit.foregroundColor = .hopGlow
+        hit.font = .caption2.monospaced().weight(.bold)
+        out += hit
+        rest = rest[r.upperBound...]
+    }
+    out += AttributedString(String(rest))
+    return out
+}
+
 /// "Producing output right now": activity within the last ten seconds —
 /// the wall's poll cadence plus slack, so the pulse survives between
 /// refreshes without lying for long after a session goes quiet. The daemon

@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The wall learns projects; search lights its matches (iteration 161)
+
+Loop iteration, two switcher rough edges.
+
+**The tile wall honours project grouping.** Group-by-project only ever
+worked in list mode; the wall now renders the same sections — a
+~/Code/hop2 header over its tiles, ~/Code/roomscroll over its own —
+through the existing `sections` computed (one unlabelled bucket when
+grouping is off, so the ungrouped render is untouched). Screenshot-
+verified with HOP_DEV_GROUP=1.
+
+**Search results light their matches.** highlightMatches() bolds and
+brightens every case-insensitive hit inside the server-side snippet —
+the server already found the text; the eye shouldn't have to find it
+again. Pure and tested: characters never altered, hit-count of styled
+runs, whitespace-only queries style nothing. The visual is a one-line
+Text() swap over that tested core; the probe screenshot chased 17
+matching tiles and stopped short of the section, and the unit tests
+carry the verification instead.
+
+Suites: green by exit code, both.
+
 ## The widget: written, sim-verified, parked at the signing gate (iteration 160)
 
 Loop iteration. The Home Screen widget — the purest native advantage

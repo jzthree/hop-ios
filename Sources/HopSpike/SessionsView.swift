@@ -265,6 +265,10 @@ struct SessionsView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
             }
             if switcherTiles {
+                // The wall honours project grouping the same way the list
+                // does — `sections` is one unlabelled bucket when grouping is
+                // off, so the ungrouped render is unchanged.
+                ForEach(sections, id: \.label) { tileSection in
                 Section {
                     // Adaptive, not a fixed pair: two columns on a portrait
                     // phone, four in landscape or on an iPad — the wall uses
@@ -272,7 +276,7 @@ struct SessionsView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 280),
                                                  spacing: 8)],
                               spacing: 8) {
-                        ForEach(visible) { session in
+                        ForEach(tileSection.rows) { session in
                             Button { path.append(session.internalName) } label: {
                                 SessionTile(session: session,
                                             screen: model.screens[session.internalName])
@@ -310,6 +314,9 @@ struct SessionsView: View {
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                } header: {
+                    if !tileSection.label.isEmpty { Text(tileSection.label) }
+                }
                 }
             } else {
             ForEach(sections, id: \.label) { section in
@@ -327,7 +334,7 @@ struct SessionsView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(match.name)
                                     .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                                Text(match.snippet)
+                                Text(highlightMatches(in: match.snippet, query: filter))
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
