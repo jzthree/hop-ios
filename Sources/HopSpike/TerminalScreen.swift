@@ -64,6 +64,8 @@ struct TerminalHostView: View {
     @State private var iHoldControl = false
     @State private var lockedByOther = false
     @State private var scrolledUp = false
+    /// "76×24" while a peer/default size holds the grid — the size chip.
+    @State private var peerSize: String?
     @State private var links: [String] = []
     @State private var showLinks = false
     /// Renaming happens on the desktop too; without this the title here stays
@@ -136,7 +138,8 @@ struct TerminalHostView: View {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
                        },
                        onBackSwipe: { dismiss() },
-                       onFitRefresh: { fitTick += 1 })
+                       onFitRefresh: { fitTick += 1 },
+                       onSizeState: { peerSize = $0 })
     }
 
     var body: some View {
@@ -194,6 +197,28 @@ struct TerminalHostView: View {
                     // The scrollback stays readable behind it — the last thing
                     // the session printed is usually why you opened it.
                     .transition(.opacity)
+                }
+            }
+            // PLAN.md item 1: the re-entry size lottery, made visible. The
+            // chip names the size that holds the grid; the tap asks for
+            // ours. A refusal (someone typed recently) re-arms it — state,
+            // not magic.
+            .overlay(alignment: .topTrailing) {
+                if let peerSize, goneReason == nil {
+                    Button {
+                        controlAction = .claimSize
+                    } label: {
+                        Label("\(peerSize) — take mine", systemImage: "arrow.down.right.and.arrow.up.left.rectangle")
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+                    }
+                    .tint(.hopGlow)
+                    .padding(.top, windowTopInset() + 46)
+                    .padding(.trailing, 8)
+                    .transition(.opacity)
+                    .accessibilityLabel("Session is \(peerSize). Tap to take your size.")
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -544,7 +569,7 @@ struct FindRequest: Equatable {
     let direction: Int
 }
 
-enum ControlAction { case take, release, lock, unlock, links }
+enum ControlAction { case take, release, lock, unlock, links, claimSize }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -578,12 +603,17 @@ struct TerminalScreen: UIViewRepresentable {
     var onChromeTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
     var onFitRefresh: () -> Void = {}
+    /// "76×24" while a peer/default size holds the grid, nil when the grid
+    /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
+    /// lottery becomes visible state with a one-tap exit.
+    var onSizeState: (String?) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
                     onFontChange: onFontChange, onRenamed: onRenamed, onGone: onGone,
-                    onPresence: onPresence, onCollab: onCollab, onScroll: onScroll) { status = $0 }
+                    onPresence: onPresence, onCollab: onCollab, onScroll: onScroll,
+                    onSizeState: onSizeState) { status = $0 }
     }
 
     func makeUIView(context: Context) -> HopTermView {
@@ -692,6 +722,7 @@ struct TerminalScreen: UIViewRepresentable {
         private let urlSession: URLSession
         private let room: String
         private let pushStatus: (TerminalHostView.ConnState) -> Void
+        let onSizeState: (String?) -> Void
         private var isLive = false
         /// A peer holds the PTY size (we adopted theirs). While true, layout
         /// changes do NOT re-send our fitted size: every keyboard show/hide
@@ -833,8 +864,10 @@ struct TerminalScreen: UIViewRepresentable {
              onPresence: @escaping ([HayClient.Viewer]) -> Void,
              onCollab: @escaping (Bool, Bool, Bool) -> Void,
              onScroll: @escaping (Bool) -> Void,
+             onSizeState: @escaping (String?) -> Void,
              setStatus: @escaping (TerminalHostView.ConnState) -> Void) {
             self.onScroll = onScroll
+            self.onSizeState = onSizeState
             self.onToast = onToast
             self.onLinks = onLinks
             self.onFontChange = onFontChange
@@ -983,10 +1016,12 @@ struct TerminalScreen: UIViewRepresentable {
                     self.electedRows = rows
                     if cols == self.fittedCols && rows == self.fittedRows {
                         self.peerHoldsSize = false      // our size won; normal rules
+                        self.onSizeState(nil)
                     } else if mine.cols != cols || mine.rows != rows {
                         Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                             .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
                         self.peerHoldsSize = true
+                        self.onSizeState("\(cols)×\(rows)")
                         mine.resize(cols: cols, rows: rows)
                         self.onGridChange()
                     } else {
@@ -994,6 +1029,7 @@ struct TerminalScreen: UIViewRepresentable {
                         // a REFUSED reclaim's rebroadcast looks like. Re-arm,
                         // so the next keystroke keeps trying.
                         self.peerHoldsSize = true
+                        self.onSizeState("\(cols)×\(rows)")
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —
@@ -1069,6 +1105,13 @@ struct TerminalScreen: UIViewRepresentable {
             case .lock: client.setCollab(false)
             case .unlock: client.setCollab(true)
             case .links: onLinks(visibleLinks())
+            case .claimSize:
+                // The chip's tap: ask for our fitted size. The election may
+                // refuse (someone typed recently) — the refusal rebroadcast
+                // re-arms the chip, which is the honest answer.
+                if fittedCols > 1, fittedRows > 1 {
+                    client.sendResize(cols: fittedCols, rows: fittedRows)
+                }
             }
         }
 

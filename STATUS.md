@@ -236,6 +236,24 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The size chip, and the loop reborn (iteration 180)
+
+Jian refined the study mid-round: the wrong size strikes on RETURN FROM
+IDLE — background, come back, wrong grid. And he asked for a
+planning-and-implement loop with an interval of my choosing: armed at
+30 minutes, reading PLAN.md each round.
+
+First round shipped the chip: whenever a peer/default size holds the
+grid, a capsule under the pill says so — "90×44 — take mine" — and the
+tap claims the phone's size. A refusal (someone typed recently) re-arms
+it: state, not magic. Probe-verified against a harness-held 90×44:
+chip appears, tap under an active holder is refused, chip persists.
+The re-entry size lottery is at least VISIBLE now, with an exit.
+
+The wake-path sequencing (stale fitted dims at snapshot time; auto
+re-claim when the refusing typist goes idle) is PLAN.md's top item.
+Fast paint was cleared by reading: its resize is snapshotLanded-gated.
+
 ## Re-entry sizes, studied (iteration 179)
 
 Jian: returning to a session sometimes shows the wrong size/formatting,
