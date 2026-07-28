@@ -236,6 +236,35 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The chord palette ships; the deep link hits a landmine (iteration 170)
+
+Loop iteration, two halves, one honest split.
+
+**Shipped: hold ctrl for the chord palette.** Eight combos — ^C ^R ^L
+^Z ^D ^A ^E ^K — each labelled by what it DOES ("^R search history"),
+because "^R" alone assumes the muscle memory the palette exists to
+replace. One gesture instead of arm-ctrl-then-hunt. Tap still arms
+(probe-asserted); chords ride AccessoryKey.sequence through deliver(),
+so the reclaim path and press haptic apply; the masking is the armed
+path's exact 0x1f AND, unit-tested, case-insensitive, nil for
+non-letters. A repeating ^C is destructive, so it doesn't.
+
+**Parked: hop:// deep links, at a genuine landmine.** The scheme is
+registered (verified in the installed app's plist), the widget's rows
+now carry hop://session/<internalName> links, FleetSnapshot.Row gained
+internalName while the wire format is still free to change — but URL
+DELIVERY never happens: SwiftUI's .onOpenURL doesn't fire (the custom
+scene delegate for quick actions swallows it — known behaviour), and,
+measured by instrumented logs, NEITHER do the delegate's
+scene(_:openURLContexts:) nor the app delegate's application(_:open:).
+Three rebuild-and-fire cycles, zero route logs. Navigation itself is
+fine (HOP_DEV_OPEN opens Orion in the same build). The routing code and
+instrumentation stay in place; the delivery mystery needs its own
+focused session rather than a fourth blind cycle — and widget links
+only matter after the widget unparks anyway.
+
+Suites: green by exit code, both.
+
 ## Siri learns the fleet (iteration 169)
 
 Loop iteration, the Spotlight sibling: App Intents. Two actions, no

@@ -1470,9 +1470,12 @@ struct TerminalScreen: UIViewRepresentable {
 }
 
 // ── Accessory key bar ──
-enum AccessoryKey {
+enum AccessoryKey: Equatable {
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace
+    /// A control chord from the ctrl key's hold-palette: one gesture sends
+    /// ^R instead of arm-ctrl-then-find-R on the system keyboard.
+    case ctrlCombo(Character)
 
     /// What this key puts on the wire; nil for keys that only arm a modifier
     /// or dismiss the keyboard. Data rather than a switch full of send calls,
@@ -1496,6 +1499,11 @@ enum AccessoryKey {
         // THIS key sat one row above the system delete — two ⌫ glyphs, one
         // thumb. Hold-to-delete vanished the release after the removal.
         case .backspace: return "\u{7f}"
+        // Same masking the armed-ctrl path applies to typed letters.
+        case .ctrlCombo(let ch):
+            guard let ascii = ch.lowercased().first?.asciiValue,
+                  ascii >= 0x61, ascii <= 0x7a else { return nil }
+            return String(UnicodeScalar(ascii & 0x1f))
         case .pageUp: return "\u{1b}[5~"
         case .pageDown: return "\u{1b}[6~"
         case .up: return "\u{1b}[A"
@@ -1511,6 +1519,7 @@ enum AccessoryKey {
     var spokenName: String {
         switch self {
         case .shiftTab: return "shift tab"
+        case .ctrlCombo(let ch): return "control \(ch)"
         case .backspace: return "backspace"
         case .pageUp: return "page up"
         case .pageDown: return "page down"
@@ -2127,7 +2136,24 @@ final class HopTermView: TerminalView {
             btn.titleLabel?.numberOfLines = 1
             btn.translatesAutoresizingMaskIntoConstraints = false
             btn.widthAnchor.constraint(equalToConstant: width).isActive = true
-            if key == .ctrl { ctrlButton = btn }
+            if key == .ctrl {
+                ctrlButton = btn
+                // Hold for the chord palette: tap still arms, hold offers the
+                // combos a terminal actually reaches for. Labels say what the
+                // chord DOES — "^R" alone assumes the muscle memory this
+                // palette exists to replace.
+                btn.menu = UIMenu(title: "Send control key", children: [
+                    ("^C  interrupt", "c"), ("^R  search history", "r"),
+                    ("^L  redraw", "l"), ("^Z  suspend", "z"),
+                    ("^D  end input", "d"), ("^A  line start", "a"),
+                    ("^E  line end", "e"), ("^K  cut to end", "k"),
+                ].map { label, ch in
+                    UIAction(title: label) { [weak self] _ in
+                        self?.keyHandler?.accessoryKey(.ctrlCombo(Character(ch)))
+                    }
+                })
+                btn.accessibilityHint = "Hold for control combos"
+            }
             if key == .alt { altButton = btn }
             // One handler owns the cap's colour in every state, pressed and
             // armed both — the armed setters merely change accessibilityValue

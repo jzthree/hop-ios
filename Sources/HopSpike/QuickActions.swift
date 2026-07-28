@@ -1,3 +1,4 @@
+import CoreSpotlight
 import UIKit
 import os
 
@@ -63,6 +64,41 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
         if let item = connectionOptions.shortcutItem {
             Task { @MainActor in QuickActions.handle(item) }
         }
+        for ctx in connectionOptions.urlContexts { Self.route(ctx.url) }
+        for activity in connectionOptions.userActivities { Self.route(activity) }
+    }
+
+    /// Spotlight taps arrive as user activities — and land HERE, not in
+    /// SwiftUI's .onContinueUserActivity, for the same reason the URLs do:
+    /// the custom scene delegate owns the scene.
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        Self.route(userActivity)
+    }
+
+    static func route(_ activity: NSUserActivity) {
+        guard activity.activityType == CSSearchableItemActionType,
+              let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String
+        else { return }
+        Task { @MainActor in AppModel.shared.requestedSession = id }
+    }
+
+    /// hop://session/<internalName>. This delegate EXISTS (for quick
+    /// actions), and a custom scene delegate silently swallows SwiftUI's
+    /// .onOpenURL — measured: simctl openurl foregrounded the app and
+    /// nothing navigated. URLs must be handled here, warm and cold both.
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
+            .info("openURLContexts: \(URLContexts.count)")
+        for ctx in URLContexts { Self.route(ctx.url) }
+    }
+
+    static func route(_ url: URL) {
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
+            .info("route url: \(url.absoluteString)")
+        guard url.scheme == "hop", url.host == "session" else { return }
+        let id = url.lastPathComponent
+        guard !id.isEmpty, id != "session" else { return }
+        Task { @MainActor in AppModel.shared.requestedSession = id }
     }
 
     /// The completion-handler form, not the async one. UIKit calls this on the
@@ -111,6 +147,14 @@ final class PushRegistry: ObservableObject {
 }
 
 final class HopAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ app: UIApplication, open url: URL,
+                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        Logger(subsystem: "io.zhoulab.hop.spike", category: "route")
+            .info("appDelegate open url: \(url.absoluteString)")
+        HopSceneDelegate.route(url)
+        return true
+    }
+
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
         Task { @MainActor in PushRegistry.shared.received(token) }

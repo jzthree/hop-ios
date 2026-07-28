@@ -349,7 +349,8 @@ final class AppModel: ObservableObject {
     private func publishFleetSnapshot() {
         let browsable = sessions.filter { !$0.isPort && !$0.parked }
         let rows = browsable.prefix(4).map {
-            FleetSnapshot.Row(name: $0.name, attention: $0.attention,
+            FleetSnapshot.Row(internalName: $0.internalName,
+                              name: $0.name, attention: $0.attention,
                               live: $0.live,
                               tagline: $0.tagline.isEmpty ? $0.shortCwd : $0.tagline)
         }

@@ -44,6 +44,11 @@ targets:
         NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [io.zhoulab.hop.spike.refresh]
+        # hop://session/<internalName> — the deep-link road for widget rows,
+        # cross-app links and anything else that can open a URL.
+        CFBundleURLTypes:
+          - CFBundleURLName: io.zhoulab.hop.spike
+            CFBundleURLSchemes: [hop]
     entitlements:
       # GENERATED from these properties — editing HopSpike.entitlements
       # directly is silently overwritten with an empty dict, exactly like

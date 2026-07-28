@@ -28,10 +28,10 @@ struct FleetProvider: TimelineProvider {
     func placeholder(in context: Context) -> FleetEntry {
         FleetEntry(date: .now, snapshot: FleetSnapshot(
             updatedAt: .now, wanting: 1, total: 12,
-            rows: [.init(name: "Orion", attention: true, live: true,
-                         tagline: "Improving the session switcher"),
-                   .init(name: "Solstice", attention: false, live: true,
-                         tagline: "Fixing terminal issues")]))
+            rows: [.init(internalName: "Orion", name: "Orion", attention: true,
+                         live: true, tagline: "Improving the session switcher"),
+                   .init(internalName: "Solstice", name: "Solstice", attention: false,
+                         live: true, tagline: "Fixing terminal issues")]))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (FleetEntry) -> Void) {
@@ -112,19 +112,26 @@ struct FleetMediumView: View {
             }
             if let snap = entry.snapshot, !snap.rows.isEmpty {
                 ForEach(snap.rows.prefix(4), id: \.self) { row in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(row.attention ? Color.wAttention
-                                  : row.live ? Color.wLive : Color.wDead)
-                            .frame(width: 5, height: 5)
-                        Text(row.name)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .lineLimit(1)
-                        Text(row.tagline)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
+                    // Each row deep-links straight into its session via the
+                    // hop:// scheme the app registers.
+                    Link(destination: URL(string: "hop://session/" +
+                        (row.internalName.addingPercentEncoding(
+                            withAllowedCharacters: .urlPathAllowed) ?? row.internalName))
+                         ?? URL(string: "hop://session")!) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(row.attention ? Color.wAttention
+                                      : row.live ? Color.wLive : Color.wDead)
+                                .frame(width: 5, height: 5)
+                            Text(row.name)
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .lineLimit(1)
+                            Text(row.tagline)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
                     }
                 }
                 Spacer(minLength: 0)

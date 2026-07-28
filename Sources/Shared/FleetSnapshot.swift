@@ -14,6 +14,8 @@ struct FleetSnapshot: Codable {
     var rows: [Row]
 
     struct Row: Codable, Hashable {
+        /// The routing key — hop://session/<internalName> deep links.
+        var internalName: String
         var name: String
         var attention: Bool
         var live: Bool

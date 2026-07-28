@@ -720,6 +720,17 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testCtrlComboMasksLikeTheArmedPath() {
+        XCTAssertEqual(AccessoryKey.ctrlCombo("a").sequence, "\u{01}")
+        XCTAssertEqual(AccessoryKey.ctrlCombo("r").sequence, "\u{12}")
+        XCTAssertEqual(AccessoryKey.ctrlCombo("l").sequence, "\u{0c}")
+        XCTAssertEqual(AccessoryKey.ctrlCombo("z").sequence, "\u{1a}")
+        XCTAssertEqual(AccessoryKey.ctrlCombo("C").sequence, "\u{03}",
+                       "case-insensitive, same as holding shift at a real keyboard")
+        XCTAssertNil(AccessoryKey.ctrlCombo("1").sequence, "non-letters send nothing")
+        XCTAssertFalse(AccessoryKey.ctrlCombo("c").repeats, "a repeating ^C is destructive")
+    }
+
     func testFleetStatusLineSpeaksLikeASentence() {
         XCTAssertEqual(fleetStatusLine(wanting: 0, total: 0), "No sessions running.")
         XCTAssertEqual(fleetStatusLine(wanting: 0, total: 1),
