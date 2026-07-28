@@ -236,6 +236,31 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The double-scroll, latched out (iteration 175)
+
+Jian, from the device: scrolling a claude session sometimes scrolled
+the page AND claude's transcript at once — intermittently, cause
+unclear. The mechanism was sitting in the code: `sink` (wheel to the
+app vs move the local viewport) is parsed live out of the output
+stream, and claude toggles those modes as it redraws — so one drag's
+ticks could split between sinks when a toggle landed mid-gesture. Both
+motions in one gesture, only when claude happened to redraw during it:
+exactly "sometimes but not always."
+
+Fix: one sink per GESTURE. Latched at touch-down, held through the
+coast, cleared by stopMomentum. When the remote mode changes under a
+live gesture the gesture ENDS rather than switching — switching
+mid-coast would also fire SGR wheel bytes at an app that just stopped
+listening, which arrive as typed garbage (a second bug the same latch
+prevents). A log line marks any gesture ended this way, so the field
+will show how often the race actually fires.
+
+Honest verification boundary: the race needs claude to toggle modes
+mid-gesture, which can't be produced on cue — the mechanism is
+confirmed by reading, mixed delivery is now structurally impossible,
+and the full scroll suite (drag, flick, coast, brake, swipe-back)
+passes unchanged on the latched path.
+
 ## The well, surveyed honestly (iteration 174)
 
 Loop iteration spent on the last open capability question, then on

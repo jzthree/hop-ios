@@ -1672,6 +1672,7 @@ final class HopTermView: TerminalView {
         case .began:
             stopMomentum()
             scrollDebt = 0
+            gestureSink = sink
         case .changed:
             // Incremental: the debt engine consumes travel, so read the
             // translation as a delta and reset it each time.
@@ -1697,13 +1698,32 @@ final class HopTermView: TerminalView {
     private var scrollDebt: CGFloat = 0
     private static let rowsPerPageKey = 3
 
+    /// One sink per GESTURE. The live `sink` is parsed out of the output
+    /// stream, and claude toggles those modes as it redraws — re-reading it
+    /// per tick could split a single drag between "wheel to the app" and
+    /// "move the local viewport": both scrolled at once, intermittently
+    /// (measured on device by Jian, mechanism confirmed in code). Latched at
+    /// touch-down and held through the coast; when the mode changes UNDER a
+    /// gesture the gesture ends rather than switching, because switching
+    /// mid-coast would also fire SGR wheel bytes at an app that just stopped
+    /// listening — and those arrive as typed garbage.
+    private var gestureSink: ScrollSink?
+
     private func applyScrollDebt() {
         let terminal = getTerminal()
         let cell = drawnCellHeight(viewHeight: bounds.height,
                                    drawnRows: drawnRows, terminalRows: terminal.rows)
         let log = Self.log
 
-        switch sink {
+        if gestureSink == nil { gestureSink = sink }   // momentum-only entry
+        guard let gs = gestureSink else { return }
+        if gs != sink {
+            log.info("scroll gesture ended: remote mode changed under it")
+            stopMomentum()
+            return
+        }
+
+        switch gs {
         case .wheel:
             let rows = Int(scrollDebt / cell)          // truncates toward zero
             guard rows != 0 else { return }
@@ -1876,7 +1896,7 @@ final class HopTermView: TerminalView {
         // A local viewport already parked at the oldest line has nothing left
         // to reveal, and the debt would grow without bound — enough of it and
         // the flick back the other way would be swallowed doing nothing.
-        let stuckAtTop = wasAtTop && points > 0 && sink == .viewport
+        let stuckAtTop = wasAtTop && points > 0 && gestureSink == .viewport
         if stuckAtTop { stopMomentum() }
     }
 
@@ -1888,6 +1908,7 @@ final class HopTermView: TerminalView {
         panMomentumY.stop()
         panActive = false
         scrollDebt = 0
+        gestureSink = nil
     }
 
     private var installedTheme: Bool = false
