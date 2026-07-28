@@ -236,6 +236,20 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Presence on the wall (iteration 173)
+
+Loop iteration. The daemon has always said which sessions have a client
+ATTACHED right now (the deep-link experiment surfaced the field); the
+terminal shows viewers, but the wall said nothing. Now both switcher
+modes wear a small eye beside the name when someone is on the session —
+the desk browser, the CLI, another phone. Glance value: "is anyone
+looking at this?" before you open it. VoiceOver speaks it ("someone
+attached") through the shared summary, so both modes still sound
+identical. Verified live: the eye sat beside Solstice — the one
+attached session at probe time — and nowhere else.
+
+Suites: green and GATED, both.
+
 ## The wipeout: one latent line, and a half-learned lesson (iteration 172, addendum)
 
 The 172 ship went out on a RED UI suite — 33 failures, every test — and

@@ -669,6 +669,9 @@ struct HopSession: Identifiable {
     let createdBy: String
     let tagline: String
     let agentPermitted: Bool
+    /// A client is on this session's PTY right now — the desk's browser, the
+    /// CLI, another phone. Presence at wall distance.
+    let attached: Bool
     /// Hidden from the browsing list while still running. hop's word for "not
     /// part of my working set right now", and the phone honouring it is the
     /// whole point — a session parked from the desk that keeps appearing in
@@ -691,6 +694,7 @@ struct HopSession: Identifiable {
         isPort = (json["type"] as? String) == "port"
         attention = bellSeq > (seenBellSeq[internalName] ?? bellSeq)
         agentPermitted = (json["agentPermitted"] as? Bool) ?? false
+        attached = (json["attached"] as? Bool) ?? false
         // Both are `true` or absent — the daemon omits them rather than
         // sending false, so a missing key means "no".
         parked = (json["parked"] as? Bool) ?? false

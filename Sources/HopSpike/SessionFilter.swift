@@ -201,6 +201,7 @@ func sessionSpokenSummary(_ session: HopSession) -> String {
     if session.attention { parts.append("wants attention") }
     parts.append(session.live ? "running" : "stopped")
     if !session.runningApp.isEmpty { parts.append(session.runningApp) }
+    if session.attached { parts.append("someone attached") }
     if !session.tagline.isEmpty { parts.append(session.tagline) }
     parts.append("active \(session.relativeTime) ago")
     return parts.joined(separator: ", ")

@@ -814,6 +814,11 @@ struct SessionRow: View {
                         Image(systemName: "cpu").font(.caption2)
                             .foregroundStyle(Color.hopGlow.opacity(0.8))
                     }
+                    // Presence at list distance — same eye the tiles wear.
+                    if session.attached {
+                        Image(systemName: "eye.fill").font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
 
                 }
                 if !session.tagline.isEmpty {

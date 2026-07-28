@@ -67,6 +67,12 @@ struct SessionTile: View {
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
+            // Someone is ON this session right now — the desk browser, the
+            // CLI, another phone. The eye is presence at wall distance.
+            if session.attached {
+                Image(systemName: "eye.fill").font(.system(size: 7))
+                    .foregroundStyle(.secondary)
+            }
             // Same agent glyphs the rows carry: created-by-agent quiet,
             // agent-permitted in glow.
             if session.createdBy == "agent" {
