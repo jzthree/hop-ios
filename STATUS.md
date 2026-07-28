@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Health re-swept; the debt was mine and is paid (iteration 172)
+
+Loop iteration on verification, since a lot of code landed after the
+165 sweep (tips, tagline, Spotlight, intents, palette, URL routing).
+
+- tsan: 0 races, again.
+- strict: 8 warnings — the named baseline of 5 plus THREE NEW, all
+  mine, all in the Spotlight publisher (CoreSpotlight types captured
+  across a @Sendable boundary). Fixed properly: the searchable items
+  are built inside the detached task from Sendable string tuples, and
+  the module import is @preconcurrency. Strict is back to exactly the
+  named baseline of 5. The rule held: the old machinery's warnings are
+  a deliberate baseline; NEW warnings are debts, and they got paid the
+  round they were noticed.
+
+Memory updated with the two simulator traps from 171 (openurl drops
+custom schemes silently; logd hides os.Logger lines) so no future
+session re-buys those lessons.
+
+Suites: green by exit code, both.
+
 ## The landmine defused: the sim was lying, the phone routes (iteration 171)
 
 The focused session iteration 170 asked for. Verdict: the deep-link

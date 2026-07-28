@@ -1,4 +1,4 @@
-import CoreSpotlight
+@preconcurrency import CoreSpotlight
 import SwiftUI
 import WidgetKit
 import os
@@ -378,18 +378,22 @@ final class AppModel: ObservableObject {
         let key = hasher.finalize()
         guard key != lastSpotlightKey else { return }
         lastSpotlightKey = key
-        let items = entries.map { e in
-            let attrs = CSSearchableItemAttributeSet(contentType: .item)
-            attrs.title = e.title
-            attrs.contentDescription = e.description
-            attrs.keywords = ["hop", "terminal", e.title]
-            return CSSearchableItem(uniqueIdentifier: e.id,
-                                    domainIdentifier: "io.zhoulab.hop.sessions",
-                                    attributeSet: attrs)
-        }
-        let index = CSSearchableIndex.default()
-        index.deleteSearchableItems(withDomainIdentifiers: ["io.zhoulab.hop.sessions"]) { _ in
-            index.indexSearchableItems(items)
+        // The CS types are not Sendable; the String tuples are. Build the
+        // items INSIDE the detached task so nothing non-Sendable crosses the
+        // boundary — this was three strict-mode warnings, all mine.
+        Task.detached(priority: .utility) {
+            let items = entries.map { e in
+                let attrs = CSSearchableItemAttributeSet(contentType: .item)
+                attrs.title = e.title
+                attrs.contentDescription = e.description
+                attrs.keywords = ["hop", "terminal", e.title]
+                return CSSearchableItem(uniqueIdentifier: e.id,
+                                        domainIdentifier: "io.zhoulab.hop.sessions",
+                                        attributeSet: attrs)
+            }
+            let index = CSSearchableIndex.default()
+            try? await index.deleteSearchableItems(withDomainIdentifiers: ["io.zhoulab.hop.sessions"])
+            try? await index.indexSearchableItems(items)
         }
     }
 
