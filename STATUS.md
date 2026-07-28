@@ -236,6 +236,23 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Park, and the front door matches the house (iteration 157)
+
+Loop iteration. Parking was the web switcher's triage verb the app never
+had — the daemon side existed (unpark-on-open used it), but nothing on
+the phone could SET it. Now: swipe a row (indigo moon, beside Rename and
+Kill) or long-press a row or tile. Parked sessions leave the browse list,
+keep running, stay searchable, and the summary counts them — all
+behaviour that already existed and now has its missing half. Endpoint
+probed both directions with a scratch session first (created → parked →
+verified → deleted); the fleet was never touched.
+
+The login screen's fields joined the material system — hopRaised with
+hairline strokes, same as the new-session sheet — replacing the stock
+quaternary wash. The hare, glow and mono wordmark were already right.
+
+Suites: 69 unit, 17 UI, green.
+
 ## New sessions start where the work is (iteration 156)
 
 Loop iteration. The "+" flow was a bare alert asking for a name; a phone

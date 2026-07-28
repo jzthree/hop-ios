@@ -127,6 +127,11 @@ struct SessionsView: View {
                       systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+            Button {
+                Task { _ = await model.setParked(session, parked: true) }
+            } label: {
+                Label("Park", systemImage: "moon.zzz")
+            }
             Button(role: .destructive) { killTarget = session } label: {
                 Label("Kill", systemImage: "xmark.circle")
             }
@@ -143,6 +148,15 @@ struct SessionsView: View {
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                 .tint(.hopPurple)
+            // Parking is the web switcher's triage verb the app never had:
+            // out of the working set, still running, still searchable.
+            // Opening it again (via search) unparks it — that half existed.
+            Button {
+                Task { _ = await model.setParked(session, parked: true) }
+            } label: {
+                Label("Park", systemImage: "moon.zzz")
+            }
+            .tint(.indigo)
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             // Triage without opening anything. Three agents each waiting on a
@@ -285,6 +299,11 @@ struct SessionsView: View {
                                     Label("Reply", systemImage: "arrowshape.turn.up.left")
                                 }
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+                                Button {
+                                    Task { _ = await model.setParked(session, parked: true) }
+                                } label: {
+                                    Label("Park", systemImage: "moon.zzz")
+                                }
                                 Button(role: .destructive) { killTarget = session } label: {
                                     Label("Kill", systemImage: "xmark.circle")
                                 }

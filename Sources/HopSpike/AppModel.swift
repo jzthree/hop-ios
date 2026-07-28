@@ -328,14 +328,24 @@ final class AppModel: ObservableObject {
     func setAgentAccess(_ s: HopSession, allowed: Bool) async -> Bool {
         await post("api/sessions/agent-permission", ["internalName": s.internalName, "allowed": allowed])
     }
+    /// Parking is "not part of my working set right now", not "gone" — the
+    /// session keeps running, it just leaves the browse list (and stays
+    /// searchable). The refresh makes the change visible immediately instead
+    /// of on the next poll.
+    func setParked(_ s: HopSession, parked: Bool) async -> Bool {
+        let ok = await post("api/sessions/park",
+                            ["internalName": s.internalName, "parked": parked])
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
+
     /// Opening a parked session IS unparking it — the same rule hop's own
     /// switcher follows. You went looking for it and opened it, so it is back
     /// in the working set, on every client rather than just this one.
     /// Best-effort: a failure leaves it parked, which is what it already was.
     func unpark(_ s: HopSession) async {
         guard s.parked else { return }
-        _ = await post("api/sessions/park", ["internalName": s.internalName, "parked": false])
-        await refreshSessions(silent: true)
+        _ = await setParked(s, parked: false)
     }
 
     func killSession(_ s: HopSession) async -> Bool {

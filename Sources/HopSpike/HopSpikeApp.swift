@@ -211,12 +211,16 @@ struct LoginView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                         .padding(12)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
                     SecureField("password", text: $password)
                         .textContentType(.password)
                         .focused($focus, equals: .password)
                         .padding(12)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
                     TextField("authenticator code", text: $totp)
                         .textContentType(.oneTimeCode)
                         .keyboardType(.numberPad)
@@ -231,7 +235,9 @@ struct LoginView: View {
                             if clean.count == 6, !busy, !password.isEmpty { submit() }
                         }
                         .padding(12)
-                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
                 }
                 .font(.system(.body, design: .monospaced))
 
