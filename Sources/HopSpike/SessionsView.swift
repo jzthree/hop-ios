@@ -262,8 +262,11 @@ struct SessionsView: View {
             }
             if switcherTiles {
                 Section {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
-                                        GridItem(.flexible(), spacing: 8)],
+                    // Adaptive, not a fixed pair: two columns on a portrait
+                    // phone, four in landscape or on an iPad — the wall uses
+                    // whatever width it's given.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 280),
+                                                 spacing: 8)],
                               spacing: 8) {
                         ForEach(visible) { session in
                             Button { path.append(session.internalName) } label: {
@@ -642,15 +645,11 @@ private struct SessionDialogs: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("New session", isPresented: $creating) {
-                TextField("name", text: $newName).textInputAutocapitalization(.never)
-                Button("Cancel", role: .cancel) {}
-                Button("Create") {
-                    let name = newName.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty else { return }
-                    Task { if await model.createSession(name: name) { path = [name] } }
+            .sheet(isPresented: $creating) {
+                NewSessionSheet(name: $newName) { name, cwd in
+                    Task { if await model.createSession(name: name, cwd: cwd) { path = [name] } }
                 }
-            } message: { Text("Letters, numbers, - and _") }
+            }
             .alert("Rename session",
                    isPresented: Binding(get: { renaming != nil },
                                         set: { if !$0 { renaming = nil } })) {

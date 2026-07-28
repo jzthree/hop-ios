@@ -314,8 +314,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createSession(name: String) async -> Bool {
-        await post("api/sessions", ["name": name, "type": "terminal"])
+    /// cwd is optional and verified live: the daemon honours it (probed with
+    /// a scratch session that landed in the requested directory), and omitting
+    /// it keeps the daemon's default — the two cases the sheet offers.
+    func createSession(name: String, cwd: String? = nil) async -> Bool {
+        var body: [String: Any] = ["name": name, "type": "terminal"]
+        if let cwd { body["cwd"] = cwd }
+        return await post("api/sessions", body)
     }
     func renameSession(_ s: HopSession, to newName: String) async -> Bool {
         await post("api/sessions/rename", ["oldName": s.name, "newName": newName])

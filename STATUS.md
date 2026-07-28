@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## New sessions start where the work is (iteration 156)
+
+Loop iteration. The "+" flow was a bare alert asking for a name; a phone
+could never choose WHERE a session starts. The daemon turned out to
+accept a cwd on create — verified empirically with a scratch session
+that landed in the requested directory (and was deleted after; the
+grep hunt through hop2 for the handler was going nowhere, and one probe
+answered in thirty seconds).
+
+The alert is now a sheet in the app's material: mono name field, and a
+"Start in" row of capsule chips — the fleet's own project directories,
+one per project, most recent first (recentProjects(), pure and tested:
+dedupes by projectKey, newest session's path wins, ports excluded).
+Default remains the daemon's choice. No file browser; picking from
+where work already runs covers nearly every real case.
+
+Also: the tile wall's columns went adaptive — two on a portrait phone,
+four in landscape or on an iPad, instead of a hardcoded pair.
+
+Suites: 69 unit, 17 UI, green.
+
 ## The mark: a prompt with a live cursor (iteration 155)
 
 Loop iteration. The icon was a generic chevron on a purple wash — the one

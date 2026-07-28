@@ -172,6 +172,21 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// Where a NEW session could start: the fleet's own working directories,
+/// one per project, most recently active first. The full path rides along
+/// because that's what the daemon needs; the label is what a human scans.
+func recentProjects(_ sessions: [HopSession], cap: Int = 6) -> [(label: String, path: String)] {
+    var seen = Set<String>()
+    var out: [(label: String, path: String)] = []
+    for s in sessions.sorted(by: { $0.lastActivityAt > $1.lastActivityAt }) {
+        guard !s.isPort, !s.cwd.isEmpty else { continue }
+        let key = projectKey(s.cwd)
+        if seen.insert(key).inserted { out.append((key, s.cwd)) }
+        if out.count == cap { break }
+    }
+    return out
+}
+
 /// The pill-swipe ring: the neighbouring live session in switcher order,
 /// wrapping at the ends — Safari's address-bar swipe, for terminals. Nil
 /// when there is nowhere to go (lone session, or the current one has

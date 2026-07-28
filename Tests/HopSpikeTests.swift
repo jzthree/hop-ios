@@ -720,6 +720,25 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testRecentProjectsDedupesByProjectMostRecentFirst() {
+        func s(_ name: String, cwd: String, at: Double, port: Bool = false) -> HopSession {
+            HopSession(json: ["internalName": name, "name": name, "live": true,
+                              "type": port ? "port" : "terminal",
+                              "cwd": cwd, "lastActivityAt": at], seenBellSeq: [:])!
+        }
+        let fleet = [
+            s("old", cwd: "/Users/x/Code/hop2/hay", at: 10),
+            s("new", cwd: "/Users/x/Code/hop2", at: 99),        // same project, newer
+            s("ios", cwd: "/Users/x/Code/hop-ios", at: 50),
+            s("prt", cwd: "/Users/x/Code/elsewhere", at: 98, port: true),
+        ]
+        let projects = recentProjects(fleet)
+        XCTAssertEqual(projects.map(\.path),
+                       ["/Users/x/Code/hop2", "/Users/x/Code/hop-ios"],
+                       "one entry per project, newest session's path wins, ports excluded")
+        XCTAssertEqual(projects.first?.label, projectKey("/Users/x/Code/hop2"))
+    }
+
     func testNeighborSessionWrapsAndRefusesToGuess() {
         func s(_ name: String, live: Bool = true) -> HopSession {
             HopSession(json: ["internalName": name, "name": name,
