@@ -686,4 +686,37 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(AccessoryKey.ctrlC.repeats)
         XCTAssertFalse(AccessoryKey.paste.repeats)
     }
+
+    // MARK: tile typography
+
+    func testTileTypeScalesWhenItFitsLegibly() {
+        // 40 columns across 174pt wants 174/40/0.6 = 7.25pt — above the floor,
+        // so the whole screen renders untouched.
+        let r = TileTypography.window(text: "a\nb\nc", cols: 40, width: 174, height: 160)
+        XCTAssertEqual(r.text, "a\nb\nc")
+        XCTAssertEqual(r.pt, 174.0 / 40.0 / 0.6, accuracy: 0.001)
+    }
+
+    func testTileTypeHoldsTheFloorAndWindowsTheBottom() {
+        // 90 columns would need 3.2pt — illegible. The floor holds and the
+        // tile shows the LAST rows that fit instead: 160pt / (7 × 1.19) = 19.
+        let lines = (1...44).map { "row\($0)" }
+        let r = TileTypography.window(text: lines.joined(separator: "\n"),
+                                      cols: 90, width: 174, height: 160)
+        XCTAssertEqual(r.pt, TileTypography.floorPt)
+        let out = r.text.split(separator: "\n")
+        XCTAssertEqual(out.count, 19)
+        XCTAssertEqual(out.last, "row44")     // live edge kept, history dropped
+        XCTAssertEqual(out.first, "row26")
+    }
+
+    func testTileTypeDropsTrailingBlanksBeforeHistory() {
+        // A 44-row grid holding 6 rows of content: the blank tail is not
+        // "recent activity", it is empty screen — trim it first so the window
+        // is content, then keep whatever history still fits.
+        let text = "one\ntwo\nthree\nfour\nfive\nsix" + String(repeating: "\n", count: 38)
+        let r = TileTypography.window(text: text, cols: 90, width: 174, height: 160)
+        XCTAssertEqual(r.text, "one\ntwo\nthree\nfour\nfive\nsix")
+        XCTAssertEqual(r.pt, TileTypography.floorPt)
+    }
 }

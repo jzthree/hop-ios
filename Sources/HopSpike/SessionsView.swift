@@ -248,9 +248,9 @@ struct SessionsView: View {
             }
             if switcherTiles {
                 Section {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
-                                        GridItem(.flexible(), spacing: 10)],
-                              spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                        GridItem(.flexible(), spacing: 8)],
+                              spacing: 8) {
                         ForEach(visible) { session in
                             Button { path.append(session.internalName) } label: {
                                 SessionTile(session: session,
@@ -277,7 +277,7 @@ struct SessionsView: View {
                         }
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                 }
             } else {
             ForEach(sections, id: \.label) { section in
@@ -371,6 +371,10 @@ struct SessionsView: View {
             listView
                 .searchable(text: $filter, prompt: "Filter sessions")
                 .navigationTitle("hop")
+                // Inline, not large: the large title spent ~50pt of the first
+                // screen writing the app's own name. This is a terminal app —
+                // Jian's rule is that the real estate belongs to the sessions.
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbar }
                 .navigationDestination(for: String.self) { name in
                     // Fall back to the last known value: a session that ends

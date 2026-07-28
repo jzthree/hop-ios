@@ -13,6 +13,7 @@ struct SessionTile: View {
         VStack(spacing: 0) {
             header
             screenBody
+            footer
         }
         .background(Color.hopSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -52,13 +53,15 @@ struct SessionTile: View {
     private var screenBody: some View {
         GeometryReader { geo in
             if let screen {
-                // Type sized so the session's true column count spans the tile:
-                // cols * charWidth == tile width. Monospaced advance ≈ 0.6 × the
-                // point size, so pt = width / cols / 0.6. A thumbnail, not a
-                // reading surface — the tap is the reading surface.
-                let pt = max(1.5, geo.size.width / CGFloat(max(20, screen.cols)) / 0.6)
-                Text(screen.text)
-                    .font(.system(size: pt, design: .monospaced))
+                // Scale-to-fit until the type would stop being readable, then
+                // hold the floor and show the LAST rows of the screen instead
+                // (TileTypography has the full argument). The right edge clips;
+                // line starts carry the information.
+                let fit = TileTypography.window(text: screen.text, cols: screen.cols,
+                                                width: geo.size.width - 8,
+                                                height: geo.size.height - 8)
+                Text(fit.text)
+                    .font(.system(size: fit.pt, design: .monospaced))
                     .foregroundStyle(Color(hex: 0xe6edf3).opacity(0.85))
                     .lineSpacing(0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity,
@@ -66,9 +69,7 @@ struct SessionTile: View {
                     .padding(4)
                     .clipped()
             } else {
-                // No screen yet: the tagline is what the session is FOR, which
-                // beats an empty rectangle while the first fetch is in flight.
-                Text(session.tagline.isEmpty ? "…" : session.tagline)
+                Text("…")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -76,5 +77,19 @@ struct SessionTile: View {
             }
         }
         .aspectRatio(0.95, contentMode: .fit)
+    }
+
+    /// The tagline is what the session is FOR — the one line Jian reached for
+    /// and missed in the first tile build. Always present so tiles in a row
+    /// stay the same height; the cwd stands in when a session has no tagline.
+    private var footer: some View {
+        Text(session.tagline.isEmpty ? session.shortCwd : session.tagline)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.hopRaised.opacity(0.6))
     }
 }

@@ -236,6 +236,49 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Real estate, and chrome that finally leaves the terminal alone (iteration 147)
+
+Jian's verdict on tile view: sleek, but the font was really small and the
+tagline was missing. Then two more, mid-round: "we are not using screen real
+estate efficiently. This is a terminal app" — and the top menu "showing and
+hiding messes up the terminal, also that menu to be honest is not well
+thought out." Three complaints, one round.
+
+**Tiles read now.** The first build scaled the whole screen to the tile —
+90 columns in a half-width tile is ~3pt, texture not text. TileTypography
+holds a 7pt floor: scale-to-fit until the floor binds, then show LESS screen
+instead of smaller glyphs — trailing blanks trimmed first, then history from
+the top, so the tile keeps the live bottom rows. The right edge clips; line
+starts carry the information. And the tagline is back as a constant-height
+footer (cwd when a session has none) — it was the one line Jian reached for.
+
+**The terminal has no navigation bar anymore. At all.** The old design
+toggled the bar, and every toggle resized the terminal — which reflows the
+shared PTY mid-read. Measured in the fix's screenshots: chrome shown and
+chrome hidden, same text at the same pixels. Chrome is a floating translucent
+pill (back · title/switcher · ⋯) OVER the grid; showing it costs a
+glance-through, not a reflow. Tap the strip to summon, tap the bar's empty
+background (or wait 3s) to dismiss. List title went inline (~50pt back),
+tile grid tightened to 8pt gutters, terminal side margins 5→2.
+
+**The menu got thought out.** Twelve items in arrival order became four
+sections by what an item acts ON: content (find/copy/links), View
+(fit/size/theme), Sharing (viewers/lock/control), connection (reconnect).
+
+**The swipe back nearly died, and the autopsy mattered.** With the bar gone
+for good, SwiftUI keeps its interactive pop recognizer disabled — claiming
+the delegate (BackSwipe.swift's whole job) and even forcing isEnabled every
+layout does nothing. The terminal now carries its own
+UIScreenEdgePanGestureRecognizer that dismisses on begin. Two traps en
+route: (1) an edge pan IS a UIPanGestureRecognizer, so our own
+vertical-dominance gate in gestureRecognizerShouldBegin was rejecting the
+new recognizer before it could fire — exempted explicitly; (2) the first
+post-change UI run showed TWO failures, but one was the documented sim
+rotation wedge (reboot cleared it) — rerunning before diagnosing saved an
+afternoon of chasing a ghost.
+
+Suites: 57 unit (3 new for TileTypography), 17 UI, green.
+
 ## Tiles or list: the user chooses (iteration 146)
 
 Jian: conflicted between the web switcher's tile wall and the app's list —

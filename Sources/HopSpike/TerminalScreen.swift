@@ -24,15 +24,14 @@ struct TerminalHostView: View {
         return FindRequest(query: findText, seq: findSeq, direction: findDirection)
     }
     /// Chrome is for arriving and for deciding; the terminal is for reading.
-    /// Shown briefly on arrival, then out of the way — measured, this takes the
-    /// terminal from 23 rows to 27 on a phone, which is the room Jian asked for.
+    /// Shown on arrival and on a top-strip tap, gone three seconds later.
     ///
-    /// The controls stay in the navigation bar rather than moving to an overlay
-    /// of my own. Three attempts at that overlay ended in a mangled file, and
-    /// the honest trade is: this way the bar's appearance changes the terminal's
-    /// row count, so summoning it reflows the shared PTY briefly. The phone
-    /// already reflows it on every attach, and the size election hands it back
-    /// the moment someone types at a desk.
+    /// It lives in an OVERLAY now, not the navigation bar. The bar version
+    /// resized the terminal on every toggle, and a terminal resize reflows
+    /// the shared PTY — summoning a menu repainted the session mid-read,
+    /// which Jian called out. The overlay translucently covers the top rows
+    /// while it is up, briefly and on purpose: the grid underneath never
+    /// moves, so showing chrome costs a glance-through instead of a reflow.
     @State private var chromeShown = true
     /// Observer mode: shrink type until the peer's full grid width fits.
     @State private var fitWidth = false
@@ -123,12 +122,13 @@ struct TerminalHostView: View {
                        onChromeTap: {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
                        },
+                       onBackSwipe: { dismiss() },
                        onFitRefresh: { fitTick += 1 })
     }
 
     var body: some View {
         screen
-            .padding(.horizontal, 5)
+            .padding(.horizontal, 2)
             .padding(.bottom, accessoryInset)
             // Deliberately NOT ignoring the bottom safe area. Doing so let the
             // terminal run under the home indicator with the keyboard down, and
@@ -247,127 +247,21 @@ struct TerminalHostView: View {
                     .background(Color.hopRaised)
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(landscapePhone || !chromeShown ? .hidden : .visible, for: .navigationBar)
+            // No navigation bar, EVER — not hidden-until-tapped, gone. The
+            // bar's coming and going resized the terminal, and a terminal
+            // resize reflows the shared PTY: summoning a menu repainted the
+            // session mid-read. The chrome floats above the grid instead
+            // (chromeBar below), so the terminal holds one size for the whole
+            // visit and toggling chrome moves nothing.
+            .toolbar(.hidden, for: .navigationBar)
             .statusBarHidden(landscapePhone)
-            .toolbarBackground(Color.hopRaised, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Menu {
-                        Section("Switch session") {
-                            ForEach(switcherCandidates(model.sessions,
-                                                       excluding: session.internalName)) { other in
-                                Button {
-                                    model.requestedSession = other.internalName
-                                } label: {
-                                    Label(other.attention ? "\(other.name) ●" : other.name,
-                                          systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
-                                }
-                            }
-                            // The menu caps at twelve and the fleet runs
-                            // nineteen: when the session you want isn't here,
-                            // the way out used to be dismiss-the-menu, then
-                            // back — two taps to discover the menu couldn't
-                            // help. This makes it one.
-                            Button { dismiss() } label: {
-                                Label("All sessions…", systemImage: "square.grid.2x2")
-                            }
-                        }
-                    } label: {
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
-                            .frame(width: 8, height: 8)
-                        Text(renamedTitle ?? session.name)
-                            .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                        if lockedByOther {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
-                        } else if !collabEveryone && iHoldControl {
-                            Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
-                        }
-                        if viewers.count > 1 {
-                            Label("\(viewers.count)", systemImage: "person.2.fill")
-                                .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
-                        }
-                        if !session.runningApp.isEmpty {
-                            Text(session.runningApp)
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.hopPurple.opacity(0.22), in: Capsule())
-                                .foregroundStyle(Color.hopGlow)
-                        }
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    }
-                    .tint(.primary)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { controlAction = .links } label: {
-                            Label("Open link…", systemImage: "link")
-                        }
-                        Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
-                        Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
-                            Label("Copy screen", systemImage: "doc.on.doc")
-                        }
-                        Button { NotificationCenter.default.post(name: .hopCopyAll, object: nil) } label: {
-                            Label("Copy all scrollback", systemImage: "doc.on.clipboard")
-                        }
-                        Divider()
-                        Button { setFont(fontSize + 1) } label: { Label("Bigger text", systemImage: "textformat.size.larger") }
-                        Button { setFont(fontSize - 1) } label: { Label("Smaller text", systemImage: "textformat.size.smaller") }
-                        Button {
-                            lightTheme.toggle()
-                            UserDefaults.standard.set(lightTheme, forKey: "termLight")
-                        } label: {
-                            Label(lightTheme ? "Dark terminal" : "Light terminal",
-                                  systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
-                        }
-                        // Observer mode: see the peer's whole grid width at
-                        // once instead of panning — and claim nothing while
-                        // watching. Small type is the honest price; the
-                        // fitFontSize floor keeps it text rather than texture.
-                        Button { fitWidth.toggle(); fitTick += 1 } label: {
-                            Label(fitWidth ? "Actual size" : "Fit to width",
-                                  systemImage: fitWidth
-                                    ? "arrow.up.left.and.arrow.down.right"
-                                    : "arrow.down.right.and.arrow.up.left")
-                        }
-                        Divider()
-                        // Who else is here + who may type (hay collab model).
-                        if !viewers.isEmpty {
-                            Section("Viewers") {
-                                ForEach(viewers) { v in
-                                    Label(v.typing ? "\(v.name) — typing" : v.name,
-                                          systemImage: "person.fill")
-                                }
-                            }
-                        }
-                        Button {
-                            controlAction = collabEveryone ? .lock : .unlock
-                        } label: {
-                            Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
-                                  systemImage: collabEveryone ? "lock" : "lock.open")
-                        }
-                        if !collabEveryone {
-                            Button {
-                                controlAction = iHoldControl ? .release : .take
-                            } label: {
-                                Label(iHoldControl ? "Release control" : "Take control",
-                                      systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
-                            }
-                        }
-                        Divider()
-                        Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .accessibilityLabel("Terminal actions")
-                    }
+            .overlay(alignment: .top) {
+                // Suppressed once the session is gone (the ended card carries
+                // its own way back) and in landscape, where every point is
+                // terminal — same rule the old bar had.
+                if chromeShown, !landscapePhone, goneReason == nil {
+                    chromeBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -423,6 +317,162 @@ struct TerminalHostView: View {
             .background(lightTheme ? Color(uiColor: TerminalTheme.light.background)
                                    : Color.hopSurface)
     }
+
+    // MARK: floating chrome
+
+    /// The navigation bar's replacement: back, the session title (a menu —
+    /// switching sessions is the most common reason to touch chrome at all),
+    /// and the actions menu. Lives in an overlay so its appearance never
+    /// changes the terminal's frame.
+    private var chromeBar: some View {
+        HStack(spacing: 8) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Back")
+            titleMenu
+            Spacer(minLength: 4)
+            actionsMenu
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 11))
+        // The bar floats over the strip whose tap summons chrome — so the
+        // bar itself must answer the same tap, or showing chrome would
+        // consume the only gesture that hides it. Controls still win; this
+        // catches taps on the bar's empty background.
+        .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { chromeShown = false } }
+        .padding(.horizontal, 5)
+        .padding(.top, 1)
+    }
+
+    private var titleMenu: some View {
+        Menu {
+            Section("Switch session") {
+                ForEach(switcherCandidates(model.sessions,
+                                           excluding: session.internalName)) { other in
+                    Button {
+                        model.requestedSession = other.internalName
+                    } label: {
+                        Label(other.attention ? "\(other.name) ●" : other.name,
+                              systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
+                    }
+                }
+                // The menu caps at twelve and the fleet runs nineteen: when
+                // the session you want isn't here, the way out used to be
+                // dismiss-the-menu, then back — two taps to discover the menu
+                // couldn't help. This makes it one.
+                Button { dismiss() } label: {
+                    Label("All sessions…", systemImage: "square.grid.2x2")
+                }
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
+                    .frame(width: 8, height: 8)
+                Text(renamedTitle ?? session.name)
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                    .lineLimit(1)
+                if lockedByOther {
+                    Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
+                } else if !collabEveryone && iHoldControl {
+                    Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
+                }
+                if viewers.count > 1 {
+                    Label("\(viewers.count)", systemImage: "person.2.fill")
+                        .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                }
+                if !session.runningApp.isEmpty {
+                    Text(session.runningApp)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.hopPurple.opacity(0.22), in: Capsule())
+                        .foregroundStyle(Color.hopGlow)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .tint(.primary)
+    }
+
+    /// The old menu was twelve items in arrival order — copy next to collab
+    /// next to theme, one divider doing all the explaining. Regrouped by what
+    /// an item acts ON, most-reached first: the screen's content (find, copy,
+    /// links), then how it's drawn (fit, size, theme), then who's here, then
+    /// the connection.
+    private var actionsMenu: some View {
+        Menu {
+            Section {
+                Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
+                Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
+                    Label("Copy screen", systemImage: "doc.on.doc")
+                }
+                Button { NotificationCenter.default.post(name: .hopCopyAll, object: nil) } label: {
+                    Label("Copy all scrollback", systemImage: "doc.on.clipboard")
+                }
+                Button { controlAction = .links } label: {
+                    Label("Open link…", systemImage: "link")
+                }
+            }
+            Section("View") {
+                // Observer mode: see the peer's whole grid width at once
+                // instead of panning — and claim nothing while watching.
+                Button { fitWidth.toggle(); fitTick += 1 } label: {
+                    Label(fitWidth ? "Actual size" : "Fit to width",
+                          systemImage: fitWidth
+                            ? "arrow.up.left.and.arrow.down.right"
+                            : "arrow.down.right.and.arrow.up.left")
+                }
+                Button { setFont(fontSize + 1) } label: { Label("Bigger text", systemImage: "textformat.size.larger") }
+                Button { setFont(fontSize - 1) } label: { Label("Smaller text", systemImage: "textformat.size.smaller") }
+                Button {
+                    lightTheme.toggle()
+                    UserDefaults.standard.set(lightTheme, forKey: "termLight")
+                } label: {
+                    Label(lightTheme ? "Dark terminal" : "Light terminal",
+                          systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
+                }
+            }
+            // Who else is here + who may type (hay collab model). ForEach of
+            // an empty viewers list renders nothing, so the section header is
+            // the only cost when you're alone.
+            Section("Sharing") {
+                ForEach(viewers) { v in
+                    Label(v.typing ? "\(v.name) — typing" : v.name,
+                          systemImage: "person.fill")
+                }
+                Button {
+                    controlAction = collabEveryone ? .lock : .unlock
+                } label: {
+                    Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
+                          systemImage: collabEveryone ? "lock" : "lock.open")
+                }
+                if !collabEveryone {
+                    Button {
+                        controlAction = iHoldControl ? .release : .take
+                    } label: {
+                        Label(iHoldControl ? "Release control" : "Take control",
+                              systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
+                    }
+                }
+            }
+            Section {
+                Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 17))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Terminal actions")
+        }
+    }
 }
 
 /// One find, identified by `seq` so the terminal runs it exactly once.
@@ -464,6 +514,7 @@ struct TerminalScreen: UIViewRepresentable {
     @Binding var control: ControlAction?
     var onScroll: (Bool) -> Void = { _ in }
     var onChromeTap: () -> Void = {}
+    var onBackSwipe: () -> Void = {}
     var onFitRefresh: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
@@ -493,6 +544,7 @@ struct TerminalScreen: UIViewRepresentable {
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
         tv.onChromeTap = onChromeTap
+        tv.onBackSwipe = onBackSwipe
         context.coordinator.onGridChange = onFitRefresh
         tv.installAccessoryBar()
         tv.backgroundColor = .black
@@ -1450,6 +1502,21 @@ final class HopTermView: TerminalView {
 
     @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
 
+    /// The way OUT, now that the terminal never shows a navigation bar.
+    /// SwiftUI keeps its interactive pop DISABLED for a bar-less screen — no
+    /// delegate trick re-arms it (measured: delegate claimed, isEnabled
+    /// forced true every layout, and the edge swipe still scrolled the
+    /// session instead of leaving it). So the terminal carries its own edge
+    /// recognizer. The scroll pan already yields to any screen-edge pan by
+    /// class, and the pop happens the moment the edge drag begins — the
+    /// discrete animation, not UIKit's finger-tracked one, which is the
+    /// price of owning the gesture.
+    var onBackSwipe: (() -> Void)?
+
+    @objc private func handleBackSwipe(_ g: UIScreenEdgePanGestureRecognizer) {
+        if g.state == .began { onBackSwipe?() }
+    }
+
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
@@ -1489,6 +1556,9 @@ final class HopTermView: TerminalView {
         tap.delegate = self
         addGestureRecognizer(tap)
         chromeTap = tap
+        let back = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe))
+        back.edges = .left
+        addGestureRecognizer(back)
     }
 
     /// A drag is a SCROLL, and what that means depends on who owns the screen.
@@ -1994,6 +2064,11 @@ extension HopTermView: UIGestureRecognizerDelegate {
     /// mostly sideways belongs to whoever else wants it.
     override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         if let pan = g as? UIPanGestureRecognizer {
+            // The back swipe first: an edge pan IS a pan, so without this it
+            // falls into the vertical-dominance rule below, which exists to
+            // hand sideways drags to the swipe back — and was refusing the
+            // very recognizer that performs it.
+            if g is UIScreenEdgePanGestureRecognizer { return true }
             guard !selectionActive else { return false }
             // Panning a peer-sized grid is two-dimensional by nature; the
             // vertical-dominance rule below is for scrolling, where a sideways
