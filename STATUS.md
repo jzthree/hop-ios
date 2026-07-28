@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The well, surveyed honestly (iteration 174)
+
+Loop iteration spent on the last open capability question, then on
+saying a true thing about the backlog.
+
+**The `windows` field is vestigial — question closed.** Every session
+in the fleet reports 1, and neither the web UI nor the daemon source
+contains any window-selection code. There is no multi-window support to
+build parity with; recorded in memory so nobody re-investigates.
+
+**The backlog is now genuinely Jian-gated.** Everything the app can
+verify from this machine is shipped and green: the wall (colour, sonar,
+presence, grouping), triage at every distance (banner → lock screen →
+wall → sheet → terminal), system integration (Spotlight, Siri,
+Shortcuts, deep links — hardware-proven), Face ID, the palette, the
+icon, the tips. What remains needs Jian: the widget (one Xcode
+sign-in), device-feel verdicts (pill swipe, sonar at 120Hz, Face ID
+flow), and the ASC key (rejected at AUTH — likely revoked, not
+under-privileged). The loop's honest cost/benefit from here: fires that
+find no new user input should stay cheap (checks, not churn).
+
 ## Presence on the wall (iteration 173)
 
 Loop iteration. The daemon has always said which sessions have a client
