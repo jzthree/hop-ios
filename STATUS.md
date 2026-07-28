@@ -236,6 +236,29 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Two views, one button (iteration 183)
+
+Jian, by voice, asked the hop-ios agent to fix the navigation — and the
+hop-ios session IS this session (the daemon churn renamed it from
+Orion), so no relay was needed. The directive: a session view and a
+terminal view, a working way back, and no switcher menu in the title.
+
+Done exactly: the back chevron is restored ("Back to sessions"), the
+title menu is GONE — the title is a plain label (dot, name, lock,
+viewers, badge) — and the switch-from-terminal path that remains is the
+pill swipe, which is direct manipulation rather than chrome. The
+title-menu UI test left with its feature, by directive. The earlier
+"two ways out" complaint resolves the way he wanted: the button without
+the menu, not the menu without the button.
+
+Also folded in, from his device: the phantom BOUNCE — a terminal that
+rightly doesn't scroll still played the scrolled-to-the-end rubber-band
+on drags. Every scroll here is hand-driven, so the underlying scroll
+view's bounce is now off entirely.
+
+Probe: back button tapped → switcher reached; no "Switch session" menu
+exists. Suites green and gated.
+
 ## A verification round (iteration 182)
 
 Loop round three, deliberately light: PLAN's remaining items were a

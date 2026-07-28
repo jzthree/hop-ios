@@ -43,4 +43,10 @@ adjust if the top row kisses the clock on the real island.
 Probe-shot: PeekTip anchors below the first tile, arrow up, no island
 collision. No change needed.
 
-## 4. (space intentionally left for Jian's next reports)
+## 4. [DONE 2026-07-28] Two views, one button (Jian's directive)
+Back chevron restored; the in-title switch menu REMOVED entirely (title
+is a plain label). The pill swipe stays — direct manipulation, not
+chrome. Native scroll bounce killed (the phantom scrolled-to-the-end
+animation on drags that rightly don't move the terminal).
+
+## 5. (space for Jian's next reports)

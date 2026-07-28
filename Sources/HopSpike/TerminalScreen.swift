@@ -398,14 +398,19 @@ struct TerminalHostView: View {
     /// changes the terminal's frame.
     private var chromeBar: some View {
         HStack(spacing: 8) {
-            // No back chevron. Jian flagged the pair twice: a big back
-            // button beside a menu is two ways out standing shoulder to
-            // shoulder. The edge swipe is the way back; the title menu
-            // carries the explicit "All sessions…" for anyone who needs
-            // words. (The swipe-hint tip died here too — its popover
-            // ballooned over the island once the pill moved under the
-            // status bar.)
-            titleMenu
+            // The final shape, at Jian's word: TWO views — switcher and
+            // terminal — one visible button between them, and no switch
+            // menu in the title at all. The earlier duplication was the
+            // button AND a menu; the resolution is the button WITHOUT the
+            // menu, not the reverse (removing the button stranded him).
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Back to sessions")
+            titleLabel
             Spacer(minLength: 4)
             actionsMenu
         }
@@ -436,56 +441,35 @@ struct TerminalHostView: View {
         .padding(.top, windowTopInset() + 1)
     }
 
-    private var titleMenu: some View {
-        Menu {
-            Section("Switch session") {
-                ForEach(switcherCandidates(model.sessions,
-                                           excluding: session.internalName)) { other in
-                    Button {
-                        model.requestedSession = other.internalName
-                    } label: {
-                        Label(other.attention ? "\(other.name) ●" : other.name,
-                              systemImage: other.createdBy == "agent" ? "cpu" : "terminal")
-                    }
-                }
-                // The one explicit way out, now that the pill carries no
-                // chevron: the menu caps at twelve and the fleet runs
-                // twenty, so this also rescues "the session I want isn't
-                // listed".
-                Button { dismiss() } label: {
-                    Label("All sessions…", systemImage: "square.grid.2x2")
-                }
+    /// A LABEL, not a menu. The in-title switcher is gone at Jian's word —
+    /// switching happens in the switcher view (or the pill swipe, which
+    /// stays: it is direct manipulation, not chrome). The dot, name, lock
+    /// and viewer glyphs remain the terminal's one-line status.
+    private var titleLabel: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
+                .frame(width: 8, height: 8)
+            Text(renamedTitle ?? session.name)
+                .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                .lineLimit(1)
+            if lockedByOther {
+                Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
+            } else if !collabEveryone && iHoldControl {
+                Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
             }
-        } label: {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(renamedTitle ?? session.name)
-                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                    .lineLimit(1)
-                if lockedByOther {
-                    Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
-                } else if !collabEveryone && iHoldControl {
-                    Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
-                }
-                if viewers.count > 1 {
-                    Label("\(viewers.count)", systemImage: "person.2.fill")
-                        .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
-                }
-                if !session.runningApp.isEmpty {
-                    Text(session.runningApp)
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.hopPurple.opacity(0.22), in: Capsule())
-                        .foregroundStyle(Color.hopGlow)
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.tertiary)
+            if viewers.count > 1 {
+                Label("\(viewers.count)", systemImage: "person.2.fill")
+                    .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+            }
+            if !session.runningApp.isEmpty {
+                Text(session.runningApp)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.hopPurple.opacity(0.22), in: Capsule())
+                    .foregroundStyle(Color.hopGlow)
             }
         }
-        .tint(.primary)
     }
 
     /// The old menu was twelve items in arrival order — copy next to collab
@@ -1749,6 +1733,15 @@ final class HopTermView: TerminalView {
         let back = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe))
         back.edges = .left
         addGestureRecognizer(back)
+        // No native bounce, ever. Every scroll here is hand-driven (wheel to
+        // the app, yDisp for scrollback, contentOffset for pan) — yet the
+        // underlying UIScrollView still rubber-banded on drags, animating an
+        // "end of content" that doesn't exist. Jian, on device: a terminal
+        // that rightly doesn't move still played the scrolled-to-the-end
+        // animation.
+        bounces = false
+        alwaysBounceVertical = false
+        alwaysBounceHorizontal = false
     }
 
     /// A drag is a SCROLL, and what that means depends on who owns the screen.
