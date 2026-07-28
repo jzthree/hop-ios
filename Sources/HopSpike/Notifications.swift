@@ -40,8 +40,14 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             identifier: "HOP_REPLY", title: "Reply",
             options: [], textInputButtonTitle: "Send",
             textInputPlaceholder: "Answer this session…")
+        // Parking from the banner is the other half of triage: "not now"
+        // without unlocking anything, for the bell that can wait.
+        let park = UNNotificationAction(
+            identifier: "HOP_PARK", title: "Park",
+            options: [],
+            icon: UNNotificationActionIcon(systemImageName: "moon.zzz"))
         UNUserNotificationCenter.current().setNotificationCategories([
-            UNNotificationCategory(identifier: Self.bellCategory, actions: [reply],
+            UNNotificationCategory(identifier: Self.bellCategory, actions: [reply, park],
                                    intentIdentifiers: [], options: [])
         ])
         // Enabled from a previous launch (or the dev flag) still needs the OS
@@ -184,6 +190,17 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
                                             didReceive response: UNNotificationResponse) async {
         let name = response.notification.request.content.userInfo["session"] as? String
         guard let name else { return }
+        // Park from the banner: "not now", handled where the user is
+        // standing. Parking IS attending to the bell — mark it seen, or the
+        // badge nags about a session the user just put away.
+        if response.actionIdentifier == "HOP_PARK" {
+            _ = await AppModel.shared.setParked(internalName: name, parked: true)
+            let seq = jsonInt(response.notification.request.content.userInfo["bellSeq"])
+            await MainActor.run {
+                AppModel.shared.markSeen(internalName: name, bellSeq: seq ?? 0)
+            }
+            return
+        }
         // Typed a reply instead of tapping: answer the session where the user
         // is standing, rather than dragging them into the app to type one word.
         if let typed = (response as? UNTextInputNotificationResponse)?.userText,

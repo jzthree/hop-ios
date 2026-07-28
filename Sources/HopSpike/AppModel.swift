@@ -333,8 +333,14 @@ final class AppModel: ObservableObject {
     /// searchable). The refresh makes the change visible immediately instead
     /// of on the next poll.
     func setParked(_ s: HopSession, parked: Bool) async -> Bool {
+        await setParked(internalName: s.internalName, parked: parked)
+    }
+
+    /// By name, for callers that never held a session object — the
+    /// notification action parks from the lock screen.
+    func setParked(internalName: String, parked: Bool) async -> Bool {
         let ok = await post("api/sessions/park",
-                            ["internalName": s.internalName, "parked": parked])
+                            ["internalName": internalName, "parked": parked])
         if ok { await refreshSessions(silent: true) }
         return ok
     }
@@ -563,6 +569,13 @@ struct HopSession: Identifiable {
     let cwd: String
     let foregroundProcess: String
     let lastActivityAt: Double
+
+    /// The web wall's "producing output right now" signal, natively: the
+    /// dot gets a sonar pulse while this is true.
+    var busy: Bool {
+        sessionBusy(lastActivityAt: lastActivityAt,
+                    now: Date().timeIntervalSince1970)
+    }
     let bellSeq: Int
     let live: Bool
     let isPort: Bool

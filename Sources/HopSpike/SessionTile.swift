@@ -55,6 +55,10 @@ struct SessionTile: View {
                 .fill(dotColor)
                 .frame(width: 6, height: 6)
                 .shadow(color: dotColor.opacity(0.9), radius: 3)
+                // Busy = producing output right now; attention owns its own
+                // signal, so the sonar only rings for quiet-but-working.
+                .sonar(when: session.busy && session.live && !session.attention,
+                       color: .hopLive)
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
@@ -150,6 +154,38 @@ struct TilePeek: View {
                 .padding(20)
                 .background(Color.hopSurface)
         }
+    }
+}
+
+/// The "producing output right now" signal: an expanding ring that fades as
+/// it grows — sonar, not strobe. One ring per sweep, repeating while the
+/// condition holds; the condition is re-evaluated on every list refresh, so
+/// a session going quiet stops ringing within a poll.
+struct SonarPulse: ViewModifier {
+    let active: Bool
+    let color: Color
+    @State private var expand = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if active {
+                    Circle()
+                        .stroke(color.opacity(expand ? 0 : 0.7), lineWidth: 1.5)
+                        .scaleEffect(expand ? 3.2 : 1)
+                        .onAppear {
+                            withAnimation(.easeOut(duration: 1.4)
+                                .repeatForever(autoreverses: false)) { expand = true }
+                        }
+                        .onDisappear { expand = false }
+                }
+            }
+    }
+}
+
+extension View {
+    func sonar(when active: Bool, color: Color) -> some View {
+        modifier(SonarPulse(active: active, color: color))
     }
 }
 

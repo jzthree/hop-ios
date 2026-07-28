@@ -172,6 +172,17 @@ func switcherCandidates(_ sessions: [HopSession], excluding current: String,
     }.prefix(cap))
 }
 
+/// "Producing output right now": activity within the last ten seconds —
+/// the wall's poll cadence plus slack, so the pulse survives between
+/// refreshes without lying for long after a session goes quiet. The daemon
+/// reports milliseconds; tolerate seconds too rather than trusting a unit
+/// across a protocol boundary.
+func sessionBusy(lastActivityAt: Double, now: Double) -> Bool {
+    guard lastActivityAt > 0 else { return false }
+    let ts = lastActivityAt > 1e12 ? lastActivityAt / 1000 : lastActivityAt
+    return now - ts < 10
+}
+
 /// Where a NEW session could start: the fleet's own working directories,
 /// one per project, most recently active first. The full path rides along
 /// because that's what the daemon needs; the label is what a human scans.

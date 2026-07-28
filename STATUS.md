@@ -236,6 +236,26 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The sonar, and triage from the banner (iteration 158)
+
+Loop iteration. Two capability signals now that the surfaces agree.
+
+**Busy is visible.** The web wall's green means "producing output right
+now"; the app now says it natively — a sonar ring that expands and fades
+from the state dot while a session has activity in the last ten seconds
+(poll cadence plus slack; sessionBusy() tolerates the daemon's
+milliseconds AND seconds, because a unit isn't something to trust across
+a protocol boundary — tested). Attention keeps its amber; the sonar only
+rings for quiet-but-working, in both tile headers and list rows.
+Verified with two frames half a second apart: different ring phases.
+
+**Park rides the bell.** The notification category grew a second action:
+Reply · Park. A bell that can wait gets put away from the banner — no
+unlock, no app — and parking marks the bell seen, or the badge would nag
+about a session just handled.
+
+Suites: 70 unit, 17 UI, green.
+
 ## Park, and the front door matches the house (iteration 157)
 
 Loop iteration. Parking was the web switcher's triage verb the app never

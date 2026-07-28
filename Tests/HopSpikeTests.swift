@@ -720,6 +720,17 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testSessionBusyToleratesBothUnitsAndExpires() {
+        let nowS = 1_785_226_000.0
+        // Milliseconds (what the daemon actually sends) and seconds both work:
+        // a unit isn't something to trust across a protocol boundary.
+        XCTAssertTrue(sessionBusy(lastActivityAt: (nowS - 3) * 1000, now: nowS))
+        XCTAssertTrue(sessionBusy(lastActivityAt: nowS - 3, now: nowS))
+        // Quiet for longer than the window → not busy; zero → never busy.
+        XCTAssertFalse(sessionBusy(lastActivityAt: (nowS - 30) * 1000, now: nowS))
+        XCTAssertFalse(sessionBusy(lastActivityAt: 0, now: nowS))
+    }
+
     func testRecentProjectsDedupesByProjectMostRecentFirst() {
         func s(_ name: String, cwd: String, at: Double, port: Bool = false) -> HopSession {
             HopSession(json: ["internalName": name, "name": name, "live": true,

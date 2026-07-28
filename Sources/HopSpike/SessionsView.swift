@@ -764,6 +764,7 @@ struct SessionRow: View {
                         .shadow(color: session.live ? Color.hopLive.opacity(0.7) : .clear,
                                 radius: 2.5)
                         .frame(width: 9, height: 9)
+                        .sonar(when: session.busy && session.live, color: .hopLive)
                 }
             }
             .frame(width: 22)
