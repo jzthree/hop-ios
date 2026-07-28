@@ -210,11 +210,35 @@ struct SessionsView: View {
                 }
             }
             Section {
-                Picker("Scope", selection: $scope) {
-                    ForEach(SessionScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                // Capsule chips instead of the stock segmented control: the
+                // one control everyone sees first shouldn't be the one piece
+                // of default-issue UI on the page. Purple marks the selection
+                // — hop's accent doing its job — and each chip is its own
+                // plain Button so the List doesn't swallow the taps.
+                HStack(spacing: 8) {
+                    ForEach(SessionScope.allCases, id: \.self) { s in
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) { scope = s }
+                        } label: {
+                            Text(s.rawValue)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(scope == s ? .white : .secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(scope == s ? Color.hopPurple.opacity(0.85)
+                                                       : Color.white.opacity(0.06),
+                                            in: Capsule())
+                                .overlay(Capsule().strokeBorder(
+                                    scope == s ? Color.hopGlow.opacity(0.5)
+                                               : Color.white.opacity(0.05),
+                                    lineWidth: 0.5))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(scope == s ? [.isSelected] : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
             } footer: {
                 // With nineteen sessions the header said nothing. The count you
                 // actually care about is how many want you — and when that's
@@ -331,6 +355,10 @@ struct SessionsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Inset-grouped defaults spend ~140pt before the first control — a
+        // fifth of the screen saying nothing. Sessions above the fold instead.
+        .contentMargins(.top, 4, for: .scrollContent)
+        .listSectionSpacing(14)
     }
 
     @ToolbarContentBuilder
@@ -686,9 +714,12 @@ struct SessionRow: View {
                 if session.attention {
                     Circle().fill(Color.hopAttention.opacity(0.22)).frame(width: 22, height: 22)
                     Circle().fill(Color.hopAttention).frame(width: 11, height: 11)
+                        .shadow(color: Color.hopAttention.opacity(0.9), radius: 3.5)
                 } else {
                     Circle()
-                        .fill(session.live ? Color.green : Color.secondary.opacity(0.35))
+                        .fill(session.live ? Color.hopLive : Color.secondary.opacity(0.35))
+                        .shadow(color: session.live ? Color.hopLive.opacity(0.7) : .clear,
+                                radius: 2.5)
                         .frame(width: 9, height: 9)
                 }
             }

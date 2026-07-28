@@ -236,6 +236,34 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The design pass: depth, light, typography (iteration 148)
+
+Jian, after 147: "it is better now but you can still do better! i found you
+to be a really good web designer, channel some of that skill to this."
+
+What changed, in the language of that craft:
+
+- **Cards are lit objects now, not filled rects.** Tiles carry a gradient
+  surface (top edge catches the light, falls to the page dark), a hairline
+  stroke that fades downward, and a soft drop shadow for lift. Radius up to
+  14. Flat fills next to these read as holes — hopCard/hopHairline are
+  tokens now so other surfaces can join.
+- **State is glow.** Dots bloom in their own colour (new hopLive/hopDead
+  tones instead of traffic-light .green/.red); a session wanting you wears
+  amber in the ring, the header wash, and the shadow itself. List rows got
+  the same dot treatment.
+- **The one control everyone sees first is no longer stock.** You/Agents/All
+  is capsule chips — purple marks selection, hop's accent doing actual work
+  — replacing the default-issue segmented control.
+- **The dead zone died.** Inset-grouped defaults spent ~140pt above the
+  first control; contentMargins + listSectionSpacing pulled the wall above
+  the fold — six full tiles on the first screen.
+- The chrome pill gained its hairline and shadow: it reads as a floating
+  object instead of a smear of material.
+
+Suites stayed green through the whole pass (57 unit / 17 UI); screenshot
+tour re-run after every visual change, temp test excised after.
+
 ## Real estate, and chrome that finally leaves the terminal alone (iteration 147)
 
 Jian's verdict on tile view: sleek, but the font was really small and the

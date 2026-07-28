@@ -16,6 +16,26 @@ extension Color {
     /// Attention. Amber rather than red: red in a list of agent sessions reads
     /// as "something failed", and a session wanting you usually hasn't.
     static let hopAttention = Color(hex: 0xf0a53a)
+    /// State dots share one pair of designed tones instead of system .green /
+    /// .red, whose saturation belongs to traffic lights, not a dark UI.
+    static let hopLive = Color(hex: 0x35d47a)
+    static let hopDead = Color(hex: 0xd95a6b)
+    /// Card material: dark surfaces read as SHAPES only when lit from above —
+    /// a slightly lifted top tone falling to the page's own dark, under a
+    /// hairline that catches light on the top edge and fades out by the
+    /// bottom. Flat fills next to these look like holes.
+    static let hopCardTop = Color(hex: 0x1a212c)
+    static let hopCardBottom = Color(hex: 0x10151c)
+
+    static var hopCard: LinearGradient {
+        LinearGradient(colors: [.hopCardTop, .hopCardBottom],
+                       startPoint: .top, endPoint: .bottom)
+    }
+
+    static var hopHairline: LinearGradient {
+        LinearGradient(colors: [.white.opacity(0.14), .white.opacity(0.03)],
+                       startPoint: .top, endPoint: .bottom)
+    }
 
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xff) / 255,

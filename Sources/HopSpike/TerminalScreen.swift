@@ -340,6 +340,10 @@ struct TerminalHostView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11)
+            .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5)
+            .allowsHitTesting(false))
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
         // The bar floats over the strip whose tap summons chrome — so the
         // bar itself must answer the same tap, or showing chrome would
         // consume the only gesture that hides it. Controls still win; this
