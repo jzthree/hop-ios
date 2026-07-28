@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## One ink for both modes, and a count through the locked door (iteration 152)
+
+Loop iteration. Two threads pulled from the last report's own queue.
+
+**List rows joined the colour system.** The three-line snippets now render
+from the same colour report the tiles use: meaningfulTail grew an
+index-based twin (the indices are the contract between the plain screen
+and its colour rows), TileInk.snippet styles exactly the rows the plain
+picker chooses, and run-granularity trimming keeps the terminal's leading
+indentation out of a text row while preserving the styling of what
+remains. Plain text is the fallback inside the same Text() — not a second
+code path. On screen: red error lines, dim status text, inverse-video
+"Jump to bottom" pills, inside ordinary list rows.
+
+**The lock screen says whether anything is waiting.** A count only —
+"2 sessions want you" in attention amber — because that's the one thing
+worth saying through a locked door. Names, taglines and output stay
+behind the gate.
+
+Suites: 66 unit (3 new: index-contract, run-trimming, snippet), 17 UI,
+green.
+
 ## The peek, the haptics, and the hero that lost to muscle memory (iteration 151)
 
 Loop iteration under the design directive: know the web/terminal designs,

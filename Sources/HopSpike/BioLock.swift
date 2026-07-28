@@ -101,6 +101,16 @@ struct LockView: View {
             if interactive {
                 Text("hop is locked")
                     .font(.headline)
+                // The one thing worth saying through a locked door: whether
+                // anything is waiting. A COUNT only — names, taglines and
+                // output stay behind the gate.
+                if case let wanting = model.sessions.filter(\.attention).count,
+                   wanting > 0 {
+                    Text(wanting == 1 ? "1 session wants you"
+                                      : "\(wanting) sessions want you")
+                        .font(.footnote)
+                        .foregroundStyle(Color.hopAttention)
+                }
                 Button {
                     lock.attempt()
                 } label: {

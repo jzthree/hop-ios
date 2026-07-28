@@ -116,7 +116,8 @@ struct SessionsView: View {
     @ViewBuilder
     private func row(for session: HopSession) -> some View {
         NavigationLink(value: session.internalName) {
-            SessionRow(session: session, preview: model.previews[session.internalName])
+            SessionRow(session: session, preview: model.previews[session.internalName],
+                       screen: model.screens[session.internalName])
         }
         .contextMenu {
             Button {
@@ -722,6 +723,7 @@ struct EmptyStateView: View {
 struct SessionRow: View {
     let session: HopSession
     var preview: String?
+    var screen: ScreenPreview?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -777,7 +779,11 @@ struct SessionRow: View {
                         .lineLimit(1).truncationMode(.head)
                 }
                 if let preview, !preview.isEmpty {
-                    Text(preview)
+                    // Coloured when the session has a colour report — the
+                    // same ink the tiles use — with the plain text as the
+                    // fallback, not a second code path.
+                    Text(screen.flatMap { TileInk.snippet($0, lines: 3) }
+                         ?? AttributedString(preview))
                         .font(.system(size: 9, design: .monospaced))
                         // The preview is a glance aid, not body text. Letting
                         // it scale to accessibility sizes pushed the list down

@@ -720,6 +720,48 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testMeaningfulTailIndicesAgreeWithTheStringVersion() {
+        // The indices are the contract between the plain screen and its
+        // colour report: mapping them back must reproduce meaningfulTail.
+        let screen = "── chrome ──\n  real output here  \n❯\nanother line\nbypass permissions on\nfinal thought"
+        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let viaIndices = AppModel.meaningfulTailIndices(of: screen, lines: 3)
+            .map { lines[$0].trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+        XCTAssertEqual(viaIndices, AppModel.meaningfulTail(of: screen, lines: 3))
+        XCTAssertEqual(viaIndices, "real output here\nanother line\nfinal thought")
+    }
+
+    func testTileInkTrimsRunsAtRunGranularity() {
+        let runs = TileInk.decode([[
+            ["t": "    "], ["t": "  lead", "f": "#ff0000"], ["t": "tail  ", "f": "#00ff00"], ["t": "   "],
+        ]])[0]
+        let t = TileInk.trimmed(runs)
+        XCTAssertEqual(t.count, 2)
+        XCTAssertEqual(t[0].t, "lead")
+        XCTAssertEqual(t[0].f, "#ff0000", "styling survives the cut")
+        XCTAssertEqual(t[1].t, "tail")
+        // A row that is nothing but space disappears entirely.
+        XCTAssertTrue(TileInk.trimmed(TileInk.decode([[["t": "   "], ["t": " "]]])[0]).isEmpty)
+    }
+
+    func testTileInkSnippetPicksTheMeaningfulRows() {
+        let text = "╭──────────────╮\ncolored output\n❯\nplain fallback row"
+        let color: [[[String: Any]]] = [
+            [["t": "╭──────────────╮"]],
+            [["t": "colored output", "f": "#aabbcc"]],
+            [["t": "❯"]],
+            [],                                  // no colour for the last row
+        ]
+        let screen = ScreenPreview(text: text, cols: 80, rows: 4,
+                                   colorRows: TileInk.decode(color))
+        let snip = TileInk.snippet(screen, lines: 3)
+        XCTAssertEqual(String(snip!.characters), "colored output\nplain fallback row")
+        // No colour report at all → nil, so the caller uses the plain path.
+        let bare = ScreenPreview(text: text, cols: 80, rows: 4, colorRows: [])
+        XCTAssertNil(TileInk.snippet(bare, lines: 3))
+    }
+
     func testTileInkDecodesRunsAndTolneratesJunk() {
         let rows = TileInk.decode([
             [["t": "hi", "f": "#ffcc00", "o": 1], ["t": " there", "i": 1]],

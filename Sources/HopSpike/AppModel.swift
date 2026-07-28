@@ -441,12 +441,23 @@ final class AppModel: ObservableObject {
     /// permissions" hint — so a naive tail shows every session as identical
     /// box-drawing. Skip chrome and keep real content.
     nonisolated static func meaningfulTail(of screen: String, lines wanted: Int) -> String {
+        let lines = screen.split(separator: "\n", omittingEmptySubsequences: false)
+        return meaningfulTailIndices(of: screen, lines: wanted)
+            .map { String(lines[$0]).trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+    }
+
+    /// Index-based twin of meaningfulTail, so the COLOURED render can style
+    /// exactly the rows the plain one would pick — the row indices are the
+    /// contract between the text screen and its colour report.
+    nonisolated static func meaningfulTailIndices(of screen: String, lines wanted: Int) -> [Int] {
         let boxChars = CharacterSet(charactersIn: "─│╭╮╰╯┌┐└┘├┤┬┴┼━┃▏▕▁▔█▀▄· ")
         let noise = ["bypass permissions", "esc to interrupt", "shift+tab to cycle",
                      "? for shortcuts", "ctrl+c to"]
         let kept = screen.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { line in
+            .enumerated()
+            .filter { _, raw in
+                let line = String(raw).trimmingCharacters(in: .whitespaces)
                 guard !line.isEmpty else { return false }
                 let lower = line.lowercased()
                 if noise.contains(where: { lower.contains($0) }) { return false }
@@ -456,7 +467,8 @@ final class AppModel: ObservableObject {
                 let boxCount = line.unicodeScalars.filter { boxChars.contains($0) }.count
                 return Double(boxCount) / Double(line.unicodeScalars.count) < 0.6
             }
-        return kept.suffix(wanted).joined(separator: "\n")
+            .map(\.offset)
+        return Array(kept.suffix(wanted))
     }
 
     /// Every session seen this launch. A session that ends while you're
