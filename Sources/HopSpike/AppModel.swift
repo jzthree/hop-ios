@@ -327,6 +327,15 @@ final class AppModel: ObservableObject {
     func renameSession(_ s: HopSession, to newName: String) async -> Bool {
         await post("api/sessions/rename", ["oldName": s.name, "newName": newName])
     }
+    /// The tagline is "what this session is FOR" — shown under every name,
+    /// in tile footers and on the widget. Agents set it via the API; now the
+    /// phone can too. Empty clears it. Refresh so it propagates immediately.
+    func setTagline(_ s: HopSession, to tagline: String) async -> Bool {
+        let ok = await post("api/sessions/tagline",
+                            ["internalName": s.internalName, "tagline": tagline])
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
     func setAgentAccess(_ s: HopSession, allowed: Bool) async -> Bool {
         await post("api/sessions/agent-permission", ["internalName": s.internalName, "allowed": allowed])
     }

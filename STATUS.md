@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Taglines from the phone (iteration 167)
+
+Loop iteration, cashing the endpoint probed last round. The tagline is
+"what this session is FOR" — under every name, in tile footers, on the
+widget — and only agents could set it. Now: long-press any row or tile
+→ Edit tagline. Empty clears it. The daemon propagates it to every
+client, so labelling a session from the couch relabels it on the desk.
+
+Verified END TO END against a scratch session the harness created and
+deleted: reset its tagline to empty over the API, drove the app's real
+flow (long-press → Edit tagline → type → Save), asserted the text
+landed back in the row, confirmed the daemon stored it. The fleet was
+never touched.
+
+One structural stumble, self-caught: the alert first landed inside
+SessionDialogs — a ViewModifier with explicit bindings — while the
+state lived in the view; the compiler said so, the bindings were
+threaded through, and the pattern is now obvious for the next dialog.
+
+Suites: green by exit code, both.
+
 ## The invisible, introduced (iteration 166)
 
 Loop iteration. The app's best interactions are deliberately invisible —

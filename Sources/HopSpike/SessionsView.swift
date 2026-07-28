@@ -28,6 +28,8 @@ struct SessionsView: View {
     @State private var newName = ""
     @State private var renaming: HopSession?
     @State private var renameText = ""
+    @State private var taglineTarget: HopSession?
+    @State private var taglineText = ""
     @State private var killTarget: HopSession?
     @State private var replyTarget: HopSession?
     @State private var replyText = ""
@@ -118,6 +120,7 @@ struct SessionsView: View {
                       systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+            Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
             Button {
                 Task { _ = await model.setParked(session, parked: true) }
             } label: {
@@ -300,6 +303,7 @@ struct SessionsView: View {
                                     Label("Reply", systemImage: "arrowshape.turn.up.left")
                                 }
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+                                Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
                                 Button {
                                     Task { _ = await model.setParked(session, parked: true) }
                                 } label: {
@@ -503,6 +507,7 @@ struct SessionsView: View {
                 .modifier(SessionDialogs(
                     creating: $creating, newName: $newName,
                     renaming: $renaming, renameText: $renameText,
+                    taglineTarget: $taglineTarget, taglineText: $taglineText,
                     killTarget: $killTarget, path: $path
                 ))
                 .onChange(of: model.requestedSession) { _, want in
@@ -571,6 +576,11 @@ struct SessionsView: View {
     private func startRename(_ session: HopSession) {
         renameText = session.name
         renaming = session
+    }
+
+    private func startTagline(_ session: HopSession) {
+        taglineText = session.tagline
+        taglineTarget = session
     }
 
     private func pollSessions() async {
@@ -652,6 +662,8 @@ private struct SessionDialogs: ViewModifier {
     @Binding var newName: String
     @Binding var renaming: HopSession?
     @Binding var renameText: String
+    @Binding var taglineTarget: HopSession?
+    @Binding var taglineText: String
     @Binding var killTarget: HopSession?
     @Binding var path: [String]
 
@@ -671,6 +683,24 @@ private struct SessionDialogs: ViewModifier {
                     if let s = renaming { Task { _ = await model.renameSession(s, to: renameText) } }
                     renaming = nil
                 }
+            }
+            .alert("Edit tagline",
+                   isPresented: Binding(get: { taglineTarget != nil },
+                                        set: { if !$0 { taglineTarget = nil } })) {
+                TextField("What is this session for?", text: $taglineText)
+                Button("Cancel", role: .cancel) { taglineTarget = nil }
+                Button("Save") {
+                    if let s = taglineTarget {
+                        let text = taglineText.trimmingCharacters(in: .whitespaces)
+                        Task {
+                            let ok = await model.setTagline(s, to: text)
+                            model.actionError = ok ? nil : "Couldn't set tagline on \(s.name)"
+                        }
+                    }
+                    taglineTarget = nil
+                }
+            } message: {
+                Text("Shown under the name, in tiles and on the widget — what this session is for. Empty clears it.")
             }
             .alert("Kill session?",
                    isPresented: Binding(get: { killTarget != nil },
