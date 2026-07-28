@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Re-entry sizes, studied (iteration 179)
+
+Jian: returning to a session sometimes shows the wrong size/formatting,
+inconsistently. Studied before fixing (his call, the right one):
+
+- The fleet's PTY sizes are heterogeneous — 51×49 where a phone once
+  claimed, 76-78×24 default-ish elsewhere. A 24-row grid UNDERFILLS a
+  phone view that fits ~49 rows; a 78-col grid pans.
+- On every entry the ATTACH CLAIM decides which world you get: the
+  2.5-second idle rule refuses the claim when the session's agent typed
+  recently (agents type through the API and bump lastInputAt), and
+  grants it otherwise. Active agent → peer/default size; idle agent →
+  phone size. Same session, different minute, different rendering —
+  the inconsistency is the election working as designed, invisibly.
+- "Formatting messed up" compounds it: content wrapped at one width
+  replays into another after a successful claim (scrollback never
+  reflows), and underfilled small grids leave the screen half-empty.
+
+Fix candidates are queued in PLAN.md (top item); the visible-state size
+chip is the most promising first move. The planning-and-implement loop
+Jian asked for is armed at 30 minutes, reading PLAN.md each round.
+
 ## The top of the screen, claimed — and one back story (iteration 178)
 
 Jian, three at once: the terminal wasn't using the top of the screen;
