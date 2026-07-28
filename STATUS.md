@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The key bar joins the material system (iteration 153)
+
+Loop iteration. The bar under your thumbs was the last stock-looking
+surface: flat caps on a flat strip, next to a switcher full of lit cards.
+
+- Caps wear the app's hairline (0.5pt, white 8%) and the bar a top
+  hairline — the same light-catching edge everything else has.
+- Pressed caps BRIGHTEN (16% toward white). Physical keys light under a
+  finger; dimming — UIKit's default — reads as disabled.
+- Single-glyph keys (arrows, ⌫, ⇞⇟) grew to 15pt. At 13 an arrowhead is
+  a smudge; word keys stay 13 and nothing re-wrapped (widths untouched).
+- One configurationUpdateHandler now owns cap colour in every state —
+  pressed and armed both. The armed setters shrank to accessibilityValue
+  + setNeedsUpdateConfiguration: the VoiceOver/test contract ("armed")
+  IS the state, and the colour follows it. testCtrlArmsAndDisarms
+  exercised the refactor unchanged.
+
+Ordering was checked, not changed: attention already sorts first, then
+recency — the wall floats ringing sessions to the top on its own.
+
+Suites: 66 unit, 17 UI, green.
+
 ## One ink for both modes, and a count through the locked door (iteration 152)
 
 Loop iteration. Two threads pulled from the last report's own queue.

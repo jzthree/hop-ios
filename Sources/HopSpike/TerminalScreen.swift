@@ -1877,11 +1877,10 @@ final class HopTermView: TerminalView {
     func setAltArmed(_ armed: Bool) {
         // Announce the state, don't just colour it: a sticky modifier whose
         // only signal is a background tint is invisible to VoiceOver, and to
-        // any test that would catch it silently breaking.
+        // any test that would catch it silently breaking. The colour itself
+        // is the configurationUpdateHandler's job.
         altButton?.accessibilityValue = armed ? "armed" : nil
-        altButton?.configuration?.baseForegroundColor = armed ? .black : .white
-        altButton?.configuration?.background.backgroundColor =
-            armed ? .hopKeyArmed : .hopKey
+        altButton?.setNeedsUpdateConfiguration()
     }
 
     // SwiftTerm exposes inputAccessoryView as a settable var — assign, don't override.
@@ -1891,9 +1890,7 @@ final class HopTermView: TerminalView {
 
     func setCtrlArmed(_ armed: Bool) {
         ctrlButton?.accessibilityValue = armed ? "armed" : nil
-        ctrlButton?.configuration?.baseForegroundColor = armed ? .black : .white
-        ctrlButton?.configuration?.background.backgroundColor =
-            armed ? .hopKeyArmed : .hopKey
+        ctrlButton?.setNeedsUpdateConfiguration()
     }
 
     private var holdKeys: [ObjectIdentifier: AccessoryKey] = [:]
@@ -1956,6 +1953,19 @@ final class HopTermView: TerminalView {
     private func makeAccessory() -> UIView {
         let bar = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: Self.accessoryHeight))
         bar.backgroundColor = .hopRaised
+
+        // Top hairline: the same light-catching edge the switcher's cards
+        // wear, separating the bar from the terminal above it.
+        let hairline = UIView()
+        hairline.backgroundColor = UIColor(white: 1, alpha: 0.06)
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(hairline)
+        NSLayoutConstraint.activate([
+            hairline.topAnchor.constraint(equalTo: bar.topAnchor),
+            hairline.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            hairline.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            hairline.heightAnchor.constraint(equalToConstant: 0.5)
+        ])
 
         let scroller = UIScrollView()
         scroller.showsHorizontalScrollIndicator = false
@@ -2028,10 +2038,19 @@ final class HopTermView: TerminalView {
             cfg.baseForegroundColor = .white
             cfg.background.backgroundColor = .hopKey
             cfg.background.cornerRadius = 9
+            // The hairline every card in the app now wears; flat fills next
+            // to the switcher's lit tiles read as an older generation of UI.
+            cfg.background.strokeColor = UIColor(white: 1, alpha: 0.08)
+            cfg.background.strokeWidth = 0.5
             cfg.contentInsets = .zero
+            // Single glyphs (arrows, ⌫, paging) get two extra points: at 13pt
+            // an arrowhead is a smudge, and unlike the word keys they have
+            // width to spare.
+            let capFont = UIFont.monospacedSystemFont(ofSize: label.count == 1 ? 15 : 13,
+                                                      weight: .medium)
             cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var out = incoming
-                out.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+                out.font = capFont
                 return out
             }
             // Repeating keys fire on touch-DOWN and drive themselves after
@@ -2070,6 +2089,19 @@ final class HopTermView: TerminalView {
             btn.widthAnchor.constraint(equalToConstant: width).isActive = true
             if key == .ctrl { ctrlButton = btn }
             if key == .alt { altButton = btn }
+            // One handler owns the cap's colour in every state, pressed and
+            // armed both — the armed setters merely change accessibilityValue
+            // (the contract the UI test already holds) and ask for an update.
+            // Physical caps brighten under a finger; dimming reads as
+            // disabled.
+            btn.configurationUpdateHandler = { b in
+                guard var c = b.configuration else { return }
+                let armed = b.accessibilityValue == "armed"
+                let base: UIColor = armed ? .hopKeyArmed : .hopKey
+                c.background.backgroundColor = b.isHighlighted ? base.hopPressed : base
+                c.baseForegroundColor = armed ? .black : .white
+                b.configuration = c
+            }
             stack.addArrangedSubview(btn)
         }
         return bar

@@ -49,6 +49,16 @@ extension UIColor {
     static let hopRaised = UIColor(red: 0x16 / 255, green: 0x1b / 255, blue: 0x22 / 255, alpha: 1)
     static let hopKey = UIColor(red: 0x27 / 255, green: 0x2e / 255, blue: 0x38 / 255, alpha: 1)
     static let hopKeyArmed = UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1)
+
+    /// The cap "lights" under the finger: a step toward white, not a dim —
+    /// physical keys brighten when pressed, and dimming reads as disabled.
+    var hopPressed: UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        let k: CGFloat = 0.16
+        return UIColor(red: r + (1 - r) * k, green: g + (1 - g) * k,
+                       blue: b + (1 - b) * k, alpha: a)
+    }
 }
 
 @main
