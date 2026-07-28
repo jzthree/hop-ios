@@ -236,6 +236,27 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## The mark: a prompt with a live cursor (iteration 155)
+
+Loop iteration. The icon was a generic chevron on a purple wash — the one
+surface everyone sees before the app opens, wearing none of the app's
+language. It's now ❯▊ — a prompt with its cursor lit, which is what hop
+IS: a session running somewhere, waiting for you. Lavender gradient
+stroke, hopGlow caret, neon bloom matching the switcher's glow language.
+
+Native touch the web has no equivalent of: iOS 18 appearance variants.
+Dark Home Screens get a deeper night with the same neon; tinted Home
+Screens get a grayscale mark the system hues itself.
+
+Craft notes: shapes are drawn as solid masks with colour composited
+through them — the first attempt drew the gradient as 64 line segments
+and the caps striped (banding, screenshot-caught). 4x supersample,
+LANCZOS down. Legibility checked at 120px before shipping. Generator
+lives in tools/make_icon.py; the icon is reproducible, not a binary
+blob with no provenance.
+
+Suites: 67 unit, 17 UI, green.
+
 ## Swipe the pill, change the terminal (iteration 154)
 
 Loop iteration. Safari's address-bar swipe, for terminals: drag the
