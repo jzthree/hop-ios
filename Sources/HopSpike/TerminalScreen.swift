@@ -219,32 +219,55 @@ struct TerminalHostView: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
+                    // Same material as the chrome pill — the last stock strip
+                    // in the terminal. (Still a safeAreaInset, not an overlay:
+                    // an input mode may honestly take layout space.)
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("find in scrollback", text: $findText)
-                            .focused($findFocused)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.system(.body, design: .monospaced))
-                            .onChange(of: findText) { _, _ in
-                                findDirection = -1      // new query: newest match first
-                                findMisses = 0
-                                findSeq += 1
-                            }
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                            TextField("find in scrollback", text: $findText)
+                                .focused($findFocused)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .font(.system(.subheadline, design: .monospaced))
+                                .onChange(of: findText) { _, _ in
+                                    findDirection = -1  // new query: newest match first
+                                    findMisses = 0
+                                    findSeq += 1
+                                }
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
                         Button {
                             findDirection = -1          // older
                             findSeq += 1
-                        } label: { Image(systemName: "chevron.up") }
+                        } label: {
+                            Image(systemName: "chevron.up")
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
                             .accessibilityLabel("Previous match")
                         Button {
                             findDirection = 1           // newer
                             findSeq += 1
-                        } label: { Image(systemName: "chevron.down") }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
                             .accessibilityLabel("Next match")
                         Button("Done") { findFocused = false; findOpen = false; findText = "" }
+                            .font(.subheadline.weight(.semibold))
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color.hopRaised)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(.ultraThinMaterial)
+                    .overlay(alignment: .bottom) {
+                        Color.white.opacity(0.06).frame(height: 0.5)
+                    }
                 }
             }
             // No navigation bar, EVER — not hidden-until-tapped, gone. The
@@ -257,9 +280,11 @@ struct TerminalHostView: View {
             .statusBarHidden(landscapePhone)
             .overlay(alignment: .top) {
                 // Suppressed once the session is gone (the ended card carries
-                // its own way back) and in landscape, where every point is
-                // terminal — same rule the old bar had.
-                if chromeShown, !landscapePhone, goneReason == nil {
+                // its own way back), in landscape (every point is terminal),
+                // and while FIND is open — both claim the top edge, and the
+                // pill drew over the find bar (probe-caught: the field took
+                // typing while the pill covered it).
+                if chromeShown, !landscapePhone, !findOpen, goneReason == nil {
                     chromeBar
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }

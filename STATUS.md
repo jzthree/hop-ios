@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Find joins the material — and the pill learns to yield (iteration 162)
+
+Loop iteration. The find bar was the terminal's last stock strip: flat
+field on flat hopRaised. Now: raised mono field with hairline, sized
+chevron targets, semibold Done, on ultraThinMaterial with a bottom
+hairline — the chrome pill's material, because they're the same family
+of surface.
+
+The probe caught a real bug on the way: the pill and the find bar both
+claim the top edge, and the PILL WON — the field held focus and took
+typing while the pill covered it (under the test pin indefinitely; in
+production for the three seconds until auto-hide). The overlay now
+yields while find is open. This is the screenshot-verification
+convention paying rent: the suites were green through a bug a single
+screenshot exposed.
+
+Memory updated too: the ASC key failing AUTH (not role) supersedes the
+old TestFlight-blocker theory, and the parked widget's unlock steps are
+recorded where the next session will find them.
+
+Suites: green by exit code, both.
+
 ## The wall learns projects; search lights its matches (iteration 161)
 
 Loop iteration, two switcher rough edges.
