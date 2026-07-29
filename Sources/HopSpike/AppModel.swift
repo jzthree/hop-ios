@@ -37,6 +37,9 @@ final class AppModel: ObservableObject {
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).
     @Published var previews: [String: String] = [:]
+    /// Server-owned folders, in the daemon's order. User-authored structure
+    /// — the wall's "By folder" grouping renders exactly this.
+    @Published var folders: [HopFolder] = []
     /// Whole screens for tile mode: rendered text plus the grid's true column
     /// count, so a tile can scale type to the session's real geometry — the
     /// same shape the web switcher renders. Fetched from /api/sessions/screen,
@@ -115,6 +118,8 @@ final class AppModel: ObservableObject {
             lastRawSessions = cached.sessions
             previews = cached.previews
             screensRaw = cached.screens
+            lastRawFolders = cached.folders
+            folders = cached.folders.compactMap(HopFolder.init(json:))
             sessions = cached.sessions.compactMap { HopSession(json: $0, seenBellSeq: seenBells) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             for s in sessions { lastKnown[s.internalName] = s }
@@ -161,12 +166,15 @@ final class AppModel: ObservableObject {
         lastCacheSaveAt = Date()
         FleetCache.save(.init(sessions: lastRawSessions,
                               previews: previews,
-                              screens: screensRaw))
+                              screens: screensRaw,
+                              folders: lastRawFolders))
     }
 
     func signOut() {
         FleetCache.delete()
         lastRawSessions = []
+        lastRawFolders = []
+        folders = []
         screensRaw = [:]
         if let url = baseURL {
             for cookie in HTTPCookieStorage.shared.cookies(for: url) ?? [] {
@@ -319,6 +327,10 @@ final class AppModel: ObservableObject {
 #endif
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
+            let rawFolders = (obj["folders"] as? [[String: Any]]) ?? []
+            let parsedFolders = rawFolders.compactMap(HopFolder.init(json:))
+            if folders != parsedFolders { folders = parsedFolders }
+            lastRawFolders = rawFolders
             lastRawSessions = raw
             liveListSeen = true
             maybeSaveCache()
@@ -422,6 +434,7 @@ final class AppModel: ObservableObject {
     /// FleetCache — persisting the daemon's own JSON means the load path
     /// re-runs the exact live parsers and can never drift from them.
     private var lastRawSessions: [[String: Any]] = []
+    private var lastRawFolders: [[String: Any]] = []
     private var screensRaw: [String: [String: Any]] = [:]
     private var lastCacheSaveAt = Date.distantPast
     /// True once this launch painted from cache — the first live refresh
@@ -540,6 +553,24 @@ final class AppModel: ObservableObject {
             actionError = error.localizedDescription
             return nil
         }
+    }
+
+    /// File a session into a folder (nil = unfiled). The daemon owns the
+    /// structure; this is the same POST the web's drag performs.
+    func moveSession(_ internalName: String, toFolder folderId: String?) async -> Bool {
+        var body: [String: Any] = ["internalName": internalName]
+        if let folderId { body["folderId"] = folderId }
+        return await post("api/sessions/move", body)
+    }
+
+    func createFolder(named name: String) async -> Bool {
+        await post("api/folders", ["name": name])
+    }
+
+    /// Teardown-only today (probes clean up after themselves); the UI
+    /// deliberately doesn't expose deletion — folders are shared structure.
+    func deleteFolder(id: String) async -> Bool {
+        await post("api/folders/delete", ["id": id])
     }
 
     func killSession(_ s: HopSession) async -> Bool {
@@ -761,6 +792,17 @@ struct ContentMatch: Identifiable {
     var id: String { internalName }
 }
 
+struct HopFolder: Identifiable, Equatable {
+    let id: String
+    let name: String
+    init?(json: [String: Any]) {
+        guard let id = json["id"] as? String,
+              let name = json["name"] as? String, !name.isEmpty else { return nil }
+        self.id = id
+        self.name = name
+    }
+}
+
 struct HopSession: Identifiable {
     let name: String
     let internalName: String
@@ -784,6 +826,8 @@ struct HopSession: Identifiable {
     /// A client is on this session's PTY right now — the desk's browser, the
     /// CLI, another phone. Presence at wall distance.
     let attached: Bool
+    /// Jian's own filing (server-owned folders); nil = unfiled.
+    let folderId: String?
     /// Hidden from the browsing list while still running. hop's word for "not
     /// part of my working set right now", and the phone honouring it is the
     /// whole point — a session parked from the desk that keeps appearing in
@@ -813,7 +857,7 @@ struct HopSession: Identifiable {
         archived = (json["archived"] as? Bool) ?? false
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
-
+        folderId = json["folderId"] as? String
     }
 
     var shortCwd: String {

@@ -207,6 +207,27 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## His folders, on the phone (iteration 210)
+
+PLAN 31, one round after the audit found it: the wall now renders
+Jian's own filing. The Arrange picker (⋯ menu) offers Recent /
+By project / By folder — the third sections the wall under his folder
+names in the daemon's order, Unfiled last, with sessions whose folder
+was deleted landing in Unfiled instead of vanishing. Long-press any
+session: "Move to ▸" lists the folders, Unfiled, and "New folder…"
+(creates and files in one gesture). The folders ride the FleetCache,
+so the instant-launch wall keeps its sections. Deliberately
+read-mostly: folder rename/delete stay on the web — shared structure,
+and the phone's surface starts small.
+
+Probe-shot: the live wall sectioned Research (angler, Accessibility,
+Supernova, Bellatrix, Oberon) over Softwares — his organization,
+verbatim (docs/screens/folders-wall.png). E2E against the real
+daemon: ProbeFolder created, a scratch filed into it, folderId
+round-tripped through refresh, unfiled, both deleted, fleet verified
+clean. His three live folders are data and were never touched.
+91 unit + 25 UI green, strict zero.
+
 ## The parity re-audit finds his folders (iteration 209)
 
 Planning round. The parity matrix was 160 iterations stale, so this

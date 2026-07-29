@@ -32,8 +32,19 @@ struct SessionsView: View {
     @State private var taglineText = ""
     @State private var killTarget: HopSession?
     @State private var replyTarget: HopSession?
+    @State private var newFolderFor: HopSession?
+    @State private var newFolderName = ""
     @State private var replyText = ""
-    @AppStorage("groupByProject") private var groupByProject = false
+    /// Recent (flat) / By project (cwd heuristic) / By folder (Jian's own
+    /// filing). Migrates the old Bool preference on first read.
+    @AppStorage("groupMode") private var groupModeRaw = ""
+    private var groupMode: GroupMode {
+        get {
+            if let m = GroupMode(rawValue: groupModeRaw) { return m }
+            return UserDefaults.standard.bool(forKey: "groupByProject") ? .project : .recent
+        }
+    }
+    private func setGroupMode(_ m: GroupMode) { groupModeRaw = m.rawValue }
     /// The list/tiles choice is the user's: tiles are the web switcher's
     /// space-efficient wall of live screens; the list keeps taglines, swipe
     /// actions and grouping. Neither is objectively right — so a toggle.
@@ -126,8 +137,42 @@ struct SessionsView: View {
     /// One unlabelled section normally; project buckets when grouping is on.
     /// Filtering always flattens — you're hunting one thing, not browsing.
     private var sections: [(label: String, rows: [HopSession])] {
-        guard groupByProject, filter.isEmpty else { return [(label: "", rows: visible)] }
-        return groupSessionsByProject(visible)
+        guard filter.isEmpty else { return [(label: "", rows: visible)] }
+        switch groupMode {
+        case .recent: return [(label: "", rows: visible)]
+        case .project: return groupSessionsByProject(visible)
+        case .folder: return groupSessionsByFolder(visible, folders: model.folders)
+        }
+    }
+
+    /// "Move to ▸": Jian's folders, Unfiled, New folder…. The daemon owns
+    /// the structure; this is the web drag's POST wearing a native menu.
+    @ViewBuilder
+    private func moveToMenu(_ session: HopSession) -> some View {
+        Menu {
+            ForEach(model.folders) { f in
+                Button {
+                    Task { _ = await model.moveSession(session.internalName, toFolder: f.id) }
+                } label: {
+                    if session.folderId == f.id {
+                        Label(f.name, systemImage: "checkmark")
+                    } else {
+                        Text(f.name)
+                    }
+                }
+            }
+            if session.folderId != nil {
+                Button {
+                    Task { _ = await model.moveSession(session.internalName, toFolder: nil) }
+                } label: { Label("Unfiled", systemImage: "tray") }
+            }
+            Divider()
+            Button { newFolderFor = session } label: {
+                Label("New folder…", systemImage: "folder.badge.plus")
+            }
+        } label: {
+            Label("Move to", systemImage: "folder")
+        }
     }
 
     // MARK: pieces
@@ -169,6 +214,7 @@ struct SessionsView: View {
             } label: {
                 Label("Fork session", systemImage: "arrow.triangle.branch")
             }
+            moveToMenu(session)
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
             Button {
@@ -350,6 +396,7 @@ struct SessionsView: View {
                                 } label: {
                                     Label("Fork session", systemImage: "arrow.triangle.branch")
                                 }
+                                moveToMenu(session)
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                                 Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
                                 Button {
@@ -485,8 +532,11 @@ struct SessionsView: View {
                                      set: { on in Task { await notifier.setEnabled(on) } })) {
                     Label("Bell notifications", systemImage: "bell.badge")
                 }
-                Toggle(isOn: $groupByProject) {
-                    Label("Group by project", systemImage: "folder")
+                Picker("Arrange", selection: Binding(get: { groupMode },
+                                                     set: { setGroupMode($0) })) {
+                    ForEach(GroupMode.allCases, id: \.self) { m in
+                        Label(m.label, systemImage: m.icon).tag(m)
+                    }
                 }
                 Toggle(isOn: $switcherTiles) {
                     Label("Tile view", systemImage: "square.grid.2x2")
@@ -596,6 +646,29 @@ struct SessionsView: View {
                     taglineTarget: $taglineTarget, taglineText: $taglineText,
                     killTarget: $killTarget, path: $path
                 ))
+                .alert("New folder",
+                       isPresented: Binding(get: { newFolderFor != nil },
+                                            set: { if !$0 { newFolderFor = nil } })) {
+                    TextField("Folder name", text: $newFolderName)
+                        .textInputAutocapitalization(.never)
+                    Button("Cancel", role: .cancel) { newFolderFor = nil }
+                    Button("Create & move") {
+                        let session = newFolderFor
+                        let name = newFolderName.trimmingCharacters(in: .whitespaces)
+                        newFolderFor = nil
+                        newFolderName = ""
+                        guard let session, !name.isEmpty else { return }
+                        Task {
+                            // Create, find the fresh id in the refreshed list,
+                            // file the session into it — one gesture's worth.
+                            guard await model.createFolder(named: name),
+                                  let made = model.folders.first(where: { $0.name == name })
+                            else { return }
+                            _ = await model.moveSession(session.internalName,
+                                                        toFolder: made.id)
+                        }
+                    }
+                }
                 .onChange(of: model.requestedSession) { _, want in
                     guard let want else { return }
                     path = [want]                    // replaces the pushed terminal

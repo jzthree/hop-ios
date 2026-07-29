@@ -190,10 +190,13 @@ final class ScrollUITests: XCTestCase {
             sleep(2)
         }
         XCTAssertTrue(copy.exists, "Copy screen never appeared in the context menu")
-        // While the menu is up: Fork session must be offered (tapping it here
-        // would fork the live fixture, so presence is the assertion).
+        // While the menu is up: Fork session and Move to must be offered
+        // (tapping either would mutate the live fixture; presence is the
+        // assertion).
         XCTAssertTrue(app.buttons["Fork session"].exists,
                       "Fork session missing from the context menu")
+        XCTAssertTrue(app.buttons["Move to"].exists,
+                      "Move to missing from the context menu")
         copy.tap()
         // The menu item's action runs after the dismiss animation — poll.
         var pasted = ""
@@ -486,6 +489,52 @@ final class ScrollUITests: XCTestCase {
         }.resume()
         _ = sem.wait(timeout: .now() + 10)
         return found
+    }
+
+    /// "By folder" renders Jian's own filing: switch the arrangement and a
+    /// real folder name from the live daemon must appear as a section.
+    func testByFolderShowsRealFolderSections() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        guard let firstFolder = daemonFirstFolderName(cookie: cookie) else {
+            throw XCTSkip("no folders on this daemon — nothing to render")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25))
+        app.buttons["Settings"].tap()
+        let byFolder = app.buttons["By folder"]
+        XCTAssertTrue(byFolder.waitForExistence(timeout: 5),
+                      "arrange picker missing By folder")
+        byFolder.tap()
+        let header = app.staticTexts[firstFolder].firstMatch
+        var seen = header.waitForExistence(timeout: 8)
+        for _ in 0..<6 where !seen { app.swipeUp(); seen = header.exists }
+        XCTAssertTrue(seen, "folder section '\(firstFolder)' never rendered")
+        // Restore Recent so later tests see the flat wall they expect.
+        app.buttons["Settings"].tap()
+        app.buttons["Recent"].tap()
+    }
+
+    private func daemonFirstFolderName(cookie: String) -> String? {
+        guard let url = URL(string: "https://hop.zhoulab.io/api/sessions") else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("tunnel_session=\(cookie)", forHTTPHeaderField: "Cookie")
+        var name: String?
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            if let data,
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let folders = obj["folders"] as? [[String: Any]] {
+                name = folders.first?["name"] as? String
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 10)
+        return name
     }
 
     /// Sign-out is destructive, had a race (an in-flight refresh could land

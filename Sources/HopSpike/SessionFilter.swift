@@ -7,6 +7,25 @@ enum SessionScope: String, CaseIterable {
     case user = "You", agent = "Agents", all = "All"
 }
 
+/// How the wall arranges itself. Folder = the user's own server-side filing.
+enum GroupMode: String, CaseIterable {
+    case recent, project, folder
+    var label: String {
+        switch self {
+        case .recent: return "Recent"
+        case .project: return "By project"
+        case .folder: return "By folder"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .recent: return "clock"
+        case .project: return "externaldrive"
+        case .folder: return "folder"
+        }
+    }
+}
+
 /// Badge hue per running app, so a wall of tiles scans by colour before it
 /// scans by name: claude keeps hop's purple; editors, runtimes and remotes
 /// each get a tone; anything unrecognised stays neutral instead of wearing
@@ -54,6 +73,23 @@ func groupSessionsByProject(_ sessions: [HopSession]) -> [(label: String, rows: 
             let bb = b.rows.map(\.lastActivityAt).max() ?? 0
             return aa == bb ? a.label < b.label : aa > bb
         }
+}
+
+/// Sessions bucketed by Jian's OWN folders, in the daemon's folder order;
+/// unfiled last (label "Unfiled" only when folders exist at all). His
+/// explicit filing beats the cwd heuristic — this renders it verbatim.
+func groupSessionsByFolder(_ sessions: [HopSession],
+                           folders: [HopFolder]) -> [(label: String, rows: [HopSession])] {
+    guard !folders.isEmpty else { return [(label: "", rows: sessions)] }
+    var out: [(label: String, rows: [HopSession])] = []
+    for f in folders {
+        let rows = sessions.filter { $0.folderId == f.id }
+        if !rows.isEmpty { out.append((label: f.name, rows: rows)) }
+    }
+    let known = Set(folders.map(\.id))
+    let unfiled = sessions.filter { $0.folderId == nil || !known.contains($0.folderId!) }
+    if !unfiled.isEmpty { out.append((label: "Unfiled", rows: unfiled)) }
+    return out
 }
 
 func filterSessions(_ sessions: [HopSession], scope: SessionScope, query: String) -> [HopSession] {

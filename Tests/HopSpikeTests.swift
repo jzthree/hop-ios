@@ -787,6 +787,62 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(seen, "the reply never reached the session's screen")
     }
 
+    func testFolderGroupingRendersJiansFilingVerbatim() {
+        func f(_ id: String, _ name: String) -> HopFolder {
+            HopFolder(json: ["id": id, "name": name])!
+        }
+        let folders = [f("f_1", "Research"), f("f_2", "Softwares")]
+        let list = [
+            session(["name": "a", "folderId": "f_2"]),
+            session(["name": "b", "folderId": "f_1"]),
+            session(["name": "c"]),
+            session(["name": "d", "folderId": "f_gone"])   // deleted folder
+        ]
+        let groups = groupSessionsByFolder(list, folders: folders)
+        XCTAssertEqual(groups.map(\.label), ["Research", "Softwares", "Unfiled"],
+                       "daemon folder order, unfiled last")
+        XCTAssertEqual(groups[0].rows.map(\.name), ["b"])
+        XCTAssertEqual(groups[1].rows.map(\.name), ["a"])
+        XCTAssertEqual(groups[2].rows.map(\.name), ["c", "d"],
+                       "a dead folderId lands in Unfiled, never vanishes")
+        // No folders at all: one flat unlabeled bucket, no "Unfiled" noise.
+        let flat = groupSessionsByFolder(list, folders: [])
+        XCTAssertEqual(flat.count, 1)
+        XCTAssertEqual(flat[0].label, "")
+    }
+
+    /// Folders, against the real daemon: create one, file a scratch into
+    /// it, the folderId round-trips on refresh, then unfile and delete —
+    /// Jian's live folders are DATA and are never touched.
+    @MainActor
+    func testFolderMoveRoundTripsAgainstTheDaemon() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] != nil,
+                          "no daemon token in this environment")
+        let model = AppModel.shared
+        let scratch = "FolderProbe"
+        let folderName = "ProbeFolder"
+        let created = await model.createSession(name: scratch, cwd: "/tmp")
+        XCTAssertTrue(created)
+        defer { Task { @MainActor in
+            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+                _ = await model.killSession(s)
+            }
+            if let f = model.folders.first(where: { $0.name == folderName }) {
+                _ = await model.deleteFolder(id: f.id)
+            }
+        } }
+        let made = await model.createFolder(named: folderName)
+        XCTAssertTrue(made, "folder create refused: \(model.actionError ?? "?")")
+        let folder = try XCTUnwrap(model.folders.first { $0.name == folderName })
+        let moved = await model.moveSession(scratch, toFolder: folder.id)
+        XCTAssertTrue(moved)
+        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.folderId,
+                       folder.id, "folderId must round-trip through refresh")
+        let unfiled = await model.moveSession(scratch, toFolder: nil)
+        XCTAssertTrue(unfiled)
+        XCTAssertNil(model.sessions.first { $0.internalName == scratch }?.folderId)
+    }
+
     /// Fork, against the real daemon: fork a scratch, the fork exists with
     /// the "-fork" name and the SAME cwd, and both die at teardown.
     @MainActor

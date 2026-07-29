@@ -24,12 +24,14 @@ enum FleetCache {
         var sessions: [[String: Any]]
         var previews: [String: String]
         var screens: [String: [String: Any]]
+        var folders: [[String: Any]] = []
     }
 
     static func save(_ p: Payload, to url: URL = defaultURL) {
         let dict: [String: Any] = ["sessions": p.sessions,
                                    "previews": p.previews,
-                                   "screens": p.screens]
+                                   "screens": p.screens,
+                                   "folders": p.folders]
         guard JSONSerialization.isValidJSONObject(dict),
               let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -47,7 +49,8 @@ enum FleetCache {
               let sessions = obj["sessions"] as? [[String: Any]] else { return nil }
         return Payload(sessions: sessions,
                        previews: (obj["previews"] as? [String: String]) ?? [:],
-                       screens: (obj["screens"] as? [String: [String: Any]]) ?? [:])
+                       screens: (obj["screens"] as? [String: [String: Any]]) ?? [:],
+                       folders: (obj["folders"] as? [[String: Any]]) ?? [])
     }
 
     static func delete(at url: URL = defaultURL) {
