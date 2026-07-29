@@ -190,6 +190,10 @@ final class ScrollUITests: XCTestCase {
             sleep(2)
         }
         XCTAssertTrue(copy.exists, "Copy screen never appeared in the context menu")
+        // While the menu is up: Fork session must be offered (tapping it here
+        // would fork the live fixture, so presence is the assertion).
+        XCTAssertTrue(app.buttons["Fork session"].exists,
+                      "Fork session missing from the context menu")
         copy.tap()
         // The menu item's action runs after the dismiss animation — poll.
         var pasted = ""

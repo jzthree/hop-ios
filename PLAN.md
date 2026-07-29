@@ -334,24 +334,15 @@ killed cached session lands on "Session ended", and the daemon's LIST
 resurrecting) stays phantom-free. Daemon residual recorded in
 HOP2-NOTES.
 
-## 30. Fork session (TOP for next round — daemon shipped it today)
-Problem: hop2 f6e6852 (2026-07-29) added session forking — every web
-session's ⋯ sheet has "Fork session"; the iOS context menus don't.
-Jian built it hours ago, so parity is wanted, and the phone is where
-"spin off a copy to try something" happens most.
-Evidence: POST /api/sessions/fork {name|internalName} → creates
-"<display>-fork[N]" in the source's cwd; a recorded claude session
-resumes with forked history (--resume <id> --fork-session), codex
-opens its picker, anything else forks a shell; origin inherited
-(agent forks stay agent); forkedFrom recorded; 404 for unknown.
-Sketch: AppModel.forkSession(internalName) → POST + refresh; "Fork
-session" in tile/row context menus (beside Copy screen) and the
-terminal's actions menu; on success navigate to the fork (the
-response carries the new name — read the handler tail during
-implementation); e2e unit test against the real daemon (create
-scratch, fork it, assert "-fork" exists + same cwd, kill both — the
-Intent-test pattern); UI test asserts the menu item exists and fires.
-Also this round: verify omnisearch (same commit) changed nothing the
-iOS /api/sessions/search consumer depends on.
-
+## 30. [DONE 2026-07-29] Fork session
+Same-day parity with hop2 f6e6852. forkSession() on the model (POST,
+reads the response's internalName, surfaces hop's own error text);
+"Fork session" in the tile menu, the row menu, and the terminal's ⋯
+sheet — forking mid-conversation switches you to the fork while the
+original runs on. E2E against the real daemon: scratch created in
+/tmp, forked, fork present in the refreshed list WITH the inherited
+cwd, both killed, zero leftovers verified. UI suite asserts the menu
+offers it (presence only — tapping would fork the live fixture).
+Omnisearch (same commit) verified web-UI-only: no /api/sessions/search
+changes.
 ## 31. (space for Jian's next reports)

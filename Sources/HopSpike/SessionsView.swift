@@ -158,6 +158,17 @@ struct SessionsView: View {
                     Label("Share screen…", systemImage: "square.and.arrow.up")
                 }
             }
+            // A copy to try something in, while the original runs untouched —
+            // claude forks continue the conversation under a fresh id.
+            Button {
+                Task {
+                    if let fork = await model.forkSession(session.internalName) {
+                        model.requestedSession = fork
+                    }
+                }
+            } label: {
+                Label("Fork session", systemImage: "arrow.triangle.branch")
+            }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
             Button {
@@ -329,6 +340,15 @@ struct SessionsView: View {
                                     ShareLink(item: grab, subject: Text(session.name)) {
                                         Label("Share screen…", systemImage: "square.and.arrow.up")
                                     }
+                                }
+                                Button {
+                                    Task {
+                                        if let fork = await model.forkSession(session.internalName) {
+                                            model.requestedSession = fork
+                                        }
+                                    }
+                                } label: {
+                                    Label("Fork session", systemImage: "arrow.triangle.branch")
                                 }
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                                 Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }

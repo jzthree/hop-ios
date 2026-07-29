@@ -496,6 +496,18 @@ struct TerminalHostView: View {
                 Button { controlAction = .links } label: {
                     Label("Open link…", systemImage: "link")
                 }
+                // Fork from INSIDE the session — the moment you want a copy
+                // to try something is usually mid-conversation. Switches to
+                // the fork; the original keeps running behind you.
+                Button {
+                    Task {
+                        if let fork = await model.forkSession(session.internalName) {
+                            model.requestedSession = fork
+                        }
+                    }
+                } label: {
+                    Label("Fork session", systemImage: "arrow.triangle.branch")
+                }
             }
             Section("View") {
                 // Observer mode: see the peer's whole grid width at once

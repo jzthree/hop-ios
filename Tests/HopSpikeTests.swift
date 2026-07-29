@@ -787,6 +787,36 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(seen, "the reply never reached the session's screen")
     }
 
+    /// Fork, against the real daemon: fork a scratch, the fork exists with
+    /// the "-fork" name and the SAME cwd, and both die at teardown.
+    @MainActor
+    func testForkSessionRoundTripsAgainstTheDaemon() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] != nil,
+                          "no daemon token in this environment")
+        let model = AppModel.shared
+        let scratch = "ForkProbe"
+        let created = await model.createSession(name: scratch, cwd: "/tmp")
+        XCTAssertTrue(created)
+        await model.refreshSessions(silent: true)
+        defer { Task { @MainActor in
+            for name in [scratch, scratch + "-fork"] {
+                if let s = model.sessions.first(where: { $0.internalName == name }) {
+                    _ = await model.killSession(s)
+                }
+            }
+            await model.refreshSessions(silent: true)
+        } }
+
+        let fork = await model.forkSession(scratch)
+        XCTAssertNotNil(fork, "fork refused: \(model.actionError ?? "no error")")
+        guard let fork else { return }
+        XCTAssertTrue(fork.hasSuffix("-fork") || fork.contains("-fork"),
+                      "fork name unexpected: \(fork)")
+        let made = model.sessions.first { $0.internalName == fork }
+        XCTAssertNotNil(made, "fork not in the refreshed list")
+        XCTAssertEqual(made?.cwd, "/tmp", "fork must inherit the source cwd")
+    }
+
     @MainActor
     private func previewText(of internalName: String) async -> String? {
         let model = AppModel.shared

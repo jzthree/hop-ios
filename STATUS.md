@@ -207,6 +207,24 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Fork, same-day (iteration 208)
+
+PLAN 30: the phone speaks fork the day the daemon learned it. "Fork
+session" now lives in all three places a session presents itself —
+tile menu, row menu, and the terminal's ⋯ sheet — and opening one
+switches you into the fork while the original keeps running. A claude
+fork continues the conversation under a fresh id (the daemon's doing;
+the client just asks and follows the returned internalName). Failures
+surface hop's own error text through actionError, same as every other
+verb.
+
+Proof in the house style: an e2e unit test forks a real scratch
+against the real daemon and asserts the part that matters — the fork
+EXISTS in the refreshed list and INHERITED the source cwd (/tmp) —
+then kills both and leaves the fleet clean (verified empty). The UI
+suite asserts the menu offers fork without firing it on the live
+fixture. 89 unit + 24 UI green, strict zero.
+
 ## Fork lands upstream; the head gets unstale (iteration 207)
 
 Planning round. The drift check earned its keep a second day running:

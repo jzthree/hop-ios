@@ -515,6 +515,33 @@ final class AppModel: ObservableObject {
         _ = await setParked(s, parked: false)
     }
 
+    /// Fork: a NEW session in the source's cwd; a recorded claude source
+    /// resumes its history under a fresh conversation id (hop2 f6e6852).
+    /// Returns the fork's internalName so the caller can open it.
+    func forkSession(_ internalName: String) async -> String? {
+        guard let url = baseURL?.appendingPathComponent("api/sessions/fork") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["internalName": internalName])
+        actionError = nil
+        do {
+            let (data, resp) = try await urlSession.data(for: req)
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 500),
+                  let fork = obj?["internalName"] as? String else {
+                actionError = (obj?["error"] as? String) ?? "Fork failed"
+                return nil
+            }
+            await refreshSessions(silent: true)
+            return fork
+        } catch {
+            actionError = error.localizedDescription
+            return nil
+        }
+    }
+
     func killSession(_ s: HopSession) async -> Bool {
         await post("api/sessions/delete", ["internalName": s.internalName])
     }
