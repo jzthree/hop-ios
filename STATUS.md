@@ -258,6 +258,30 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A planning round: the blank-wall gap (iteration 198)
+
+Everything in the queue is done or waiting on Jian (verdicts on
+236/237/240, the Xcode sign-in, one bad keyboard trace), so this round
+planned. Investigated and RULED OUT before writing items: lock-screen
+reply (QuickReply + UNTextInputNotificationAction already shipped),
+park-from-notification (exists), content search (server-side, wired),
+route-change reconnects (wired).
+
+The real gap found: cold launch renders a BLANK wall until the first
+/api/sessions round-trip — AppModel.sessions inits to [] and nothing
+persists across process death. iOS kills this app constantly; every
+return from the graveyard is seconds of empty screen in an app built
+for glancing. PLAN 22 (next round's top): persist fleet + screens to
+disk on refresh, paint the wall at first frame, let the live refresh
+replace it — with the signOut-deletes-cache caveat called out.
+
+Also appended: PLAN 23, Shortcuts write-verbs (Reply and New Session —
+the read verbs exist, the senders exist, only the intents are
+missing); PLAN 24, a "wants you" Live Activity, gated behind the same
+provisioning wall as the widget.
+
+No build shipped (planning round, by design); the phone stays on 240.
+
 ## The hop keyboard (iteration 197)
 
 PLAN 21, Jian's own ask ("how hard would it be to build a togglable

@@ -243,4 +243,47 @@ accessory-ctrl + board letter = a control chord. Sticky preference
 reachable; permanent UI test covers toggle, all three planes, and the
 hatch; screenshots in docs/screens. Jian: refinement reports welcome
 (key sizes, missing chords, a dedicated ctrl row?).
-## 22. (space for Jian's next reports)
+## 22. Instant launch: the wall from cache (TOP for next round)
+Problem: cold launch renders a BLANK wall until /api/sessions and the
+preview fetches round-trip — on cellular that's seconds of empty
+screen in an app whose whole point is glanceability. The web never
+shows this (the tab was already open); native can beat it, not match
+it.
+Evidence: AppModel.sessions inits to [] and nothing in the model is
+Codable — no state survives process death. The widget pipeline already
+serializes a FleetSnapshot (Sources/Shared) precisely because it needs
+fleet state without a live app.
+Sketch: persist the session list + screens store to one JSON file in
+Application Support on each successful refresh (atomic, cheap — it's
+tens of KB); load it in init so the wall paints at first frame;
+staleness is self-labeling (row ages come from lastActivityAt, and
+the first live refresh replaces it in seconds). Probe: HOP_DEV_OFFLINE
+launch must show the cached wall instead of the connection error;
+verify with the existing offline harness. Careful: signOut must
+delete the cache (it holds session content).
+
+## 23. Shortcuts verbs: Reply and New Session
+Problem: Siri/Shortcuts can OPEN a session and read fleet status, but
+the two write verbs — answering an agent, spinning up a session — still
+need the app in hand.
+Evidence: QuickReply.send is already a standalone fire-and-forget
+sender (built for notification replies); AppModel.createSession(name:
+cwd:) exists; Intents.swift has the AppShortcuts scaffolding.
+Sketch: ReplyToSessionIntent (session entity + text param, via
+QuickReply) and NewSessionIntent (name, optional project chip cwd);
+add to HopShortcuts with natural phrases; unit-test the entity
+resolution; verify by invoking the intent from the Shortcuts app in
+the sim probe.
+
+## 24. [GATED with 18 — same provisioning] Live Activity: "wants you"
+on the Lock Screen
+Problem: a bell today is a notification that scrolls away; the state
+"an agent is waiting on you NOW" is exactly what Live Activities and
+the Dynamic Island exist for.
+Evidence: attention state + fleetStatusLine already computed; the
+widget extension (parked) is the same target a Live Activity ships in.
+Sketch (build when the Xcode account lands): ActivityKit activity
+started on first wanting session, updated with count + names, ended
+when quiet; Dynamic Island compact = the wanting count.
+
+## 25. (space for Jian's next reports)
