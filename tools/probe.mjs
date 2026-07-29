@@ -56,6 +56,16 @@ ws.on('open', async () => {
     }
     case 'hold': {
       const secs = Number(rest[2] || 60);
+      // Witness: a deliberate (user:true) claim from another client takes the
+      // size DESPITE this hold's typing recency — log the loss so tests can
+      // assert on it.
+      ws.on('message', raw => {
+        try {
+          const m = JSON.parse(raw);
+          if (m.type === 'active_size' && (m.cols !== cols || m.rows !== rows))
+            console.log(`lost size to ${m.cols}x${m.rows}`);
+        } catch {}
+      });
       send(' ' + String.fromCharCode(127));          // become the recent typist
       await sleep(400);
       ws.send(JSON.stringify({ type: 'resize', cols, rows }));

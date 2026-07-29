@@ -49,3 +49,31 @@ sessions: zero ESC bytes in preview text, all suspected fragments were false
 positives ("6m 21s", "250ms"). So the bug's blast radius is only consumers of
 `getOutputSince` deltas. Fix remains worthwhile there; the mobile-track
 urgency flag is withdrawn.
+
+## 2026-07-28 — The size election: solved client-side, one daemon question left
+
+Context (for Solstice/Jian): the re-entry lottery — a phone returning to a
+session rendered whatever size the election last settled on, and every claim
+lost to any client that had typed within the idle window. The iOS app grew a
+whole apparatus to live with it: adopt+pan, a "take mine" chip, a 5s
+foreground retry, fit-on-type, fit-on-touch.
+
+What reading rooms.ts showed: the daemon ALREADY distinguishes deliberate
+human claims. `handleResize` honors `user: true` (a deliberate act — wins the
+election outright), and the web client sends it on explicit session switches.
+The iOS app simply never spoke the flag. As of hop-ios build 230 it does:
+attach claims when the app is foreground-active, chip taps, and
+touch/keystroke reclaims all carry `user: true`; the background 5s retry
+stays recency-based on purpose (a pocket reconnect must not steal a desk's
+size). Verified end to end: under a probe holding 100×30 with live typing
+recency, a deliberate open took the size instantly (the hold's own socket saw
+`active_size 51×49`).
+
+The one daemon-side question that remains, lower stakes now: agent/CLI input
+arrives over ordinary WS connections (`{type:"input"}` → `lastInputAt`
+bump in handleInput), so a busy agent still counts as an "active typist" for
+RECENCY-based claims — it blocks the polite retry, though no longer the
+deliberate acts. If that ever matters again, the shape of a fix: let clients
+identify as non-interactive at connect (or infer from the API/CLI auth path)
+and give their input a much shorter recency window in the election. No
+urgency from the mobile track — deliberate claims cover the human cases.

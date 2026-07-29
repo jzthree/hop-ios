@@ -140,9 +140,14 @@ final class HayClient: NSObject {
     /// Without it a desktop peer never sees that the phone is mid-command.
     func sendTyping(_ active: Bool) { sendJSON(["type": "typing", "active": active]) }
 
-    func sendResize(cols: Int, rows: Int, claim: String? = nil) {
+    /// `user` marks a DELIBERATE human act (opening the session, touching
+    /// the terminal, tapping the chip) — the daemon lets it win the size
+    /// election outright, the same flag the web client sends on an explicit
+    /// switch. Recency-based claims (the polite retry) leave it false.
+    func sendResize(cols: Int, rows: Int, claim: String? = nil, user: Bool = false) {
         var msg: [String: Any] = ["type": "resize", "cols": cols, "rows": rows]
         if let claim { msg["claim"] = claim }
+        if user { msg["user"] = true }
         sendJSON(msg)
     }
 

@@ -95,15 +95,17 @@ CANNOT read the pasteboard back (iOS 16 background-paste privacy
 silently denies it; two red runs proved this), recorded in tools
 traps.
 
-## 10. [HOP2 PROPOSAL — notes only] Agent input vs the size election
-Problem (root of the re-entry lottery): agents type through the API,
-bump lastInputAt, and their "typing" refuses a HUMAN phone's attach
-claim — but an agent has no screen and no stake in the PTY size. The
-whole chip/retry machinery exists to live with this. Sketch: write the
-case into HOP2-NOTES.md for Solstice/Jian — proposal: input from
-API/agent clients should not count as typist recency for the size
-election (or count with a much shorter window). Daemon-side change;
-this repo only documents it.
+## 10. [DONE 2026-07-28 — and reframed] Agent input vs the size election
+Reading rooms.ts dissolved the premise: the daemon ALREADY lets a
+deliberate human claim win outright (`user: true` on resize — the flag
+the web sends on explicit switches). iOS never sent it. Now it does
+(attach-when-foreground, chip tap, touch/keystroke reclaims; the 5s
+retry stays polite). E2E: a deliberate open took the size from a
+live-typing 100×30 hold instantly — the hold's own socket witnessed
+`active_size 51×49`. The re-entry lottery should be OVER for every
+deliberate act. HOP2-NOTES.md carries the record plus the one residual
+daemon question (agent WS input still counts as typist recency for
+recency-based claims only; low stakes now).
 
 ## 11. [CONDITIONAL on Jian's item-6 verdict] Keyboard-frame instrument
 If the too-small-after-keyboard-switch persists on 224: a marker

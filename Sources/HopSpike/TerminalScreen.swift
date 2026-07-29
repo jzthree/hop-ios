@@ -756,7 +756,9 @@ struct TerminalScreen: UIViewRepresentable {
                   fittedCols > 1, fittedRows > 1,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
             lastReclaimAt = Date()
-            client.sendResize(cols: fittedCols, rows: fittedRows)
+            // A touch or a keystroke on THIS terminal is deliberate by
+            // definition — carry the flag that wins outright.
+            client.sendResize(cols: fittedCols, rows: fittedRows, user: true)
             #if DEBUG
             // The e2e probe's witness that intent reached the wire (the
             // pasteboard-style trap: the runner cannot see the socket).
@@ -1117,7 +1119,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // refuse (someone typed recently) — the refusal rebroadcast
                 // re-arms the chip, which is the honest answer.
                 if fittedCols > 1, fittedRows > 1 {
-                    client.sendResize(cols: fittedCols, rows: fittedRows)
+                    client.sendResize(cols: fittedCols, rows: fittedRows, user: true)
                 }
             }
         }
@@ -1521,7 +1523,10 @@ struct TerminalScreen: UIViewRepresentable {
             let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
             let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
             guard cols > 0, rows > 0 else { return }
-            client.sendResize(cols: cols, rows: rows, claim: "attach")
+            // Deliberate only when the user is LOOKING at it: a pocket
+            // reconnect must not steal the size from a desk that's typing.
+            let deliberate = UIApplication.shared.applicationState == .active
+            client.sendResize(cols: cols, rows: rows, claim: "attach", user: deliberate)
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
             // One PTY means one size, so opening a session here reflows it

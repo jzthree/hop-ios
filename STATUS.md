@@ -258,6 +258,30 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The election was already winnable (iteration 188)
+
+PLAN 10 was written as a daemon proposal: agents type through hop's
+WS API, bump lastInputAt, and refuse a phone's claims — so propose
+that agent input stop counting. Reading rooms.ts before writing the
+proposal dissolved it: `handleResize` already honors `user: true` — a
+deliberate human act wins the election OUTRIGHT — and the web client
+already sends it on explicit session switches. The phone had been
+politely losing elections it was entitled to win.
+
+Build 230 speaks the flag: attach claims (only while foreground-active
+— a pocket reconnect must not steal a desk's size), chip taps, and
+touch/keystroke reclaims all carry user:true; the 5s retry stays
+recency-based by design. E2E with the scratch harness: probe holds
+100×30 with live typing recency; the app opens; the hold's own socket
+logs `lost size to 51x49` — instantly, no chip, no retry needed.
+Combined with 187's touch-claims, the re-entry size lottery should now
+be over for every act Jian actually performs: opening a session,
+touching it, typing into it.
+
+HOP2-NOTES.md records the finding for Solstice, plus the one residual
+(low-stakes) daemon question: agent WS input still counts as typist
+recency for recency-based claims — blocking only the polite retry now.
+
 ## A single touch claims the size (iteration 187)
 
 Jian, mid-round: "a single touch should trigger autofit," and the
