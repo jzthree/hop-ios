@@ -258,6 +258,30 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A planning round: the latency half of keyboard feel (iteration 201)
+
+Queue empty of unblocked work again, so this round hunted gaps in
+performance and feel. Ruled out by reading: poll backoff (already
+tiered — 5s wifi / 12s cellular / 30s Low Data, previews skip
+entirely under constraint); collab/control parity; find-in-scrollback.
+
+The real find: iOS has NO optimistic local echo. Every keystroke
+travels phone → tunnel → daemon → PTY → echo → tunnel → phone before
+it renders; on cellular that's 100-300ms of typing lag in the app
+whose founding thesis is keyboard feel. The web solved this in
+utils/optimisticEcho.ts and its comments record the hard-won failure
+modes (the TUI-redraw guard that keeps Claude's composer legible, the
+coalesced-echo bug that once rendered "alal" as "llllllalalal",
+reproduced deterministically). PLAN 25 (next round's top): PORT that
+model, don't reinvent it — pure struct, transliterated unit cases,
+wired into deliver/feed with the web's exact gating, reset on
+snapshot/reconnect. Also appended PLAN 26: suspected feed-burst frame
+drops, instrument-first by explicit design — the momentum code's own
+comments suspect main-thread parse stalls, but nothing has measured
+them yet.
+
+No build shipped (planning round); the phone stays on 243.
+
 ## Siri learns to write (iteration 200)
 
 PLAN 23: the fleet's two write-verbs exist as App Intents. "Reply to

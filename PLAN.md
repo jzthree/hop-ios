@@ -278,4 +278,37 @@ Sketch (build when the Xcode account lands): ActivityKit activity
 started on first wanting session, updated with count + names, ended
 when quiet; Dynamic Island compact = the wanting count.
 
-## 25. (space for Jian's next reports)
+## 25. Optimistic local echo (TOP for next round)
+Problem: every typed character waits a full tunnel round-trip before
+appearing — 100-300ms on cellular. The keyboard-feel thesis is this
+app's founding premise, and the web client already solved the latency
+half: iOS has NO local echo at all.
+Evidence: hay/apps/web/src/utils/optimisticEcho.ts is a complete,
+battle-tested model — printable-only pending queue; a TUI-redraw guard
+(chunks carrying non-SGR CSI/OSC are repaints, pending drops rather
+than corrupting them — the "can't see what I typed in Claude's
+composer" fix); in-order consume with a foreign-char stop so program
+output is never swallowed; 800ms pending expiry; gated on connected +
+sole controller + not collab. Comments record deterministically
+reproduced failure modes ("alal" → "llllllalalal") — the model is
+hard-won and should be PORTED, not reinvented.
+Sketch: Swift port as a pure struct (onInput → echo-now string,
+reconcileOutput → filtered chunk, reset); unit tests transliterate the
+web's cases including the redraw guard and the coalesced-echo repro;
+wire into Coordinator deliver (echo before send, gated exactly like
+the web: isLive + controller + !collab + !observeOnly) and the feed
+path (reconcile before tv.feed); reset on snapshot/reconnect/mode
+flip. Feel verdict on device is Jian's; correctness is the emulated
+suite's.
+
+## 26. [CONDITIONAL — instrument first] Feed-burst frame drops
+Problem (suspected, unmeasured): a large output burst parses on the
+main thread; the momentum stepper already clamps elapsed time because
+"a stalled frame — the main thread parsing a burst — would otherwise
+spend a quarter second of travel in one go" (its own comment).
+Sketch: CADisplayLink-based frame-gap counter recorded to KBLog-style
+diagnostics during a probe that cats a large file; only if gaps are
+real, coalesce WS feeds per frame (buffer chunks, one feed per display
+tick). Do not build the fix before the measurement says it's needed.
+
+## 27. (space for Jian's next reports)
