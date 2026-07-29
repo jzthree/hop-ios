@@ -688,6 +688,7 @@ struct TerminalScreen: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: HopTermView, coordinator: Coordinator) {
+        uiView.stopFrameGapMonitor()
         coordinator.detach()
     }
 
@@ -938,6 +939,9 @@ struct TerminalScreen: UIViewRepresentable {
                             .info("scrollback reachable \(depth) lines, altScreen=\(self.view?.remoteAltScreen == true)")
                     }
                 case .output(let data):
+                    if data.utf8.count > 32_768 {
+                        KBLog.record("feed \(data.utf8.count / 1024)KB")
+                    }
                     tv.noteRemoteModes(in: data)
                     tv.feed(text: self.echo.reconcileOutput(data))
                     // After the feed's display pass: SwiftTerm re-pins the
@@ -1125,6 +1129,7 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopCopyAll, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
                                                    name: .hopJumpToLive, object: nil)
+            view.startFrameGapMonitor()
             let t = view.getTerminal()
             snapshotLanded = false
             claimed = false
@@ -2352,6 +2357,41 @@ final class HopTermView: TerminalView {
         altButton?.accessibilityValue = armed ? "armed" : nil
         altButton?.setNeedsUpdateConfiguration()
     }
+
+    /// Frame-gap instrument (PLAN 26): a permanent, near-free measurement
+    /// of main-thread stalls while a terminal is open. The momentum code
+    /// has long SUSPECTED parse-burst stalls (its elapsed clamp exists for
+    /// them); this records them, with the feed sizes beside them in the
+    /// same KBLog ring, so Copy diagnostics answers whether output bursts
+    /// actually drop frames — the coalescing fix is built only if they do.
+    private var frameGapLink: CADisplayLink?
+    private var lastGapRecordAt: CFTimeInterval = 0
+
+    func startFrameGapMonitor() {
+        guard frameGapLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(frameGapTick(_:)))
+        link.add(to: .main, forMode: .common)
+        frameGapLink = link
+    }
+
+    func stopFrameGapMonitor() {
+        frameGapLink?.invalidate()
+        frameGapLink = nil
+    }
+
+    @objc private func frameGapTick(_ link: CADisplayLink) {
+        // duration is one frame at the display's rate; a tick arriving 3+
+        // frames late (and >50ms) is a real stall, not scheduler jitter.
+        let expected = link.duration > 0 ? link.duration : 1.0 / 60
+        let gap = link.timestamp - lastFrameAt
+        if lastFrameAt > 0, gap > max(0.05, expected * 3),
+           link.timestamp - lastGapRecordAt > 0.25 {
+            lastGapRecordAt = link.timestamp
+            KBLog.record("frameGap \(Int(gap * 1000))ms")
+        }
+        lastFrameAt = link.timestamp
+    }
+    private var lastFrameAt: CFTimeInterval = 0
 
     /// The hop keyboard. Sticky across sessions and launches: a keyboard
     /// choice is a preference, not a per-terminal mood.

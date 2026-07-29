@@ -258,6 +258,24 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The stall that wasn't (iteration 203)
+
+PLAN 26 resolved the way it was designed to — by measurement, not by
+building. A frame-gap monitor now runs whenever a terminal is
+attached (CADisplayLink; stalls beyond max(50ms, 3 frames) recorded
+to the same KBLog ring as the keyboard trace, with any >32KB feed
+noted beside them; throttled, near-free, permanent). The probe then
+threw the two nastiest burst shapes at a scratch session: seq 1
+60000 and thirty thousand long yes-lines.
+
+Verdict: four gaps in total — 72, 62, 135, 60 milliseconds — and not
+a single feed over 32KB. The daemon already chunks output small, and
+SwiftTerm absorbs it; the momentum clamp's suspicion of parse-burst
+stalls was right in kind but the magnitude doesn't justify feed
+coalescing. Machinery declined; measurement recorded; the instrument
+stays, so any future regression appears in the same Copy-diagnostics
+trace Jian already knows how to pull. Scratch killed; probe excised.
+
 ## Keystrokes stop waiting for the tunnel (iteration 202)
 
 PLAN 25: optimistic local echo, ported from the web rather than

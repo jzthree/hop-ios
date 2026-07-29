@@ -292,14 +292,14 @@ Permanent UI probe: typed into a scratch session with echo live, the
 daemon saw single characters ("echo zq", never "eecc") — an echo
 leaked into the send path would double on the wire. Jian's verdict:
 typing feel on cellular.
-## 26. [CONDITIONAL — instrument first] Feed-burst frame drops
-Problem (suspected, unmeasured): a large output burst parses on the
-main thread; the momentum stepper already clamps elapsed time because
-"a stalled frame — the main thread parsing a burst — would otherwise
-spend a quarter second of travel in one go" (its own comment).
-Sketch: CADisplayLink-based frame-gap counter recorded to KBLog-style
-diagnostics during a probe that cats a large file; only if gaps are
-real, coalesce WS feeds per frame (buffer chunks, one feed per display
-tick). Do not build the fix before the measurement says it's needed.
-
+## 26. [MEASURED 2026-07-29 — fix NOT needed; instrument stays] Feed-burst frame drops
+The frame-gap monitor (CADisplayLink, records stalls >max(50ms, 3
+frames) to the KBLog ring beside >32KB feed sizes; runs whenever a
+terminal is attached, near-free) answered the question the momentum
+code's clamp only suspected: a 60,000-line seq flood plus a 30,000
+long-line flood produced FOUR gaps total — 72, 62, 135, 60ms — and
+ZERO feeds over 32KB. The daemon already chunks output small and
+SwiftTerm keeps up; coalescing would be machinery without a measured
+problem. The instrument is permanent: any future regression shows up
+in the same Copy-diagnostics trace as the keyboard events.
 ## 27. (space for Jian's next reports)
