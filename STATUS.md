@@ -258,6 +258,33 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The hop keyboard (iteration 197)
+
+PLAN 21, Jian's own ask ("how hard would it be to build a togglable
+full keyboard?"): built, and the estimate held — one round. The ⌨ key
+on the accessory bar (past the fold, next to hide-keyboard) swaps the
+system keyboard for hop's own board; the board's ⌨ key swaps back
+(that's the dictation/emoji hatch). UIResponder.inputView is the whole
+mechanism — one assignment each way.
+
+What the board buys a terminal: a FIXED 232pt height, which makes the
+keyboard-switch resize lottery structurally impossible while it's up
+(the item-6 bug needs a height change to fire); no autocorrect bar
+appearing and vanishing; a monospaced face; and every ASCII symbol at
+most one plane away — |, ~, backtick, braces, angle brackets live on
+#+= where the system keyboard buries some of them two planes deep.
+Layout is the system's own three-plane scheme so the muscle memory
+transfers. Board text funnels through typedText — the SAME path as
+system typing, so an armed accessory-ctrl turns a board letter into a
+control chord, and every board keystroke reclaims the size election
+like any other typing.
+
+Proof: unit test walks all printable ASCII through the plane data
+(a terminal keyboard with an unreachable backtick is a desk you must
+walk back to); permanent UI test toggles on, visits all three planes,
+and returns through the hatch; both planes screenshot into
+docs/screens. 80 unit + 21 UI green, strict zero.
+
 ## The widget hits the same wall, and the rename audit runs clean (iteration 196)
 
 PLAN 18 attempted: unparked the widget, and the device build failed

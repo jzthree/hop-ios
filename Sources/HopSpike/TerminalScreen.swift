@@ -1432,6 +1432,8 @@ struct TerminalScreen: UIViewRepresentable {
                 view?.setAltArmed(altArmed)
             case .dismiss:
                 _ = view?.resignFirstResponder()
+            case .board:
+                view?.toggleHopBoard()
             case .paste:
                 // Through SwiftTerm, not straight down the socket: when the
                 // app has bracketed paste on, it wraps the text in
@@ -1451,7 +1453,15 @@ struct TerminalScreen: UIViewRepresentable {
 
         // ── TerminalViewDelegate ──
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            guard var text = String(bytes: data, encoding: .utf8) else { return }
+            guard let text = String(bytes: data, encoding: .utf8) else { return }
+            typedText(text)
+        }
+
+        /// The one path every typed character takes, from either keyboard:
+        /// armed modifiers apply, then deliver (which buffers, reclaims the
+        /// size, and marks typing).
+        func typedText(_ raw: String) {
+            var text = raw
             if ctrlArmed, let scalar = text.unicodeScalars.first, text.count == 1,
                scalar.isASCII, scalar.value >= 0x40 {
                 text = String(UnicodeScalar(scalar.value & 0x1f)!)
@@ -1722,6 +1732,9 @@ struct TerminalScreen: UIViewRepresentable {
 enum AccessoryKey: Equatable {
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace
+    /// Toggles the hop keyboard (HopBoardView as inputView) — a view
+    /// concern, handled by HopTermView itself, so sequence is nil.
+    case board
     /// A control chord from the ctrl key's hold-palette: one gesture sends
     /// ^R instead of arm-ctrl-then-find-R on the system keyboard.
     case ctrlCombo(Character)
@@ -1759,6 +1772,7 @@ enum AccessoryKey: Equatable {
         case .down: return "\u{1b}[B"
         case .left: return "\u{1b}[D"
         case .right: return "\u{1b}[C"
+        case .board: return nil
         // paste is not a static sequence: it goes through the view so the
         // app's bracketed-paste mode is honoured. See the handler.
         case .paste, .ctrl, .alt, .dismiss: return nil
@@ -1793,6 +1807,9 @@ enum AccessoryKey: Equatable {
 @MainActor
 protocol AccessoryKeyHandler: AnyObject {
     func accessoryKey(_ key: AccessoryKey, isRepeat: Bool)
+    /// Text typed on the hop keyboard: routed through the SAME ctrl/alt
+    /// arming as system-keyboard text, so ctrl+c works from either board.
+    func typedText(_ text: String)
     /// Scrolling, which is NOT typing — see the implementation for why that
     /// distinction has to exist at all.
     func scrollInput(_ text: String)
@@ -2318,9 +2335,39 @@ final class HopTermView: TerminalView {
         altButton?.setNeedsUpdateConfiguration()
     }
 
+    /// The hop keyboard. Sticky across sessions and launches: a keyboard
+    /// choice is a preference, not a per-terminal mood.
+    private var hopBoard: HopBoardView?
+    static var hopBoardPreferred: Bool {
+        get { UserDefaults.standard.bool(forKey: "hopBoard") }
+        set { UserDefaults.standard.set(newValue, forKey: "hopBoard") }
+    }
+
+    func toggleHopBoard() {
+        Self.hopBoardPreferred.toggle()
+        applyBoardPreference()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func applyBoardPreference() {
+        if Self.hopBoardPreferred {
+            if hopBoard == nil {
+                let board = HopBoardView()
+                board.onText = { [weak self] t in self?.keyHandler?.typedText(t) }
+                board.onSystemKeyboard = { [weak self] in self?.toggleHopBoard() }
+                hopBoard = board
+            }
+            inputView = hopBoard
+        } else {
+            inputView = nil
+        }
+        reloadInputViews()
+    }
+
     // SwiftTerm exposes inputAccessoryView as a settable var — assign, don't override.
     func installAccessoryBar() {
         inputAccessoryView = makeAccessory()
+        applyBoardPreference()
     }
 
     func setCtrlArmed(_ armed: Bool) {
@@ -2470,6 +2517,7 @@ final class HopTermView: TerminalView {
             ("⇞", .pageUp, 38, "page up", nil),
             ("⇟", .pageDown, 38, "page down", nil),
             ("paste", .paste, 50, "paste", nil),
+            ("⌨", .board, 38, "hop keyboard", nil),
             ("⌄", .dismiss, 34, "hide keyboard", nil)
         ]
         for (label, key, width, spoken, hold) in keys {

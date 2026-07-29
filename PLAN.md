@@ -230,15 +230,17 @@ users type what they see. One regression test now pins the discipline
 Also this round: make uitest resolves the fixture from internalName
 (iteration 191's fix — same principle, harness side).
 
-## 21. In-app full keyboard (Jian asked: how hard?)
-Answer: moderate — the clean native mechanism is UIResponder.inputView:
-set a custom view and the system keyboard is REPLACED while focused;
-toggling = swapping inputView nil/custom + reloadInputViews. We
-already own the responder (HopTermView), the accessory bar, key
-repeat, haptics, and sequence delivery — a full 50-key terminal board
-is layout work on existing plumbing, ~1-2 rounds. Bonus: a FIXED
-height kills the keyboard-switch resize lottery (item 6) for anyone
-using it. Risks: emoji/dictation/paste flows need an escape hatch back
-to the system keyboard; landscape height.
-
+## 21. [SHIPPED 2026-07-29] The hop keyboard
+Built as answered: HopBoardView via UIResponder.inputView, toggled
+from the accessory bar (⌨ key, past the fold) and from the board's
+own ⌨ key back to the system keyboard (the dictation/emoji hatch).
+Standard three-plane layout (abc/123/#+=) so muscle memory transfers;
+mono face; hop theme; FIXED 232pt height — the keyboard-switch resize
+lottery (item 6) cannot fire while it's up. Board text routes through
+typedText — the same ctrl/alt-arming path as system typing, so
+accessory-ctrl + board letter = a control chord. Sticky preference
+(UserDefaults hopBoard). Unit test proves every printable ASCII char
+reachable; permanent UI test covers toggle, all three planes, and the
+hatch; screenshots in docs/screens. Jian: refinement reports welcome
+(key sizes, missing chords, a dedicated ctrl row?).
 ## 22. (space for Jian's next reports)

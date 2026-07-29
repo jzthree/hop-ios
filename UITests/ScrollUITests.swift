@@ -270,6 +270,39 @@ final class ScrollUITests: XCTestCase {
                       "wall unusable after dismissing the share sheet")
     }
 
+    /// The hop keyboard: toggling from the accessory bar must swap the
+    /// system keyboard for the board (and back), planes must switch, and
+    /// the preference must not leak into other tests (toggled off at end).
+    func testHopKeyboardTogglesAndSwitchesPlanes() throws {
+        let app = launchIntoSession(Self.fixture)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        // The toggle sits past the bar's fold: scroll the bar by swiping it.
+        let bar = app.buttons["escape"]
+        XCTAssertTrue(bar.exists)
+        let board = app.buttons["hop keyboard"]
+        if !board.isHittable {
+            app.buttons["right arrow"].swipeLeft()
+        }
+        XCTAssertTrue(board.waitForExistence(timeout: 5), "toggle key missing from the bar")
+        board.tap()
+        // Letters plane up.
+        XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5),
+                      "hop keyboard letters plane never appeared")
+        // 123 plane.
+        app.buttons["numbers"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["1"].waitForExistence(timeout: 3), "numbers plane missing")
+        // #+= plane has the terminal's precious keys.
+        app.buttons["more symbols"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["|"].waitForExistence(timeout: 3), "symbols plane missing |")
+        XCTAssertTrue(app.buttons["~"].exists, "symbols plane missing ~")
+        // The escape hatch back to the system keyboard.
+        app.buttons["system keyboard"].firstMatch.tap()
+        XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),
+                      "system keyboard did not come back")
+        XCTAssertFalse(app.buttons["q"].isHittable,
+                       "board still up after toggling back")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

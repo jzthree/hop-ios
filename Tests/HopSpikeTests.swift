@@ -748,6 +748,21 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testHopBoardReachesAllPrintableASCII() {
+        // A terminal keyboard with an unreachable | or backtick is a desk
+        // you must walk back to. Every printable ASCII char, via some plane.
+        let reachable = HopBoardLayout.reachable
+        for code in UInt8(0x20)...0x7e {
+            let ch = Character(UnicodeScalar(code))
+            XCTAssertTrue(reachable.contains(ch),
+                          "'\(ch)' (0x\(String(code, radix: 16))) unreachable on the hop keyboard")
+        }
+        // And the planes never wrap a row past ten keys — a phone's width.
+        for plane in [HopBoardLayout.letters, HopBoardLayout.numbers, HopBoardLayout.symbols] {
+            for row in plane { XCTAssertLessThanOrEqual(row.count, 10) }
+        }
+    }
+
     func testRenamesNeverBreakIdentity() {
         // Renames are an intentional hop mechanism (Jian, 2026-07-29): the
         // daemon reassigns DISPLAY names freely (Meridian shows "nebula");
