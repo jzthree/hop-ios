@@ -207,6 +207,31 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The parity re-audit finds his folders (iteration 209)
+
+Planning round. The parity matrix was 160 iterations stale, so this
+round re-audited against today's web client — and found something
+better than a feature gap: a JIAN gap. He created folders yesterday
+("Research", "Softwares", "side") and filed most of the fleet into
+them, using the web's manual-sort folder machinery. The phone ignores
+folderId wholesale; its only grouping is the cwd heuristic. His
+explicit organization, invisible on the device he glances at most.
+
+PLAN 31 (next round's top) has the full contract read from the daemon
+and web source: folders arrive on /api/sessions, /api/sessions/move
+files a session, /api/folders creates. The native shape: a three-way
+grouping picker (Recent / By project / By folder), sections under his
+folder names, and a "Move to ▸" submenu in the context menus —
+read-mostly first round, rename/delete only if he asks (folders are
+shared structure). His three live folders are DATA; probes create and
+delete their own.
+
+Also from the audit: manual tile ORDER is per-client localStorage on
+the web (not ours to sync), zoom is the adaptive grid's job (have),
+sort modes otherwise covered. The background installer for build 251
+is still waiting for the phone to become reachable; Xcode account
+still empty; no new daemon drift overnight.
+
 ## Fork, same-day (iteration 208)
 
 PLAN 30: the phone speaks fork the day the daemon learned it. "Fork

@@ -345,4 +345,28 @@ cwd, both killed, zero leftovers verified. UI suite asserts the menu
 offers it (presence only — tapping would fork the live fixture).
 Omnisearch (same commit) verified web-UI-only: no /api/sessions/search
 changes.
-## 31. (space for Jian's next reports)
+## 31. Folders: Jian's own fleet organization, invisible on the phone
+(TOP for next round)
+Problem: Jian created folders YESTERDAY ("Research", "Softwares",
+"side" — createdAt 2026-07-29) and filed most of the fleet into them;
+the iOS app ignores folderId entirely — its only grouping is the
+cwd-derived projectKey heuristic. His explicit organization beats our
+heuristic and the phone doesn't show it.
+Evidence (live daemon + web source): GET /api/sessions returns
+folders:[{id,name}] and per-session folderId; POST /api/sessions/move
+{internalName, folderId|null}; POST /api/folders {name} (+rename/
+delete/order). Web: folders render as groups in Manual sort; drag
+files tiles; fork copies folderId (f6e6852).
+Sketch (native shape, one round): HopSession gains folderId; AppModel
+parses + publishes folders; the wall's grouping becomes a 3-way picker
+— Recent / By project / By folder (sticky; "By folder" sections by
+Jian's names, unfiled last); context menus gain "Move to ▸" submenu
+(folders + Unfiled + New folder…); fork/park/etc untouched (daemon
+owns inheritance). E2E: create folder + move scratch + assert
+folderId round-trips on the real daemon, teardown deletes the folder
+(fleet hygiene: his three folders are DATA, never touch them);
+UI: grouping picker shows his sections (fixture-tolerant), move
+submenu presence. Rename/delete folders deliberately SECOND round if
+he asks — shared structure, phone starts read-mostly.
+
+## 32. (space for Jian's next reports)
