@@ -71,4 +71,36 @@ move at all, move the wrong amount, or move the local viewport instead?
 And is it a session where the chip shows a foreign size? The sink
 logging added in the double-scroll round should name the path taken.
 
-## 8. (space for Jian's next reports)
+## 8. Toolbar summary truncates ("21 sessions · nothing…")
+Problem: the principal slot is narrow between the two toolbar groups,
+and the summary ellipsizes exactly at the informative part (probe
+screenshots show it). Sketch: compact format under width pressure —
+"21 · quiet · 1 parked" / "21 · 2 want you" — via a shorter string plus
+minimumScaleFactor; pure formatter + test, screenshot before/after.
+
+## 9. Copy a session's screen from the wall
+Problem: the peek lets you READ a screen without opening the session,
+but sharing it still requires entering the terminal and Copy screen.
+Evidence: /preview text is already in the screens store. Sketch: "Copy
+screen" in the tile/row context menu writing screens[name].text to the
+pasteboard; toast-free (menu dismissal is the ack); one probe asserting
+pasteboard content in the sim.
+
+## 10. [HOP2 PROPOSAL — notes only] Agent input vs the size election
+Problem (root of the re-entry lottery): agents type through the API,
+bump lastInputAt, and their "typing" refuses a HUMAN phone's attach
+claim — but an agent has no screen and no stake in the PTY size. The
+whole chip/retry machinery exists to live with this. Sketch: write the
+case into HOP2-NOTES.md for Solstice/Jian — proposal: input from
+API/agent clients should not count as typist recency for the size
+election (or count with a much shorter window). Daemon-side change;
+this repo only documents it.
+
+## 11. [CONDITIONAL on Jian's item-6 verdict] Keyboard-frame instrument
+If the too-small-after-keyboard-switch persists on 224: a marker
+harness logging each keyboardWillChangeFrame (target frame, duration),
+the accessoryInset decision, the resulting fitted dims, and the grid
+900ms later — one switch session's worth of markers names the exact
+misfire. Build only after the verdict.
+
+## 12. (space for Jian's next reports)
