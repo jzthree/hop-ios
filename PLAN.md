@@ -112,4 +112,26 @@ the accessoryInset decision, the resulting fitted dims, and the grid
 900ms later — one switch session's worth of markers names the exact
 misfire. Build only after the verdict.
 
-## 12. (space for Jian's next reports)
+## 12. [SHIPPED first half 2026-07-28] Touch-to-autofit + web-mobile size model
+Jian: "a single touch should trigger autofit; hop-ios is not supporting
+non-autofit terminals gracefully — follow how the hop web terminal
+handles it in mobile mode." Web study (hay/apps/web/src/App.tsx):
+auto-fit is the DEFAULT everywhere; foreign active_size is never
+rendered in fit mode; fit-on-type reclaims on the first keystroke
+(500ms throttle, forced past the resize dedupe); Manual mode is the
+opt-in that renders the remote's true size, native font, overflow+pan.
+iOS already had fit-on-type (deliver) and Manual-equivalents (peer
+adopt+pan, Fit to width); what was missing was TOUCH as intent.
+DONE: reclaimOnUserIntent() — an approved single tap (the one choke
+point every tap passes: gestureRecognizerShouldBegin; touchesEnded
+misses recognized taps, becomeFirstResponder fires only when
+unfocused — both probe-proven), plus mouse clicks, plus every
+keystroke. E2E: under a live 100×30 hold, chip up, zero claims until
+one tap sent our 51×49 down the wire (HOP_CLAIM_MARKER harness,
+scratch session, excised).
+REMAINS (Jian's device verdict): whatever "not graceful" still means
+on hardware once touch-claims land — candidates: underfill rendering
+(small foreign grid leaves dead space), the observe-only Fit-to-width
+floor (4pt texture), chip visibility.
+
+## 13. (space for Jian's next reports)

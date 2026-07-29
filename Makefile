@@ -21,6 +21,12 @@ GITDESC = $(shell git describe --always --dirty)
 VERSION_FLAGS = CURRENT_PROJECT_VERSION=$(BUILDNO) HOP_GIT_DESCRIBE=$(GITDESC)
 
 TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
+# The e2e fixture, addressed by STABLE internal name and resolved to whatever
+# the daemon displays for it right now. Display names churn (three incidents:
+# Orion->hop-ios, Solstice->hop, Meridian->nebula) and every churn used to
+# read as a scroll regression until someone re-pointed a string.
+FIXTURE_INTERNAL ?= Meridian
+FIXTURE = $(shell python3 -c "import json,os,urllib.request;st=json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')));r=urllib.request.Request('http://127.0.0.1:%d/api/sessions'%st['port'],headers={'Cookie':'tunnel_session='+st['sessionSecret']});d=json.load(urllib.request.urlopen(r,timeout=5));ses=d.get('sessions',d);print(next((x['name'] for x in ses if x.get('internalName')=='$(FIXTURE_INTERNAL)'),'$(FIXTURE_INTERNAL)'))" 2>/dev/null || echo $(FIXTURE_INTERNAL))
 
 .PHONY: gen build test uitest sim install shot archive testflight clean
 
@@ -60,7 +66,7 @@ test: gen
 # xcodebuild's output through grep at the call site loses the test's identity
 # exactly when it matters.
 uitest: gen
-	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) > build-sim/uitest.log 2>&1; \
@@ -144,7 +150,7 @@ strict:
 	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u
 
 tsan: gen
-	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) xcodebuild test \
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-tsan CODE_SIGNING_ALLOWED=NO -enableThreadSanitizer YES \

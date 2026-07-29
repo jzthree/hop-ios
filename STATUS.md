@@ -258,6 +258,37 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A single touch claims the size (iteration 187)
+
+Jian, mid-round: "a single touch should trigger autofit," and the
+non-autofit state should follow the web client's mobile handling. The
+web's model, from reading App.tsx: auto-fit is the default, a foreign
+size is never rendered in fit mode, the first keystroke reclaims
+(fit-on-type), and Manual mode is the deliberate exception that shows
+the remote's true shape with overflow+pan. iOS already had the
+keystroke half (deliver's reclaim) and the Manual half (peer adopt +
+pan, Fit to width); the missing piece was the phone's FIRST act —
+a tap — meaning nothing to the size election.
+
+Now it does: reclaimOnUserIntent() fires from an approved single tap,
+from mouse-mode clicks, and from every keystroke, throttled once per
+second, latched until a CONFIRMED win. Finding the right hook took
+three probes: becomeFirstResponder only fires when unfocused (SwiftTerm
+guards it), touchesEnded never fires for recognized taps (the
+recognizer cancels view touches) — the one place every tap passes
+regardless of focus is gestureRecognizerShouldBegin, where the brake
+and strip gates already live. E2E-proven with the scratch-session
+harness: probe.mjs held 100×30 with live typing recency, the chip
+came up, the marker stayed empty until ONE tap — then our fitted
+51×49 went down the wire.
+
+The round also killed a whole trap class: the fixture's display name
+churned AGAIN (Meridian now displays "nebula"; two suite reds that
+read like regressions). make uitest now resolves the fixture's current
+display name from its STABLE internal name via /api/sessions at suite
+start — the fixture is pinned to identity, not to a string that other
+people's renames own.
+
 ## Copy screen reaches the wall (iteration 186)
 
 PLAN 9: "Copy screen" now lives in both context menus on the wall,

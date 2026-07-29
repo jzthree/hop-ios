@@ -744,6 +744,29 @@ struct TerminalScreen: UIViewRepresentable {
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
 
+        /// A single TOUCH claims the size, not just typing. The web client
+        /// reclaims on fit-on-type; a phone's first act on returning to a
+        /// session is a TAP, and waiting for the first keystroke (or the 5s
+        /// retry) left the foreign grid up exactly while the user was looking
+        /// at it — Jian: "a single touch should trigger autofit". Called from
+        /// the focusing tap, the click tap, and every delivered keystroke;
+        /// throttled here so the callers don't need to care.
+        func reclaimOnUserIntent() {
+            guard isLive, peerHoldsSize, !observeOnly,
+                  fittedCols > 1, fittedRows > 1,
+                  Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
+            lastReclaimAt = Date()
+            client.sendResize(cols: fittedCols, rows: fittedRows)
+            #if DEBUG
+            // The e2e probe's witness that intent reached the wire (the
+            // pasteboard-style trap: the runner cannot see the socket).
+            if let marker = ProcessInfo.processInfo.environment["HOP_CLAIM_MARKER"] {
+                try? "\(fittedCols)x\(fittedRows)\n".write(toFile: marker,
+                                                          atomically: true, encoding: .utf8)
+            }
+            #endif
+        }
+
         /// Every keystroke goes through here: straight out on a live socket,
         /// buffered otherwise. A terminal's echo comes from the SERVER, so
         /// silence during an outage reads as a frozen app — hence the toast,
@@ -751,25 +774,15 @@ struct TerminalScreen: UIViewRepresentable {
         private func deliver(_ text: String) {
             guard !text.isEmpty else { return }
             if isLive {
-                // Typing is how a size is reclaimed in hop. If a peer held the
-                // grid, this keystroke makes us the recent typist — send our
-                // fitted size along with it so the terminal snaps back to this
-                // screen's shape the moment the user engages.
-                //
-                // The flag is NOT cleared here. Clearing on send was a latch:
-                // the server refuses a reclaim while the peer typed <60s ago,
-                // the refusal rebroadcast repeats the size we had already
-                // adopted (so the adopt path saw nothing new), and with the
-                // flag optimistically false every later keystroke skipped
-                // reclaiming — measured on device as "never autofits back no
-                // matter how much I type". Now the reclaim retries with each
-                // keystroke, throttled, and only a CONFIRMED win (active_size
-                // matching our fitted grid) clears the flag.
-                if peerHoldsSize, !observeOnly, fittedCols > 1, fittedRows > 1,
-                   Date().timeIntervalSince(lastReclaimAt) > 1 {
-                    lastReclaimAt = Date()
-                    client.sendResize(cols: fittedCols, rows: fittedRows)
-                }
+                // Typing is how a size is reclaimed in hop: this keystroke
+                // makes us the recent typist, so the claim rides along.
+                // peerHoldsSize is NOT cleared on send — the server can
+                // refuse, and only a CONFIRMED win (active_size matching our
+                // fitted grid) clears it; clearing optimistically was measured
+                // on device as "never autofits back no matter how much I
+                // type". The throttle and the flag both live in the shared
+                // intent path.
+                reclaimOnUserIntent()
                 client.sendInput(text)
                 markTyping()
                 return
@@ -873,6 +886,7 @@ struct TerminalScreen: UIViewRepresentable {
 
         func attach(view: HopTermView) {
             self.view = view
+            view.onUserIntent = { [weak self] in self?.reclaimOnUserIntent() }
             client.onEvent = { [weak self] event in
                 guard let self, let tv = self.view else { return }
                 switch event {
@@ -1723,6 +1737,7 @@ final class HopTermView: TerminalView {
         let cellW = bounds.width / CGFloat(max(1, drawnCols))
         let row = min(t.rows, Int(y / max(1, cellH)) + 1)
         let col = min(t.cols, Int(x / max(1, cellW)) + 1)
+        onUserIntent?()
         keyHandler?.scrollInput(clickSequence(col: col, row: row))
     }
 
@@ -1740,6 +1755,15 @@ final class HopTermView: TerminalView {
     @objc private func handleBackSwipe(_ g: UIScreenEdgePanGestureRecognizer) {
         if g.state == .began { onBackSwipe?() }
     }
+
+    /// "A single touch should trigger autofit" — the coordinator hangs the
+    /// size reclaim here. Wired into touchesEnded, NOT becomeFirstResponder:
+    /// SwiftTerm only calls the latter when the terminal isn't focused yet
+    /// (probe-proven — an already-focused terminal swallowed the tap), while
+    /// a completed touch is every tap. Pans and selections never get here —
+    /// their recognizers cancel the view's touches — so READING a foreign
+    /// grid by panning it stays free of claims.
+    var onUserIntent: (() -> Void)?
 
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
@@ -2485,6 +2509,16 @@ extension HopTermView: UIGestureRecognizerDelegate {
                 .info("coast braked by touch")
             stopMomentum()
             return false
+        }
+        // An APPROVED single tap on the terminal body is the user engaging —
+        // "a single touch should trigger autofit". This is the one place
+        // every tap passes through regardless of focus state: touchesEnded
+        // misses recognized taps (the recognizer cancels view touches,
+        // probe-proven) and becomeFirstResponder fires only when unfocused.
+        // Brakes, strip taps and mouse clicks returned above; pans never
+        // reach this line.
+        if let tap = g as? UITapGestureRecognizer, tap.numberOfTapsRequired == 1 {
+            onUserIntent?()
         }
         return super.gestureRecognizerShouldBegin(g)
     }
