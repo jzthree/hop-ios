@@ -106,12 +106,18 @@ deliberate act. HOP2-NOTES.md carries the record plus the one residual
 daemon question (agent WS input still counts as typist recency for
 recency-based claims only; low stakes now).
 
-## 11. [ACTIONABLE — verdict in: persists on 234] Keyboard-frame instrument
-If the too-small-after-keyboard-switch persists on 224: a marker
-harness logging each keyboardWillChangeFrame (target frame, duration),
-the accessoryInset decision, the resulting fitted dims, and the grid
-900ms later — one switch session's worth of markers names the exact
-misfire. Build only after the verdict.
+## 11. [INSTRUMENT SHIPPED 2026-07-29 — awaiting one bad trace from Jian]
+Keyboard-frame instrument
+KBLog: an 80-line ring recording every keyboardWillChangeFrame (endY,
+height, duration), every fit (cols×rows + view bounds), every settle
+verdict (ok/MISMATCH with view height) — surfaced in Account -> Copy
+diagnostics, so the phone needs no env vars or cables. Permanent UI
+test guards the whole path (record -> copied text). JIAN'S MOVE: next
+time a keyboard switch leaves the terminal too small, immediately
+Settings -> Server & account -> Copy diagnostics and paste it into
+this session — the trace names whether the keyboard frame, SwiftUI's
+avoidance (bounds), or SwiftTerm's grid went stale, and the fix
+follows from which.
 
 ## 12. [SHIPPED first half 2026-07-28] Touch-to-autofit + web-mobile size model
 Jian: "a single touch should trigger autofit; hop-ios is not supporting

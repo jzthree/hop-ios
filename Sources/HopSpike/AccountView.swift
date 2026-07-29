@@ -29,6 +29,9 @@ struct AccountView: View {
         apns: \(push.deviceToken.map { String($0.prefix(16)) + "…" } ?? push.failure ?? "not registered")
         background: \(BackgroundRefresh.lastSchedule) / \(BackgroundRefresh.lastRun)
         lastError: \(model.lastError ?? "none")
+
+        keyboard/fit trace (newest last):
+        \(KBLog.dump())
         """
     }
 
@@ -96,6 +99,13 @@ struct AccountView: View {
                     LabeledContent("Version") { Text(version).foregroundStyle(.secondary) }
                     Button {
                         UIPasteboard.general.string = diagnostics
+                        #if DEBUG
+                        // Same side channel as Copy screen: the UI test can't
+                        // read the pasteboard (iOS 16 background-paste denial).
+                        if let m = ProcessInfo.processInfo.environment["HOP_COPY_MARKER"] {
+                            try? diagnostics.write(toFile: m, atomically: true, encoding: .utf8)
+                        }
+                        #endif
                         copied = true
                     } label: {
                         Label(copied ? "Copied" : "Copy diagnostics",

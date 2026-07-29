@@ -258,6 +258,34 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The keyboard gets a flight recorder (iteration 195)
+
+PLAN 11, activated by Jian's "still problematic as before": instead of
+a third blind guess at the keyboard-switch size bug, the app now
+records the evidence. KBLog is an 80-line ring capturing every
+keyboard frame event (end-Y, height, duration), every SwiftTerm fit
+(grid + the view bounds it was computed from), and every settle
+verdict (ok, or MISMATCH with what the view's height was at that
+moment). The ring rides into Account -> Copy diagnostics — no env
+vars, no cable, no debug build needed on the phone.
+
+Why this shape: the suspects are three different layers (the
+keyboard's own frame sequence during a switch, SwiftUI's keyboard
+avoidance leaving stale bounds, SwiftTerm fitting from them), and the
+existing settle verifier can only see the third. One pasted trace
+from a real Wispr<->system switch names the guilty layer outright.
+
+Sim-verified end to end: keyboard cycling produced kbFrame/fit/settle
+lines and the copied diagnostics carried them (via the HOP_COPY_MARKER
+side channel — pasteboard reads stay denied to the runner). The probe
+is PERMANENT: the instrument is load-bearing for a live investigation.
+20 UI + 77 unit green; the zero-warning strict gate caught one
+implicit-self in this round's own code and was satisfied.
+
+Next when the trace arrives: read which layer went stale, fix that
+layer, and retire the instrument section from diagnostics if it's
+noise afterward.
+
 ## The wake-flash, traced and closed (iteration 194)
 
 Jian's question — why does lock/unlock change the size at all? — now

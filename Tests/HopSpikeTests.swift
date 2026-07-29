@@ -748,6 +748,17 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    @MainActor
+    func testKBLogRingCapsAndTails() {
+        for i in 0..<100 { KBLog.record("event \(i)") }
+        let dump = KBLog.dump(last: 40)
+        XCTAssertTrue(dump.contains("event 99"), "newest line must survive")
+        XCTAssertFalse(dump.contains("event 59 "), "dump keeps only the tail")
+        XCTAssertEqual(dump.split(separator: "\n").count, 40)
+        XCTAssertTrue(dump.split(separator: "\n").allSatisfy { $0.contains("t+") },
+                      "every line is timestamped")
+    }
+
     func testHandoffURLIsTheWebDeepLink() {
         // The PATH form, not ?room=: the daemon serves the hub at / and
         // ignores the query — device-tested by Jian, the query form opened

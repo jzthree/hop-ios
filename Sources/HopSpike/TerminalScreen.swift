@@ -166,6 +166,8 @@ struct TerminalHostView: View {
                           .compactMap({ ($0 as? UIWindowScene)?.screen.bounds.height }).first
                 else { return }
                 let up = end.origin.y < screen
+                let dur = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? -1
+                KBLog.record("kbFrame endY=\(Int(end.origin.y)) h=\(Int(end.height)) screen=\(Int(screen)) up=\(up) dur=\(dur)")
                 accessoryInset = up ? HopTermView.accessoryHeight : 0
                 // Every keyboard-frame event schedules the settle check; the
                 // check debounces itself, so only the burst's last survivor
@@ -1288,7 +1290,7 @@ struct TerminalScreen: UIViewRepresentable {
                     self.snapshotLanded = false
                     self.claimed = false
                     self.connectStartedAt = Date()
-                    wakeEpochReset("retry-reconnect")
+                    self.wakeEpochReset("retry-reconnect")
                     self.fastPaint(room: self.room)
                     let term = tv.getTerminal()
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
@@ -1556,10 +1558,14 @@ struct TerminalScreen: UIViewRepresentable {
                       !self.peerHoldsSize, !self.observeOnly,
                       self.fittedCols > 1, self.fittedRows > 1,
                       let t = self.view?.getTerminal() else { return }
+                let vh = self.view.map { Int($0.bounds.height) } ?? -1
                 if t.cols != self.fittedCols || t.rows != self.fittedRows {
+                    KBLog.record("settle MISMATCH grid=\(t.cols)x\(t.rows) fit=\(self.fittedCols)x\(self.fittedRows) viewH=\(vh) — re-asserting")
                     Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                         .info("keyboard settle: grid \(t.cols)x\(t.rows) vs fit \(self.fittedCols)x\(self.fittedRows) — re-asserting")
                     self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
+                } else {
+                    KBLog.record("settle ok grid=\(t.cols)x\(t.rows) viewH=\(vh)")
                 }
                 // And if SwiftTerm's own fit is stale (bounds moved without a
                 // sizeChanged), a layout pass recomputes it.
@@ -1625,6 +1631,7 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+            KBLog.record("fit \(newCols)x\(newRows) bounds=\(Int(source.bounds.width))x\(Int(source.bounds.height))")
             fittedCols = newCols
             fittedRows = newRows
             view?.drawnRows = newRows

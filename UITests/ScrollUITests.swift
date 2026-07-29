@@ -20,6 +20,46 @@ final class ScrollUITests: XCTestCase {
     /// matched), and two attempts made a green suite fragile. The coupling is
     /// the cheaper cost: if these sessions are renamed the failure message says
     /// so, and the fix is one string.
+    /// The keyboard-frame instrument must survive: when sizing goes wrong
+    /// on the device, Copy diagnostics is the pasteable trace that names the
+    /// stale layer. This asserts the whole path — record on keyboard events,
+    /// surface in the copied text.
+    func testDiagnosticsCarryKeyboardTrace() throws {
+        try? FileManager.default.removeItem(atPath: "/tmp/hop-diag-marker.txt")
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = Self.fixture
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_COPY_MARKER"] = "/tmp/hop-diag-marker.txt"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.buttons["hide keyboard"].tap()
+        sleep(1)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        sleep(2)
+        // Back out and into the Account sheet, where the trace surfaces.
+        app.buttons["Back to sessions"].tap()
+        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10))
+        app.buttons["Settings"].tap()
+        app.buttons["Server & account"].tap()
+        sleep(2)
+        app.swipeUp()
+        sleep(1)
+        let copy = app.buttons["Copy diagnostics"].firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        copy.tap()
+        var text = ""
+        for _ in 0..<10 where text.isEmpty {
+            usleep(500_000)
+            text = (try? String(contentsOfFile: "/tmp/hop-diag-marker.txt", encoding: .utf8)) ?? ""
+        }
+        XCTAssertTrue(text.contains("kbFrame"), "no keyboard events in the trace: \(text.suffix(400))")
+        XCTAssertTrue(text.contains("fit "), "no fit lines in the trace")
+        XCTAssertTrue(text.contains("settle"), "no settle verdicts in the trace")
+    }
+
     private func launchIntoSession(_ name: String) -> XCUIApplication {
         let app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
