@@ -258,6 +258,33 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The terminal is a fixed viewport (iteration 184)
+
+Jian, after the bounce fix: "the native scroll bar should never show
+up — our terminal element should always fit and the terminal scrolling
+is handled in hop." That's a principle, not a symptom, and it's now
+enforced at the source: the underlying UIScrollView has
+isScrollEnabled=false, both indicators hidden, and
+contentInsetAdjustmentBehavior=.never. UIKit cannot move, inset, or
+decorate the terminal's content any more — no keyboard
+scroll-to-visible, no safe-area inset drift (both prime suspects for
+"the scroll is back", and the inset one plausibly fed the keyboard-size
+lottery too). Programmatic motion — peer-pan, scrollTo, the anchor
+restore — is unaffected.
+
+One real casualty, caught by the gated suite: disabling scrolling makes
+touch delivery immediate, so touchesBegan stopped a coast BEFORE the
+recognizers were asked, and the braking tap — seeing no coast left —
+raised the keyboard. The fix is a per-touch-sequence brake latch
+(brakeTouch): set when a touch kills a live coast, cleared on
+touches-ended/cancelled, checked by every tap gate. The ordering no
+longer matters; the comment that used to explain why the flag COULDN'T
+live in touchesBegan now explains why it must.
+
+Suites: 73 unit green; UI suite green twice consecutively (one
+load-flake on a tap test in between, passed 3/3 isolated and in both
+full reruns).
+
 ## Two views, one button (iteration 183)
 
 Jian, by voice, asked the hop-ios agent to fix the navigation — and the

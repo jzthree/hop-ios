@@ -70,6 +70,14 @@ Need one detail from the device: in that mode, does the transcript not
 move at all, move the wrong amount, or move the local viewport instead?
 And is it a session where the chip shows a foreign size? The sink
 logging added in the double-scroll round should name the path taken.
+**Partly addressed by the viewport pin** (Jian: "the native scroll bar
+should never show up — our terminal element should always fit and the
+terminal scrolling is handled in hop"): isScrollEnabled=false,
+indicators off, contentInsetAdjustmentBehavior=.never. UIKit can no
+longer move the content at all — no keyboard scroll-to-visible, no
+inset fiddling, no indicator flash. Whatever scrolling issue remains
+after this build is by definition in OUR sink routing, which the sink
+log will name.
 
 ## 8. Toolbar summary truncates ("21 sessions · nothing…")
 Problem: the principal slot is narrow between the two toolbar groups,

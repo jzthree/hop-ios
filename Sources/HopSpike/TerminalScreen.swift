@@ -1794,15 +1794,22 @@ final class HopTermView: TerminalView {
         let back = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe))
         back.edges = .left
         addGestureRecognizer(back)
-        // No native bounce, ever. Every scroll here is hand-driven (wheel to
-        // the app, yDisp for scrollback, contentOffset for pan) — yet the
-        // underlying UIScrollView still rubber-banded on drags, animating an
-        // "end of content" that doesn't exist. Jian, on device: a terminal
-        // that rightly doesn't move still played the scrolled-to-the-end
-        // animation.
+        // The terminal is a FIXED VIEWPORT — Jian's principle, verbatim:
+        // native scrolling must never show up; the element always fits and
+        // hop handles what scrolling MEANS. SwiftTerm's view is a
+        // UIScrollView underneath, and even with its pans disabled UIKit
+        // still had hands on it: bounce animated an end-of-content that
+        // doesn't exist, keyboard changes scrolled-to-visible and adjusted
+        // insets under us (the "native scroll is back" report), and the
+        // indicator flashed for motion the user never asked for. All of it
+        // off; programmatic offset (peer-pan, scrollTo) still works.
         bounces = false
         alwaysBounceVertical = false
         alwaysBounceHorizontal = false
+        isScrollEnabled = false
+        showsVerticalScrollIndicator = false
+        showsHorizontalScrollIndicator = false
+        contentInsetAdjustmentBehavior = .never
     }
 
     /// A drag is a SCROLL, and what that means depends on who owns the screen.
@@ -2072,13 +2079,29 @@ final class HopTermView: TerminalView {
         momentumLink = link
     }
     /// A finger down stops the coast even if no recognizer claims the touch.
-    /// The recognizers are asked FIRST (see gestureRecognizerShouldBegin), so
-    /// by the time this runs the brake has usually already happened — which is
-    /// exactly why the decision can't live here: a flag set in touchesBegan is
-    /// set too late for the tap that is already being decided.
+    /// Whether this runs before or after the recognizers are asked depends on
+    /// whether the scroll view is delaying touch delivery (isScrollEnabled
+    /// changes that), so the brake can't be inferred from momentumLink alone —
+    /// this latch marks the whole touch sequence as "the brake", and
+    /// gestureRecognizerShouldBegin refuses taps for as long as it's up.
+    private var brakeTouch = false
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if momentumLink != nil { stopMomentum() }
+        if momentumLink != nil {
+            stopMomentum()
+            brakeTouch = true
+        }
         super.touchesBegan(touches, with: event)
+    }
+    // The up-event reaches the recognizers (and their shouldBegin) before the
+    // view, so clearing here still leaves the braking tap refused — while the
+    // NEXT tap starts clean.
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        brakeTouch = false
+        super.touchesEnded(touches, with: event)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        brakeTouch = false
+        super.touchesCancelled(touches, with: event)
     }
 
     private func startMomentum(pointsPerSecond: CGFloat) {
@@ -2440,7 +2463,7 @@ extension HopTermView: UIGestureRecognizerDelegate {
             let inStrip = tap.location(in: self).y - bounds.origin.y < Self.chromeStrip
             if tap === chromeTap { return inStrip }
             if tap === clickTap {
-                return !inStrip && remoteTakesMouse && momentumLink == nil
+                return !inStrip && remoteTakesMouse && momentumLink == nil && !brakeTouch
             }
             if inStrip { return false }   // reaching for controls ≠ asking to type
         }
@@ -2449,6 +2472,10 @@ extension HopTermView: UIGestureRecognizerDelegate {
         // this way: the first touch on something moving stops it and does
         // nothing else. Without this, stopping a coast also raises the
         // keyboard, shrinking the screen you were trying to read.
+        // brakeTouch covers the case where touchesBegan already stopped the
+        // coast before this question was asked (touch delivery is immediate
+        // with isScrollEnabled false, so momentumLink is nil by now).
+        if brakeTouch { return false }
         if momentumLink != nil {
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("coast braked by touch")
