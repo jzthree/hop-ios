@@ -415,6 +415,75 @@ final class ScrollUITests: XCTestCase {
         return text
     }
 
+    /// The daemon now REFUSES attaches to unknown sessions (404, hop2
+    /// d1e76ce — phantom sessions are no longer invented). This pins the
+    /// client's half: a cached row for a session killed since must land on
+    /// the "Session ended" screen, not a phantom shell and not an endless
+    /// "connecting". Exercises the raw-socket 404 the daemon writes and the
+    /// classifier that reads it off task.response.
+    func testKilledSessionFromCacheLandsOnGoneNotPhantom() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty, "no daemon cookie in this environment")
+        let scratch = "GoneProbe"
+        XCTAssertTrue(daemonPOST("api/sessions",
+                                 ["name": scratch, "type": "terminal"], cookie: cookie))
+        // Fill the cache with the scratch alive.
+        let env = ProcessInfo.processInfo.environment
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        let row = app.staticTexts[scratch].firstMatch
+        var found = row.waitForExistence(timeout: 25)
+        for _ in 0..<6 where !found { app.swipeUp(); found = row.exists }
+        XCTAssertTrue(found, "scratch never reached the wall")
+        sleep(2)                       // first refresh's cache save
+        app.terminate()
+
+        // Kill it daemon-side; the cache still remembers it.
+        XCTAssertTrue(daemonPOST("api/sessions/delete",
+                                 ["internalName": scratch], cookie: cookie))
+
+        // Cold launch straight INTO the dead session: the cache paints the
+        // wall, HOP_DEV_OPEN navigates before any live refresh can replace
+        // the hearsay list — the exact vulnerable window a user hits tapping
+        // a cached row in the first seconds after launch.
+        let cold = XCUIApplication()
+        cold.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        cold.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        cold.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        cold.launchArguments += ["-hop-ui-testing"]
+        cold.launch()
+        XCTAssertTrue(cold.staticTexts["Session ended"].waitForExistence(timeout: 25),
+                      "attach to a killed cached session did not land on the gone screen")
+        // And the daemon must NOT have invented a phantom under that name.
+        // The LIST is the witness — /preview remembers dead sessions' last
+        // screens without resurrecting them (verified by hand), so a
+        // preview-based check false-alarms.
+        sleep(2)
+        XCTAssertFalse(daemonHasSession(scratch, cookie: cookie),
+                       "a phantom session exists under the killed name")
+    }
+
+    private func daemonHasSession(_ name: String, cookie: String) -> Bool {
+        guard let url = URL(string: "https://hop.zhoulab.io/api/sessions") else { return false }
+        var req = URLRequest(url: url)
+        req.setValue("tunnel_session=\(cookie)", forHTTPHeaderField: "Cookie")
+        var found = false
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            if let data,
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = obj["sessions"] as? [[String: Any]] {
+                found = list.contains { ($0["internalName"] as? String) == name }
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 10)
+        return found
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

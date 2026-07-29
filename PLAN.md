@@ -315,4 +315,23 @@ terminal content on disk is readable only with the device unlocked
 (which is when the app reads it); background refreshes can still
 WRITE a fresh cache while locked via the asymmetric path. Cache
 round-trip unit tests unchanged and green.
-## 29. (space for Jian's next reports)
+## 29. [DONE 2026-07-29] Drift round: the daemon's new refusal, and the
+hole it left
+Upkeep sweep (all green: 88 unit / 23 UI / strict 0 / TSan 0 races /
+device current) surfaced hop2 drift: d1e76ce stops the daemon
+inventing sessions for unknown names (404 on attach — raw-handshake
+verified; the iOS classifier already maps it to the gone UI). Building
+the pin-test EXPOSED the residual: killed-but-REMEMBERED names still
+resurrect on attach (the test's tap brought GoneProbe back from the
+dead). Client-side fix shipped: a wall list that came from the launch
+cache is HEARSAY — attaching from it verifies existence first (the
+reconnect path's check, now shared); a live-list attach pays zero
+extra latency (liveListSeen). Also fixed en route: HOP_DEV_CACHE_ONLY
+now inerts ALL refreshes, not just bootstrap's (the periodic tick was
+overwriting the cache mid-test). Permanent test: cold launch into a
+killed cached session lands on "Session ended", and the daemon's LIST
+(the honest witness — /preview remembers the dead without
+resurrecting) stays phantom-free. Daemon residual recorded in
+HOP2-NOTES.
+
+## 30. (space for Jian's next reports)

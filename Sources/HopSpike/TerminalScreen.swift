@@ -1130,14 +1130,46 @@ struct TerminalScreen: UIViewRepresentable {
             NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
                                                    name: .hopJumpToLive, object: nil)
             view.startFrameGapMonitor()
-            let t = view.getTerminal()
             snapshotLanded = false
             claimed = false
             connectStartedAt = Date()
             wakeEpochReset("attach")
             fastPaint(room: room)
-            client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
-                           token: token, using: urlSession)
+            // A row from a LIVE list attaches immediately, as always. A row
+            // the wall only knows from the launch CACHE is hearsay — and
+            // attaching to a killed-but-remembered name makes the daemon
+            // resurrect it (probe-proven: the gone-test's tap brought
+            // GoneProbe back from the dead). Verify hearsay first.
+            if AppModel.shared.liveListSeen {
+                let t = view.getTerminal()
+                client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
+                               token: token, using: urlSession)
+            } else {
+                verifyThenConnect()
+            }
+        }
+
+        /// The reconnect path's existence check, shared with cache-hearsay
+        /// attaches: refresh, refuse if the room is provably gone, connect
+        /// otherwise (no evidence → proceed; refusing on none would be
+        /// worse than the bug).
+        private func verifyThenConnect() {
+            Task { @MainActor [weak self] in
+                await AppModel.shared.refreshSessions(silent: true)
+                guard let self, self.alive, !self.sessionEnded, let tv = self.view else { return }
+                let known = AppModel.shared.sessions
+                if !known.isEmpty, !known.contains(where: { $0.internalName == self.room }) {
+                    self.sessionEnded = true
+                    self.setStatus(.closed)
+                    self.onGone("Session ended while the app was away")
+                    _ = tv.resignFirstResponder()
+                    return
+                }
+                let t = tv.getTerminal()
+                self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
+                                    cols: t.cols, rows: t.rows,
+                                    token: self.token_, using: self.urlSession)
+            }
         }
 
         /// Pinch the terminal to size the text, like every other iOS reader.
@@ -1352,22 +1384,7 @@ struct TerminalScreen: UIViewRepresentable {
             // is exactly what would still contain the dead session. If the
             // refresh fails, or nothing has ever been fetched, this proceeds:
             // refusing to reconnect on no evidence would be worse than the bug.
-            Task { @MainActor [weak self] in
-                await AppModel.shared.refreshSessions(silent: true)
-                guard let self, self.alive, !self.sessionEnded, let tv = self.view else { return }
-                let known = AppModel.shared.sessions
-                if !known.isEmpty, !known.contains(where: { $0.internalName == self.room }) {
-                    self.sessionEnded = true
-                    self.setStatus(.closed)
-                    self.onGone("Session ended while the app was away")
-                    _ = tv.resignFirstResponder()
-                    return
-                }
-                let t = tv.getTerminal()
-                self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
-                                    cols: t.cols, rows: t.rows,
-                                    token: self.token_, using: self.urlSession)
-            }
+            verifyThenConnect()
         }
 
         @objc func jumpToLive() {

@@ -258,6 +258,35 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The zombie door, found by its own pin-test (iteration 206)
+
+What began as an upkeep sweep (all gates green, TSan clean, device
+current) became the round's real work when the drift check surfaced
+Solstice's d1e76ce: the daemon now refuses attaches to unknown names
+with a 404 instead of inventing phantom sessions. A raw upgrade
+handshake confirmed the exact status line, and the iOS failure
+classifier already maps it to the permanent gone UI — compatible as
+built.
+
+Then the pin-test caught something better: killed-but-REMEMBERED
+names still resurrect. The new daemon guard consults the config
+layers, and a killed session's entry survives them — so the test's
+tap on a dead cached row brought GoneProbe back from the dead. That
+is the exact zombie the client's reconnect path has long defended
+against, entered through the one unguarded door: FIRST attach. Fix:
+a list painted from the launch cache is hearsay (liveListSeen), and
+hearsay attaches now run the reconnect path's verify-then-connect;
+live-list attaches are untouched — zero added latency on the normal
+tap. Two test-harness bugs fixed en route: HOP_DEV_CACHE_ONLY only
+gated bootstrap (the 5s tick overwrote the cache mid-test), and the
+phantom witness must be the session LIST — /preview remembers dead
+sessions' screens without resurrecting them, so a preview check
+false-alarms.
+
+The daemon residual (attach-by-dead-name resurrects for ANY client)
+is recorded in HOP2-NOTES for Solstice. 88 unit + 24 UI green, strict
+zero, scratch cleaned.
+
 ## Landscape keys, locked cache (iteration 205)
 
 The two small items from the thin round, shipped together. The hop

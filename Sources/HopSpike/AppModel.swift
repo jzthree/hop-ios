@@ -126,19 +126,12 @@ final class AppModel: ObservableObject {
                                      colorRows: TileInk.decode(d["color"]))
             }
             paintedFromCache = true
+            liveListSeen = false       // rows are HEARSAY until a refresh lands
             authenticated = true       // optimistic; a real 401 flips it back
             checkingAuth = false
         } else {
             checkingAuth = true
         }
-#if DEBUG
-        // The cache probe's tourniquet: with this set, ONLY the cache can
-        // have populated the wall.
-        if ProcessInfo.processInfo.environment["HOP_DEV_CACHE_ONLY"] == "1" {
-            checkingAuth = false
-            return
-        }
-#endif
         await refreshSessions(silent: true)
         checkingAuth = false
     }
@@ -230,6 +223,16 @@ final class AppModel: ObservableObject {
     private var authEpoch = 0
 
     func refreshSessions(silent: Bool = false) async {
+#if DEBUG
+        // The cache probes' tourniquet: with this set, NO refresh runs — not
+        // bootstrap's, not the periodic tick's. Gating only the bootstrap
+        // call was a bug the gone-probe caught: the 5s tick refreshed the
+        // wall live and OVERWROTE the cache mid-test.
+        if ProcessInfo.processInfo.environment["HOP_DEV_CACHE_ONLY"] == "1" {
+            checkingAuth = false
+            return
+        }
+#endif
         guard let url = baseURL?.appendingPathComponent("api/sessions") else { return }
         let epoch = authEpoch
         // Whether we're presenting a session cookie must be read BEFORE the
@@ -317,6 +320,7 @@ final class AppModel: ObservableObject {
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             lastRawSessions = raw
+            liveListSeen = true
             maybeSaveCache()
             publishFleetSnapshot()
             publishSpotlight()
@@ -423,6 +427,11 @@ final class AppModel: ObservableObject {
     /// True once this launch painted from cache — the first live refresh
     /// is the one that replaces it, so it always saves.
     private var paintedFromCache = false
+    /// False while the visible list is cache hearsay; true once a live
+    /// refresh has confirmed it. Attaching trusts a confirmed list but
+    /// VERIFIES against a cached one — a cached row may be dead, and
+    /// attaching to a dead-but-remembered name resurrects it daemon-side.
+    private(set) var liveListSeen = true
     private func publishFleetSnapshot() {
         let browsable = sessions.filter { !$0.isPort && !$0.parked }
         let rows = browsable.prefix(4).map {

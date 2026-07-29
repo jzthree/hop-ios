@@ -93,3 +93,21 @@ dims and must be painted at those dims to stay legible, so there's a
 if attach carried the client's preferred size (with the user flag), the PTY
 would reflow before the preview/snapshot are generated. Low urgency — the
 window is now small; noting for completeness.
+
+## 2026-07-29 — d1e76ce's unknown-name guard verified from iOS; one residual
+
+Drift-checked the rename/attach fixes against this client. The 404 refusal
+for never-existed names is exactly what the iOS classifier already maps to a
+permanent "session not found" (verified with a raw upgrade handshake). But
+KILLED-and-remembered names still resurrect on attach: create a session,
+kill it, attach by its name — the daemon brings it back (probe-proven while
+building the gone-test; the resurrected copy was deleted). The unknown-name
+guard checks getEffectiveSessionConfig, and a killed session's store/meta
+entry survives, so it resolves and re-registers. The iOS client now defends
+itself (cache-hearsay attaches verify existence first; reconnects always
+did), but any client that attaches by a dead name will still resurrect it.
+If the kill path should retire the remembered config (or the attach path
+should check hopSessionExists), that's the remaining daemon half.
+Also useful to know: /api/sessions/preview serves REMEMBERED content for
+killed sessions (list stays clean — no resurrection) and 404s only for
+never-existed names.
