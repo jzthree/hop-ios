@@ -258,6 +258,30 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The wake-flash, traced and closed (iteration 194)
+
+Jian's question — why does lock/unlock change the size at all? — now
+has a measured answer. A wake instrument (wakeMark: timestamped lines
+at connect epochs, fast paint, joined, snapshot, claims, every
+active_size) ran under a probe holding 100×30 against the phone's
+51×49. One trace told the whole story: the attach rebroadcast delivers
+the foreign size at t+440ms and the app ADOPTED it — resize, chip,
+retry timer, the works — then our deliberate claim went out at t+842ms
+(a 400ms delay that exists for fresh-open keyboard layout) and won 21
+milliseconds later. The flash WAS the adopt-before-claim window.
+
+Two fixes, both probe-proven in re-runs: reconnect claims now go out
+immediately (everConnected — the 400ms wait remains only on true fresh
+opens), and a foreign active_size arriving within 3s of a foreground
+connect is DEFERRED 1.2s rather than adopted — the claim's confirm
+cancels it, so the foreign size never renders (traces show DEFERRED →
+OURS with no adopt); if the race is somehow lost, the late adopt still
+fires, correctness over cosmetics. Residual: the fast paint still
+draws at the PTY's dims for ~RTT before the snapshot (it must — the
+preview is a grid at those dims). Killing that too needs
+attach-carries-size in the daemon; recorded in HOP2-NOTES. Scratch
+session deleted; probe excised; suites green.
+
 ## Nine verdicts, and the Handoff last mile (iteration 193)
 
 Jian answered everything at once. Closed: full-bleed ("good as is"),

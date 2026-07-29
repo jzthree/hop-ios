@@ -77,3 +77,19 @@ deliberate acts. If that ever matters again, the shape of a fix: let clients
 identify as non-interactive at connect (or infer from the API/CLI auth path)
 and give their input a much shorter recency window in the election. No
 urgency from the mobile track — deliberate claims cover the human cases.
+
+## 2026-07-29 — Wake-flash: closed client-side except the fast-paint window
+
+Marker-traced (three sim runs, foreign 100×30 hold): the wrong-size flash on
+wake was (a) the 400ms attach-claim delay — now 0ms on reconnects, the delay
+only ever existed for fresh-open keyboard layout — and (b) adopting the
+attach rebroadcast's foreign active_size before our deliberate claim's
+confirm arrived ~450ms later. Foreign adopts within 3s of a foreground
+connect are now DEFERRED 1.2s; the confirm cancels them, so the foreign size
+never renders (a lost race still adopts late). What remains is the fast
+paint: /api/sessions/screen returns the grid at the PTY's current (foreign)
+dims and must be painted at those dims to stay legible, so there's a
+~RTT-sized foreign window before the snapshot. Zero-flash needs the daemon:
+if attach carried the client's preferred size (with the user flag), the PTY
+would reflow before the preview/snapshot are generated. Low urgency — the
+window is now small; noting for completeness.

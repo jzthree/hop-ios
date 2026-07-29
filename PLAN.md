@@ -183,19 +183,18 @@ typing-settle Timer callback wraps in assumeIsolated (run-loop timers
 fire on main, the closure type just couldn't say so). No behavior
 change; full suites green after.
 
-## 17. Wake-flash: why does lock/unlock change the size at all? (TOP)
-Jian 2026-07-29: re-entry now RECOVERS (chip/claims work) but the size
-still shows wrong FIRST — why does idle change it? Mechanism to
-verify: locking suspends the app and drops the WS; while away, any
-other claimant (desk tab, daemon preview terminal) can reflow the PTY;
-on wake we render the snapshot AT THE FOREIGN SIZE first, then the
-deliberate attach claim (400ms later) wins and it heals. The flash IS
-the adopt-before-claim window. Sketch: on foreground reconnect,
-suppress peer-size adoption until our deliberate claim is answered —
-pre-size the terminal to fittedCols/Rows before feeding the snapshot,
-render our shape immediately; instrument first (markers: snapshot
-dims, fitted dims, claim outcome) to confirm the mechanism, then fix.
-
+## 17. [DONE 2026-07-29 — client side] Wake-flash
+Marker instrument (HOP_WAKE_MARKER, wakeMark lines at connect epochs,
+fastPaint, joined, snapshot, claim, every active_size) traced the
+mechanism in one run: foreign ADOPT at t+440ms, claim at t+842ms (the
+400ms fresh-open delay), OURS 21ms later. Two fixes: reconnect claims
+now go at 0ms (the delay was for fresh-open keyboard layout only), and
+foreign adopts within 3s of a foreground connect are DEFERRED 1.2s —
+the claim's confirm cancels them (probe-proven: DEFERRED → OURS, no
+foreign render; a lost race adopts late). RESIDUAL: the fast paint
+still renders ~RTT at the PTY's foreign dims (must, for legibility);
+zero-flash needs attach-carries-size daemon-side — noted in
+HOP2-NOTES. Jian verdict wanted: is the flash gone in practice?
 ## 18. Widget build (UNBLOCKED — Xcode signed in 2026-07-29)
 The widget is fully built and parked in commented project.yml with
 unlock instructions. Round: uncomment, build with the signed-in team

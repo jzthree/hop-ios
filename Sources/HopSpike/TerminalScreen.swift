@@ -942,6 +942,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
+                    self.wakeMark("snapshot fitted=\(self.fittedCols)x\(self.fittedRows)")
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
                     // one duplicated history for shell sessions and let stale
@@ -997,6 +998,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .rejected(let reason):
                     self.onToast(reason)
                 case .joined(let cols, let rows):
+                    self.wakeMark("joined pty=\(cols)x\(rows)")
                     self.sizeAtJoin = (cols, rows)
                 case .renamed(let name):
                     self.onRenamed(name)
@@ -1023,17 +1025,35 @@ struct TerminalScreen: UIViewRepresentable {
                     self.electedCols = cols
                     self.electedRows = rows
                     if cols == self.fittedCols && rows == self.fittedRows {
+                        self.wakeMark("active_size \(cols)x\(rows) OURS")
+                        self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
                     } else if mine.cols != cols || mine.rows != rows {
-                        Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
-                            .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
-                        self.peerHoldsSize = true
-                        self.onSizeState("\(cols)×\(rows)")
-                        self.startReclaimRetry()
-                        mine.resize(cols: cols, rows: rows)
-                        self.onGridChange()
+                        // The wake-flash fix, half two (PLAN 17, marker-
+                        // proven): on a foreground attach our deliberate
+                        // claim wins in ~20ms once sent — painting the
+                        // foreign size in the meantime IS the flash. Hold
+                        // the adopt; the claim's confirm cancels it. A lost
+                        // race still adopts, 1.2s late.
+                        if UIApplication.shared.applicationState == .active,
+                           !self.observeOnly,
+                           Date().timeIntervalSince(self.connectStartedAt) < 3.0,
+                           self.deferredAdopt == nil {
+                            self.wakeMark("active_size \(cols)x\(rows) DEFERRED")
+                            self.deferredAdopt = (cols, rows)
+                            Task { @MainActor [weak self] in
+                                try? await Task.sleep(for: .milliseconds(1200))
+                                guard let self, let p = self.deferredAdopt else { return }
+                                self.deferredAdopt = nil
+                                self.adoptForeign(cols: p.cols, rows: p.rows)
+                            }
+                        } else {
+                            self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
+                            self.deferredAdopt = nil
+                            self.adoptForeign(cols: cols, rows: rows)
+                        }
                     } else {
                         // Grid already drawn at the peer's size — this is what
                         // a REFUSED reclaim's rebroadcast looks like. Re-arm,
@@ -1088,6 +1108,8 @@ struct TerminalScreen: UIViewRepresentable {
             let t = view.getTerminal()
             snapshotLanded = false
             claimed = false
+            connectStartedAt = Date()
+            wakeEpochReset("attach")
             fastPaint(room: room)
             client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
                            token: token, using: urlSession)
@@ -1186,6 +1208,7 @@ struct TerminalScreen: UIViewRepresentable {
                    cols > 1, rows > 1, t.cols != cols || t.rows != rows {
                     t.resize(cols: cols, rows: rows)
                 }
+                self.wakeMark("fastPaint grid=\(t.cols)x\(t.rows) fitted=\(self.fittedCols)x\(self.fittedRows)")
                 tv.feed(text: screen)
                 Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                     .info("fast paint \(screen.utf8.count / 1024) KB (snapshot still in flight)")
@@ -1264,6 +1287,8 @@ struct TerminalScreen: UIViewRepresentable {
                     // already staring at a dead terminal was the slowest.
                     self.snapshotLanded = false
                     self.claimed = false
+                    self.connectStartedAt = Date()
+                    wakeEpochReset("retry-reconnect")
                     self.fastPaint(room: self.room)
                     let term = tv.getTerminal()
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
@@ -1287,6 +1312,8 @@ struct TerminalScreen: UIViewRepresentable {
             setStatus(.connecting)
             snapshotLanded = false
             claimed = false
+            connectStartedAt = Date()
+            wakeEpochReset("foreground-reconnect")
             fastPaint(room: room)
             // Ask whether the session still EXISTS before attaching to it.
             //
@@ -1447,6 +1474,54 @@ struct TerminalScreen: UIViewRepresentable {
         /// tell "I fit this to the phone" from "I just reshaped the terminal
         /// someone is using at their desk".
         private var sizeAtJoin: (cols: Int, rows: Int)?
+        /// True from the second connect on: the wake path. A fresh open
+        /// waits 400ms for the keyboard's layout; a reconnect's view is
+        /// already laid out, and every ms of that delay was a ms the
+        /// foreign grid stayed on screen.
+        private var everConnected = false
+        /// Set at every connect entry; the adopt-defer window is measured
+        /// from here.
+        private var connectStartedAt = Date.distantPast
+        /// A foreign active_size held back while a deliberate claim races
+        /// it. If the claim confirms first, the flash never renders; if
+        /// nothing confirms, the late adopt fires — correctness over
+        /// cosmetics.
+        private var deferredAdopt: (cols: Int, rows: Int)?
+
+        private func adoptForeign(cols: Int, rows: Int) {
+            guard let tv = view else { return }
+            wakeMark("adopt \(cols)x\(rows)")
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
+                .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
+            peerHoldsSize = true
+            onSizeState("\(cols)×\(rows)")
+            startReclaimRetry()
+            tv.getTerminal().resize(cols: cols, rows: rows)
+            onGridChange()
+        }
+        #if DEBUG
+        /// The wake instrument (PLAN 17): timestamped lines to a marker
+        /// file, one per size-relevant event, so a single lock/unlock on a
+        /// device names the exact sequence that painted the wrong size.
+        private var wakeEpoch = Date()
+        func wakeMark(_ line: String) {
+            guard let path = ProcessInfo.processInfo.environment["HOP_WAKE_MARKER"] else { return }
+            let ms = Int(Date().timeIntervalSince(wakeEpoch) * 1000)
+            let entry = "t+\(ms)ms \(line)\n"
+            if let h = FileHandle(forWritingAtPath: path) {
+                h.seekToEndOfFile(); h.write(Data(entry.utf8)); try? h.close()
+            } else {
+                try? entry.write(toFile: path, atomically: true, encoding: .utf8)
+            }
+        }
+        func wakeEpochReset(_ reason: String) {
+            wakeEpoch = Date()
+            wakeMark("== \(reason)")
+        }
+        #else
+        func wakeMark(_ line: String) {}
+        func wakeEpochReset(_ reason: String) {}
+        #endif
 
         /// Resizes are held until this is true. Opening a session used to send
         /// TWO: the claim at the pre-keyboard height, then another when the
@@ -1512,10 +1587,15 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         private func claimSizeOnAttach() {
-            // Let the keyboard's layout land first, then claim once at the
-            // size we'll actually keep.
+            // Fresh open: the keyboard's layout is still landing — wait a
+            // beat and claim once at the size we'll keep. Reconnect/wake:
+            // the layout already exists, so the claim goes out NOW; the
+            // 400ms was a third of the wake-flash (Jian: "why does idle
+            // change the size?").
+            let delayMs = everConnected ? 0 : 400
+            everConnected = true
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(400))
+                if delayMs > 0 { try? await Task.sleep(for: .milliseconds(delayMs)) }
                 self?.sendAttachClaim()
             }
         }
@@ -1530,6 +1610,7 @@ struct TerminalScreen: UIViewRepresentable {
             // Deliberate only when the user is LOOKING at it: a pocket
             // reconnect must not steal the size from a desk that's typing.
             let deliberate = UIApplication.shared.applicationState == .active
+            wakeMark("claim \(cols)x\(rows) deliberate=\(deliberate)")
             client.sendResize(cols: cols, rows: rows, claim: "attach", user: deliberate)
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
