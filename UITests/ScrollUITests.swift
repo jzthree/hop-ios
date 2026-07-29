@@ -161,6 +161,35 @@ final class ScrollUITests: XCTestCase {
         XCTAssertFalse(pasted.hasSuffix(" "), "trailing padding survived the trim")
     }
 
+    /// Handoff: opening a session must donate an activity whose webpageURL
+    /// is hop web's ?room= deep link for the SAME identifier the daemon
+    /// uses. Verified through the DEBUG marker (the donation itself is
+    /// system state the runner can't inspect).
+    func testOpenSessionDonatesHandoffDeepLink() throws {
+        let internalName = ProcessInfo.processInfo
+            .environment["HOP_E2E_FIXTURE_INTERNAL"] ?? "Meridian"
+        let marker = "/tmp/hop-handoff-marker.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = internalName
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_HANDOFF_MARKER"] = marker
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        var donated = ""
+        for _ in 0..<10 where donated.isEmpty {
+            usleep(500_000)
+            donated = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        }
+        XCTAssertTrue(donated.contains("room=\(internalName)"),
+                      "donated URL missing the session deep link: \(donated)")
+        XCTAssertTrue(donated.hasPrefix("https://"),
+                      "handoff URL must be a web URL Safari can open: \(donated)")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

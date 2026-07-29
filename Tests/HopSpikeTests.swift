@@ -748,6 +748,20 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testHandoffURLIsTheWebDeepLink() {
+        XCTAssertEqual(handoffURL(server: "https://hop.zhoulab.io",
+                                  internalName: "Meridian")?.absoluteString,
+                       "https://hop.zhoulab.io?room=Meridian")
+        // Session names are user text — the escaping is the point.
+        XCTAssertEqual(handoffURL(server: "https://hop.zhoulab.io",
+                                  internalName: "my session")?.absoluteString,
+                       "https://hop.zhoulab.io?room=my%20session")
+        // A schemeless or hostless server must produce nothing rather than a
+        // relative URL Safari can't open (the cookie-seed wipeout's cousin).
+        XCTAssertNil(handoffURL(server: "not a url", internalName: "x"))
+        XCTAssertNil(handoffURL(server: "https://hop.zhoulab.io", internalName: ""))
+    }
+
     func testCopyableScreenStripsThePadding() {
         // Grid padding: every line padded to cols, quiet tail is blank rows.
         XCTAssertEqual(copyableScreen("$ ls   \n a.txt  \n       \n       "),

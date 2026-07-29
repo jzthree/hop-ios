@@ -66,7 +66,7 @@ test: gen
 # xcodebuild's output through grep at the call site loses the test's identity
 # exactly when it matters.
 uitest: gen
-	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" xcodebuild test \
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) > build-sim/uitest.log 2>&1; \
@@ -150,7 +150,7 @@ strict:
 	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u
 
 tsan: gen
-	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" xcodebuild test \
+	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-tsan CODE_SIGNING_ALLOWED=NO -enableThreadSanitizer YES \

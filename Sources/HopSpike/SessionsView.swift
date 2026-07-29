@@ -495,6 +495,26 @@ struct SessionsView: View {
                         ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
                             .task { await model.unpark(session) }
+                            // Handoff: the open session follows you to the
+                            // desk. SwiftUI invalidates the activity when
+                            // this view goes away, so leaving the session
+                            // clears the Mac's Dock icon by itself.
+                            .userActivity("io.zhoulab.hop.session.handoff") { activity in
+                                activity.isEligibleForHandoff = true
+                                activity.isEligibleForSearch = false
+                                activity.title = session.name
+                                activity.webpageURL = handoffURL(
+                                    server: model.normalizedServerURL,
+                                    internalName: session.internalName)
+                                #if DEBUG
+                                if let marker = ProcessInfo.processInfo
+                                    .environment["HOP_HANDOFF_MARKER"] {
+                                    try? (activity.webpageURL?.absoluteString ?? "nil")
+                                        .write(toFile: marker, atomically: true,
+                                               encoding: .utf8)
+                                }
+                                #endif
+                            }
                     } else {
                         ContentUnavailableView("Session not found", systemImage: "questionmark.folder")
                     }

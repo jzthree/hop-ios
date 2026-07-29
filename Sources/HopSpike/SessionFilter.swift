@@ -181,6 +181,17 @@ func fleetStatusLine(wanting: Int, total: Int) -> String {
     return base + ", \(wanting) want\(wanting == 1 ? "s" : "") you."
 }
 
+/// The Handoff payload for an open session: hop web's own deep link
+/// (`?room=` is the param App.tsx reads), so a Mac with no hop app still
+/// picks the session up in Safari at the desk. URLComponents does the
+/// escaping — session names are user text.
+func handoffURL(server: String, internalName: String) -> URL? {
+    guard !internalName.isEmpty, var comps = URLComponents(string: server),
+          comps.host != nil else { return nil }
+    comps.queryItems = [URLQueryItem(name: "room", value: internalName)]
+    return comps.url
+}
+
 /// What "Copy screen" puts on the pasteboard: the screen as text someone
 /// would paste into a message. The grid pads every line to the session's
 /// cols and the tail of a quiet screen is blank rows — strip both, or the

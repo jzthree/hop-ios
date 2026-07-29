@@ -136,19 +136,17 @@ on hardware once touch-claims land — candidates: underfill rendering
 (small foreign grid leaves dead space), the observe-only Fit-to-width
 floor (4pt texture), chip visibility.
 
-## 13. Handoff: pick the session up at the desk
-Problem: the core hop flow is phone->desk and back, but moving from the
-phone to the Mac means finding the session again by hand. Native owns a
-purpose-built affordance the web cannot: Handoff.
-Evidence: hop web already has per-session URLs (`?room=<name>`,
-App.tsx pushState at 2536); the app knows the server URL and the open
-session's internalName; QuickActions already handles INCOMING
-activities — nothing is ever donated OUTGOING.
-Sketch: while a terminal is open, publish an NSUserActivity
-(eligibleForHandoff, webpageURL = serverURL + "?room=<internalName>"),
-invalidate on leave; sim probe asserts the donation via a DEBUG marker;
-real pickup (Safari icon in the Mac Dock) goes on Jian's device
-checklist. Half a day, no daemon change.
+## 13. [DONE 2026-07-28] Handoff: pick the session up at the desk
+Shipped: the open terminal donates an NSUserActivity
+(io.zhoulab.hop.session.handoff, eligibleForHandoff, webpageURL =
+server + "?room=<internalName>" — the param App.tsx reads); SwiftUI
+invalidates it on leave. Incoming leg routes the same activity type on
+another hop-running device (QuickActions), so iPhone->iPad continues
+natively while Mac picks up in Safari. handoffURL() unit-tested
+(escaping, hostless-server nil); permanent UI test asserts the donated
+URL via DEBUG marker. ON JIAN'S DEVICE CHECKLIST: open a session on
+the phone near the Mac — Safari's Handoff icon should appear in the
+Dock and open the same session.
 
 ## 14. Share a session's screen (the write half of Copy, for OTHER apps)
 Problem: Copy screen (item 9) lands on the pasteboard; sending the

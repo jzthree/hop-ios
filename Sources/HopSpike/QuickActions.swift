@@ -93,6 +93,18 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
     }
 
     static func route(_ activity: NSUserActivity) {
+        // Handoff from another device running hop: the donated activity's
+        // webpageURL is hop web's ?room= deep link — same identifier the
+        // Spotlight and hop:// paths use.
+        if activity.activityType == "io.zhoulab.hop.session.handoff" {
+            mark("handoff continue \(activity.webpageURL?.absoluteString ?? "nil")")
+            guard let url = activity.webpageURL,
+                  let room = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                      .queryItems?.first(where: { $0.name == "room" })?.value,
+                  !room.isEmpty else { return }
+            Task { @MainActor in AppModel.shared.requestedSession = room }
+            return
+        }
         guard activity.activityType == CSSearchableItemActionType,
               let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String
         else { return }

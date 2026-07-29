@@ -43,6 +43,10 @@ targets:
         NSFaceIDUsageDescription: "hop locks your terminal sessions behind Face ID."
         NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
         UIBackgroundModes: [fetch]
+        # Handoff: the open session is donated as a browsing activity whose
+        # webpageURL is hop web's own ?room= deep link — a Mac picks it up in
+        # Safari; another device running this app continues natively.
+        NSUserActivityTypes: [io.zhoulab.hop.session.handoff]
         BGTaskSchedulerPermittedIdentifiers: [io.zhoulab.hop.spike.refresh]
         # hop://session/<internalName> — the deep-link road for widget rows,
         # cross-app links and anything else that can open a URL.

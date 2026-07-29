@@ -258,6 +258,27 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The session follows you to the desk (iteration 190)
+
+PLAN 13, first of the planning round's candidates: Handoff. The open
+terminal now donates an NSUserActivity whose webpageURL is hop web's
+own deep link (?room=<internalName> — the exact param App.tsx reads),
+eligible for Handoff; SwiftUI retires it when you leave the session.
+Walk to the Mac: Safari's Handoff icon in the Dock opens the SAME
+session at the desk — the phone->desk half of hop's core loop, done
+with an affordance only native has. The incoming leg is wired too:
+another device running this app continues the activity natively
+(same room identifier as Spotlight and hop:// — all three funnels
+converge on requestedSession).
+
+Verification: handoffURL() is pure and unit-tested (user-text session
+names get escaped; a hostless server yields nil rather than a relative
+URL Safari can't open — the cookie-seed wipeout taught that shape);
+a permanent UI test reads the donated URL through a DEBUG marker
+(HOP_HANDOFF_MARKER, the runner can't see system Handoff state) and
+pins it to https + room=<internal>. The real Dock pickup needs two
+devices, so it's on Jian's checklist. 18 UI + 76 unit green, gated.
+
 ## A planning round (iteration 189)
 
 Every queue item is now Jian-gated (device verdicts on 229/230's size

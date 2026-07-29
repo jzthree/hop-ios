@@ -43,6 +43,10 @@
 	<string>hop locks your terminal sessions behind Face ID.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>hop connects to your hop daemon on the local network.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>io.zhoulab.hop.session.handoff</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
