@@ -258,6 +258,33 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Nine verdicts, and the Handoff last mile (iteration 193)
+
+Jian answered everything at once. Closed: full-bleed ("good as is"),
+claude fullscreen scrolling ("seems fixed" — the viewport pin did it).
+Still open: keyboard-switch sizing ("still problematic as before") —
+the settle verifier was not enough, so the keyboard-frame instrument
+(PLAN 11) is now actionable. New question worth its own item: re-entry
+recovers now but still flashes wrong FIRST — why does lock/unlock
+change the size at all? (PLAN 17 has the suspected mechanism: the
+adopt-before-claim window on wake.) Renames are INTENTIONAL hop
+mechanism — PLAN 20 audits that identity is internalName everywhere.
+Xcode is signed in — widget (18) and TestFlight (19) unblocked. BT
+keyboard: no — 15 dropped. He also asked for an in-app full keyboard
+estimate (21: moderate, inputView swap, fixed height would even dodge
+the item-6 lottery).
+
+Fixed and SHIPPED this round: Handoff's last mile. His verdict —
+"almost works! except ?room= is not entering the session anymore."
+Root cause read from the web + daemon: the daemon serves the HUB at /,
+which never reads ?room; the canonical session URL is the PATH
+/s/<internalName>/ (what the web's own buildSessionPath pushes, and
+the daemon answers with the __HOP_SESSION__ injection — verified with
+an authed curl). The donation now uses the path form; the incoming leg
+parses it (?room= kept as legacy fallback); URLComponents double-
+encoding trap dodged via percentEncodedPath (a / in a session name
+must not become a separator). 76 unit + 19 UI green, gated.
+
 ## The named baseline is retired (iteration 192)
 
 PLAN 16, the last unblocked queue item: strict concurrency is at ZERO

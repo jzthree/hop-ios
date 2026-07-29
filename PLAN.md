@@ -35,9 +35,8 @@ result. Candidate fixes, in order of promise:
   (snapshot re-fits to ours first, so the rebroadcast always mismatches
   the drawn grid). No separate machinery needed.
 
-## 2. Full-bleed polish on device
-Jian to judge rows-under-status-text clearance (40pt) on hardware;
-adjust if the top row kisses the clock on the real island.
+## 2. [CLOSED 2026-07-29 — Jian: "good as is, very close to the clock
+but that is fine"] Full-bleed polish on device
 
 ## 3. [VERIFIED FINE 2026-07-28] Peek/tip placement under new geometry
 Probe-shot: PeekTip anchors below the first tile, arrow up, no island
@@ -56,7 +55,7 @@ at that cell (terminal-testified: cat -v echoed ^[[<0;26;15M/m). Plain
 shells never see clicks; the coast-brake and chrome strip keep their
 taps.
 
-## 6. [FIRST PASS 2026-07-28] Keyboard-switch size nondeterminism
+## 6. [VERDICT 2026-07-29: STILL BROKEN — item 11 now actionable] Keyboard-switch size nondeterminism
 Jian: switching keyboards sometimes leaves the grid too small for the
 space left. A settle verifier now runs 700ms after each keyboard-frame
 burst: if the drawn grid disagrees with the current fit (and we hold
@@ -64,7 +63,7 @@ the claim), it re-asserts, and a layout pass recomputes SwiftTerm's own
 fit. Needs Jian's device verdict; if it persists, instrument the
 keyboard-frame sequence with markers next.
 
-## 7. Claude fullscreen-mode scrolling (NEEDS REPRO DETAIL)
+## 7. [CLOSED 2026-07-29 — Jian: "scrolling seems fixed"] Claude fullscreen-mode scrolling
 "Some sessions still have scrolling issues in claude fullscreen mode."
 Need one detail from the device: in that mode, does the transcript not
 move at all, move the wrong amount, or move the local viewport instead?
@@ -107,7 +106,7 @@ deliberate act. HOP2-NOTES.md carries the record plus the one residual
 daemon question (agent WS input still counts as typist recency for
 recency-based claims only; low stakes now).
 
-## 11. [CONDITIONAL on Jian's item-6 verdict] Keyboard-frame instrument
+## 11. [ACTIONABLE — verdict in: persists on 234] Keyboard-frame instrument
 If the too-small-after-keyboard-switch persists on 224: a marker
 harness logging each keyboardWillChangeFrame (target frame, duration),
 the accessoryInset decision, the resulting fitted dims, and the grid
@@ -144,9 +143,13 @@ invalidates it on leave. Incoming leg routes the same activity type on
 another hop-running device (QuickActions), so iPhone->iPad continues
 natively while Mac picks up in Safari. handoffURL() unit-tested
 (escaping, hostless-server nil); permanent UI test asserts the donated
-URL via DEBUG marker. ON JIAN'S DEVICE CHECKLIST: open a session on
-the phone near the Mac — Safari's Handoff icon should appear in the
-Dock and open the same session.
+URL via DEBUG marker. DEVICE VERDICT 2026-07-29: "almost works!" —
+the Dock icon appeared but ?room= no longer enters a session (the
+daemon serves the hub at /, which ignores the query). FIXED same day:
+the donation is now the canonical path /s/<internalName>/ (what
+buildSessionPath pushes; verified 200 + __HOP_SESSION__ injection);
+incoming leg parses the path with ?room= as legacy fallback. Needs one
+more two-device try.
 
 ## 14. [DONE 2026-07-28] Share a session's screen
 "Share screen…" (ShareLink, subject = session name) beside Copy screen
@@ -180,4 +183,51 @@ typing-settle Timer callback wraps in assumeIsolated (run-loop timers
 fire on main, the closure type just couldn't say so). No behavior
 change; full suites green after.
 
-## 17. (space for Jian's next reports)
+## 17. Wake-flash: why does lock/unlock change the size at all? (TOP)
+Jian 2026-07-29: re-entry now RECOVERS (chip/claims work) but the size
+still shows wrong FIRST — why does idle change it? Mechanism to
+verify: locking suspends the app and drops the WS; while away, any
+other claimant (desk tab, daemon preview terminal) can reflow the PTY;
+on wake we render the snapshot AT THE FOREIGN SIZE first, then the
+deliberate attach claim (400ms later) wins and it heals. The flash IS
+the adopt-before-claim window. Sketch: on foreground reconnect,
+suppress peer-size adoption until our deliberate claim is answered —
+pre-size the terminal to fittedCols/Rows before feeding the snapshot,
+render our shape immediately; instrument first (markers: snapshot
+dims, fitted dims, claim outcome) to confirm the mechanism, then fix.
+
+## 18. Widget build (UNBLOCKED — Xcode signed in 2026-07-29)
+The widget is fully built and parked in commented project.yml with
+unlock instructions. Round: uncomment, build with the signed-in team
+(5AD7QB9795), fix whatever provisioning drift accrued, deploy, and
+verify the timeline renders the fleet (attention count + top wanting
+session). Then Jian adds it to his home screen.
+
+## 19. TestFlight attempt (Jian: "sure if you can")
+Blocked previously at ASC key AUTH (issuer 254072af…). With Xcode now
+signed in, try the Xcode-account path: create the App Store Connect
+app record if the account can, archive, upload. If the key still gates
+uploads, report exactly what credential is missing rather than
+retrying blind.
+
+## 20. Rename-robustness audit (Jian: renames are intentional hop
+mechanism — "we should handle it well")
+Identity = internalName everywhere; display names are labels that
+churn. Audit: seen-bell markers, parked state, lastKnown, previews,
+Spotlight ids, handoff (now internalName path), notification routing,
+and the open-terminal title (does session_renamed update it live, as
+the web does?). Fix what's keyed by display name; add a renamed-fixture
+unit test per store.
+
+## 21. In-app full keyboard (Jian asked: how hard?)
+Answer: moderate — the clean native mechanism is UIResponder.inputView:
+set a custom view and the system keyboard is REPLACED while focused;
+toggling = swapping inputView nil/custom + reloadInputViews. We
+already own the responder (HopTermView), the accessory bar, key
+repeat, haptics, and sequence delivery — a full 50-key terminal board
+is layout work on existing plumbing, ~1-2 rounds. Bonus: a FIXED
+height kills the keyboard-switch resize lottery (item 6) for anyone
+using it. Risks: emoji/dictation/paste flows need an escape hatch back
+to the system keyboard; landscape height.
+
+## 22. (space for Jian's next reports)

@@ -98,11 +98,19 @@ final class HopSceneDelegate: NSObject, UIWindowSceneDelegate {
         // Spotlight and hop:// paths use.
         if activity.activityType == "io.zhoulab.hop.session.handoff" {
             mark("handoff continue \(activity.webpageURL?.absoluteString ?? "nil")")
-            guard let url = activity.webpageURL,
-                  let room = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                      .queryItems?.first(where: { $0.name == "room" })?.value,
-                  !room.isEmpty else { return }
-            Task { @MainActor in AppModel.shared.requestedSession = room }
+            // /s/<name>/ — the web's canonical path; ?room= kept as a legacy
+            // fallback for activities donated by older builds.
+            guard let url = activity.webpageURL else { return }
+            let parts = url.pathComponents
+            if parts.count >= 3, parts[1] == "s", !parts[2].isEmpty {
+                let room = parts[2]
+                Task { @MainActor in AppModel.shared.requestedSession = room }
+                return
+            }
+            if let room = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                   .queryItems?.first(where: { $0.name == "room" })?.value, !room.isEmpty {
+                Task { @MainActor in AppModel.shared.requestedSession = room }
+            }
             return
         }
         guard activity.activityType == CSSearchableItemActionType,

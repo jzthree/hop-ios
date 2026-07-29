@@ -184,8 +184,8 @@ final class ScrollUITests: XCTestCase {
             usleep(500_000)
             donated = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         }
-        XCTAssertTrue(donated.contains("room=\(internalName)"),
-                      "donated URL missing the session deep link: \(donated)")
+        XCTAssertTrue(donated.contains("/s/\(internalName)/"),
+                      "donated URL missing the session path: \(donated)")
         XCTAssertTrue(donated.hasPrefix("https://"),
                       "handoff URL must be a web URL Safari can open: \(donated)")
     }

@@ -181,14 +181,19 @@ func fleetStatusLine(wanting: Int, total: Int) -> String {
     return base + ", \(wanting) want\(wanting == 1 ? "s" : "") you."
 }
 
-/// The Handoff payload for an open session: hop web's own deep link
-/// (`?room=` is the param App.tsx reads), so a Mac with no hop app still
-/// picks the session up in Safari at the desk. URLComponents does the
-/// escaping — session names are user text.
+/// The Handoff payload for an open session: hop web's canonical session
+/// PATH (`/s/<internalName>/` — what buildSessionPath pushes and the daemon
+/// routes with the session injection). The `?room=` query form was the
+/// first attempt and FAILED on device: the daemon serves the hub at `/`,
+/// which never reads the param — Jian: "almost works! except ?room= is not
+/// entering the session anymore". Percent-encoding by hand — names are
+/// user text.
 func handoffURL(server: String, internalName: String) -> URL? {
     guard !internalName.isEmpty, var comps = URLComponents(string: server),
           comps.host != nil else { return nil }
-    comps.queryItems = [URLQueryItem(name: "room", value: internalName)]
+    let encoded = internalName.addingPercentEncoding(
+        withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? internalName
+    comps.percentEncodedPath = "/s/\(encoded)/"
     return comps.url
 }
 

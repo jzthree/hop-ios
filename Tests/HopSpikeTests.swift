@@ -749,13 +749,20 @@ final class HopSpikeTests: XCTestCase {
     }
 
     func testHandoffURLIsTheWebDeepLink() {
+        // The PATH form, not ?room=: the daemon serves the hub at / and
+        // ignores the query — device-tested by Jian, the query form opened
+        // the hub and went nowhere.
         XCTAssertEqual(handoffURL(server: "https://hop.zhoulab.io",
                                   internalName: "Meridian")?.absoluteString,
-                       "https://hop.zhoulab.io?room=Meridian")
-        // Session names are user text — the escaping is the point.
+                       "https://hop.zhoulab.io/s/Meridian/")
+        // Session names are user text — the escaping is the point (and a /
+        // in a name must NOT become a path separator).
         XCTAssertEqual(handoffURL(server: "https://hop.zhoulab.io",
                                   internalName: "my session")?.absoluteString,
-                       "https://hop.zhoulab.io?room=my%20session")
+                       "https://hop.zhoulab.io/s/my%20session/")
+        XCTAssertEqual(handoffURL(server: "https://hop.zhoulab.io",
+                                  internalName: "a/b")?.absoluteString,
+                       "https://hop.zhoulab.io/s/a%2Fb/")
         // A schemeless or hostless server must produce nothing rather than a
         // relative URL Safari can't open (the cookie-seed wipeout's cousin).
         XCTAssertNil(handoffURL(server: "not a url", internalName: "x"))
