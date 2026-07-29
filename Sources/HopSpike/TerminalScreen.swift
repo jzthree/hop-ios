@@ -745,6 +745,11 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
+        /// Local echo (the web's optimisticEcho, ported). Eligible only as
+        /// the sole controller outside collab — multiple typists make echo
+        /// reconciliation ambiguous, so the web never echoes there either.
+        private var echo = OptimisticEcho()
+        private var echoEligible = false
 
         /// A single TOUCH claims the size, not just typing. The web client
         /// reclaims on fit-on-type; a phone's first act on returning to a
@@ -787,6 +792,12 @@ struct TerminalScreen: UIViewRepresentable {
                 // type". The throttle and the flag both live in the shared
                 // intent path.
                 reclaimOnUserIntent()
+                // Echo BEFORE the wire: the whole point is not waiting for
+                // it. The original text goes to the daemon either way; only
+                // printables render early, and reconcile eats the server's
+                // copy when it returns.
+                let echoed = echo.onInput(text, enabled: echoEligible)
+                if !echoed.isEmpty { view?.feed(text: echoed) }
                 client.sendInput(text)
                 markTyping()
                 return
@@ -900,6 +911,7 @@ struct TerminalScreen: UIViewRepresentable {
                 switch event {
                 case .connected:
                     self.retryAttempt = 0      // healthy again: reset backoff
+                    self.echo.reset()
                     self.setStatus(.live)
                     self.claimSizeOnAttach()
                     self.replayPending()
@@ -927,7 +939,7 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                 case .output(let data):
                     tv.noteRemoteModes(in: data)
-                    tv.feed(text: data)
+                    tv.feed(text: self.echo.reconcileOutput(data))
                     // After the feed's display pass: SwiftTerm re-pins the
                     // offset on output, which would undo a pan while the desk
                     // is typing — and yank a scrolled-up reader back to the
@@ -944,6 +956,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
+                    self.echo.reset()          // the replay is the truth
                     self.wakeMark("snapshot fitted=\(self.fittedCols)x\(self.fittedRows)")
                     // A snapshot is the whole session replayed, so it has to
                     // land on a clean terminal. Feeding it into the existing
@@ -996,6 +1009,10 @@ struct TerminalScreen: UIViewRepresentable {
                 case .collab(let everyone, let controllerId):
                     let mine = controllerId != nil && controllerId == self.client.clientId
                     self.controlLocked = !everyone && !mine && controllerId != nil
+                    // Same condition the web computes for optimisticActive.
+                    let eligible = !everyone && mine
+                    if self.echoEligible, !eligible { self.echo.reset() }
+                    self.echoEligible = eligible
                     self.onCollab(everyone, mine, self.controlLocked)
                 case .rejected(let reason):
                     self.onToast(reason)
@@ -1096,6 +1113,7 @@ struct TerminalScreen: UIViewRepresentable {
                     if !permanent { self.scheduleRetry() }
                 case .closed:
                     if self.sessionEnded { return }
+                    self.echo.reset()
                     self.setStatus(.closed)
                     tv.feed(text: "\r\n\u{1b}[2m[disconnected]\u{1b}[0m\r\n")
                     self.scheduleRetry()

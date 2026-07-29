@@ -333,6 +333,73 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(there, "cached wall did not paint without the network")
     }
 
+    /// Optimistic echo, wire integrity: with local echo live, what reaches
+    /// the DAEMON must still be single characters (an echo accidentally
+    /// wired into the send path would double every key: "eecchhoo"). The
+    /// render side is covered by the ported unit suite; this guards the
+    /// integration. Scratch session created and killed runner-side.
+    func testTypingWithLocalEchoStaysSingleOnTheWire() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty, "no daemon cookie in this environment")
+        let scratch = "EchoProbe"
+        XCTAssertTrue(daemonPOST("api/sessions",
+                                 ["name": scratch, "type": "terminal"], cookie: cookie),
+                      "scratch create refused")
+        defer { _ = daemonPOST("api/sessions/delete",
+                               ["internalName": scratch], cookie: cookie) }
+
+        let app = launchIntoSession(scratch)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8), "keyboard never rose")
+        sleep(1)
+        app.typeText("echo zq\n")
+
+        var screen = ""
+        for _ in 0..<16 where !screen.contains("zq") {
+            usleep(500_000)
+            screen = daemonPreview(of: scratch, cookie: cookie) ?? ""
+        }
+        XCTAssertTrue(screen.contains("echo zq"), "typed line never reached the daemon: \(screen.suffix(200))")
+        XCTAssertFalse(screen.contains("eecc"), "doubled input on the wire — echo leaked into send")
+    }
+
+    private func daemonPOST(_ path: String, _ body: [String: Any], cookie: String) -> Bool {
+        guard let url = URL(string: "https://hop.zhoulab.io/\(path)") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("tunnel_session=\(cookie)", forHTTPHeaderField: "Cookie")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        var ok = false
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 10)
+        return ok
+    }
+
+    private func daemonPreview(of name: String, cookie: String) -> String? {
+        guard var comps = URLComponents(string: "https://hop.zhoulab.io/api/sessions/preview") else { return nil }
+        comps.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = comps.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("tunnel_session=\(cookie)", forHTTPHeaderField: "Cookie")
+        var text: String?
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            if let data,
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                text = obj["text"] as? String
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 10)
+        return text
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

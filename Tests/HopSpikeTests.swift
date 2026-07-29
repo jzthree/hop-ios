@@ -802,6 +802,67 @@ final class HopSpikeTests: XCTestCase {
         return obj["text"] as? String
     }
 
+    // Transliterated from hay/apps/web/test/optimisticEcho.test.ts — the
+    // model is a PORT, so its proof travels with it.
+    func testOptimisticEchoConsumesItsOwnEcho() {
+        var echo = OptimisticEcho()
+        XCTAssertEqual(echo.onInput("hello", enabled: true), "hello")
+        XCTAssertEqual(echo.reconcileOutput("hello"), "")
+        XCTAssertEqual(echo.pendingText, "")
+    }
+
+    func testOptimisticEchoHandlesPartialChunks() {
+        var echo = OptimisticEcho()
+        _ = echo.onInput("abc", enabled: true)
+        XCTAssertEqual(echo.reconcileOutput("ab"), "")
+        XCTAssertEqual(echo.reconcileOutput("cX"), "X")
+    }
+
+    func testOptimisticEchoFiltersNonPrintableInput() {
+        var echo = OptimisticEcho()
+        XCTAssertEqual(echo.onInput("\u{1b}[A", enabled: true), "")
+        XCTAssertEqual(echo.pendingText, "")
+        XCTAssertEqual(echo.onInput("x", enabled: false), "", "disabled echoes nothing")
+    }
+
+    func testOptimisticEchoExpiresPending() {
+        var time: TimeInterval = 0
+        var echo = OptimisticEcho(maxPendingMs: 10, now: { time })
+        _ = echo.onInput("abc", enabled: true)
+        time = 20
+        XCTAssertEqual(echo.reconcileOutput("XYZ"), "XYZ")
+        XCTAssertEqual(echo.pendingText, "")
+    }
+
+    func testOptimisticEchoPassesRedrawsUntouchedAndDropsPending() {
+        var echo = OptimisticEcho(now: { 1000 })
+        _ = echo.onInput("e", enabled: true)
+        // Claude-Code-style composer repaint: erase + cursor moves + text.
+        let redraw = "\u{1b}[2K\u{1b}[1A\u{1b}[G> some earlier text e more\u{1b}[B"
+        XCTAssertEqual(echo.reconcileOutput(redraw), redraw)
+        XCTAssertEqual(echo.pendingText, "")
+    }
+
+    func testOptimisticEchoReconcilesCoalescedEchoesWithSGR() {
+        var echo = OptimisticEcho(now: { 1000 })
+        _ = echo.onInput("a", enabled: true)
+        _ = echo.onInput("l", enabled: true)
+        // The "alal"->"llllllalal" bug's fix: SGR is styling, not redraw.
+        XCTAssertEqual(echo.reconcileOutput("\u{1b}[1mal\u{1b}[0m"), "\u{1b}[1m\u{1b}[0m")
+        XCTAssertEqual(echo.pendingText, "")
+    }
+
+    func testOptimisticEchoStopsAtForeignPrintable() {
+        var echo = OptimisticEcho(now: { 1000 })
+        _ = echo.onInput("ab", enabled: true)
+        // 'X' isn't the expected 'a': nothing consumed, output intact; the
+        // second mismatch clears pending (two-strike rule).
+        XCTAssertEqual(echo.reconcileOutput("XY"), "XY")
+        XCTAssertEqual(echo.pendingText, "ab")
+        XCTAssertEqual(echo.reconcileOutput("QR"), "QR")
+        XCTAssertEqual(echo.pendingText, "")
+    }
+
     func testFleetCacheRoundTripsThroughTheLiveParsers() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("fleet-cache-test.json")

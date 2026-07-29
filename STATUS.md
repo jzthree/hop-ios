@@ -258,6 +258,34 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Keystrokes stop waiting for the tunnel (iteration 202)
+
+PLAN 25: optimistic local echo, ported from the web rather than
+reinvented — hay's optimisticEcho.ts earned its shape through
+deterministically-reproduced failures, so the Swift struct mirrors it
+exactly and all seven of its test cases came across too (green first
+run, including the Claude-composer repaint guard and the coalesced
+"alal" regression). Typed printables now render the instant the key
+lands; the daemon's echo is consumed on arrival; control sequences
+are never predicted.
+
+Gating matches the web to the letter: echo only as the sole
+controller outside collab (ambiguous with two typists), tracked from
+collab events; reset on connect, on snapshot (the replay is the
+truth), on close, and on losing eligibility. In the pipeline: deliver
+feeds the echo before the send, and every output chunk passes through
+reconcile before feeding — with the RAW chunk still going to remote-
+mode detection, which must see what the app actually sent.
+
+The integration probe covers the failure the unit suite can't: with
+echo live, a scratch session typed through the real keyboard showed
+SINGLE characters daemon-side ("echo zq", never "eecc") — an echo
+accidentally wired into the send path would double every key on the
+wire. Scratch killed after; 88 unit + 23 UI green, strict zero.
+
+What's left of this item is the half only Jian can judge: typing feel
+on cellular, where the 100-300ms echo wait used to live.
+
 ## A planning round: the latency half of keyboard feel (iteration 201)
 
 Queue empty of unblocked work again, so this round hunted gaps in
