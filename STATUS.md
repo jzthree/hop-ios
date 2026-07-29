@@ -258,6 +258,31 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A thin planning round, honestly labeled (iteration 204)
+
+Queue drained again, so this round hunted. Ruled out by reading: the
+reconnect snapshot cost (already bounded — the client requests a 200KB
+replay tail against hop's 1.5MB default, tuned and commented in
+HayClient); offline input replay (PendingInput: age-capped, ordered,
+already matches the web's model); web file-drop parity (a native
+share/document flow is plausible but has no user signal yet — not
+queued).
+
+Two real items found, both small: the hop keyboard is 232pt in EVERY
+orientation, which in landscape leaves a few terminal rows under a
+278pt stack — worse than the system keyboard it replaced (PLAN 27);
+and fleet-cache.json carries terminal content with no explicit file
+protection class, readable-while-locked after first unlock (PLAN 28
+— completeUnlessOpen fixes it without breaking background refresh
+writes).
+
+Honest note for Jian: the loop's well of self-serviceable work is
+running thin — everything substantial now waits on device verdicts
+(echo feel, hop keyboard, instant launch, wake-flash, Handoff) or the
+Xcode sign-in (widget, TestFlight, Live Activity). After 27 and 28
+ship, consider either a verdict batch or stretching the cron interval;
+rounds that hunt for work to justify themselves are how quality dips.
+
 ## The stall that wasn't (iteration 203)
 
 PLAN 26 resolved the way it was designed to — by measurement, not by

@@ -302,4 +302,32 @@ ZERO feeds over 32KB. The daemon already chunks output small and
 SwiftTerm keeps up; coalescing would be machinery without a measured
 problem. The instrument is permanent: any future regression shows up
 in the same Copy-diagnostics trace as the keyboard events.
-## 27. (space for Jian's next reports)
+## 27. The hop keyboard in landscape (small)
+Problem: the board is a fixed 232pt in EVERY orientation; with the
+46pt accessory bar that's 278pt of a landscape phone's ~390pt height —
+a few terminal rows left, worse than the system keyboard it replaced
+(which shrinks in landscape).
+Evidence: HopBoardView.boardHeight is one constant; the app already
+special-cases landscapePhone (chrome hides, status bar hides).
+Sketch: height 232 portrait / ~150 landscape (rows 30pt, tighter
+spacing); recompute on trait change and invalidateIntrinsicContentSize
++ reloadInputViews; keep the fixed-height-per-orientation property
+(the anti-lottery guarantee holds per orientation); probe-shot both
+orientations; the settle machinery already handles the height change
+as a keyboard-frame event.
+
+## 28. Fleet-cache file protection (tiny)
+Problem: fleet-cache.json holds terminal CONTENT and is written with
+only .atomic — the default protection class leaves it readable any
+time after first unlock, including while the phone is locked.
+Evidence: FleetCache.save uses data.write(options: .atomic); the app
+already treats this data as sensitive (signOut deletes it; Face ID
+gate exists for the UI).
+Sketch: write with [.atomic, .completeFileProtectionUnlessOpen] —
+new writes still succeed if a background refresh fires while locked
+(asymmetric path), reads need the device unlocked, which is when the
+app reads it. Unit-testable only as "file still round-trips"; the
+protection class itself is device-verified by attribute inspection in
+the probe.
+
+## 29. (space for Jian's next reports)
