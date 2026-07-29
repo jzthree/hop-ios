@@ -258,6 +258,28 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The widget hits the same wall, and the rename audit runs clean (iteration 196)
+
+PLAN 18 attempted: unparked the widget, and the device build failed
+"No Accounts" — for both targets. The diagnosis is exact this time:
+Xcode's account list is EMPTY (DVTDeveloperAccountManagerAppleIDLists
+→ IDE.Identifiers.Prod = ()); the team entry that made "signed in"
+look true is a stale remnant. Re-parked with that evidence inline;
+builds green again. Jian's move: a sign-in that sticks (Xcode →
+Settings → Accounts, then confirm the account LISTS). TestFlight (19)
+sits behind the same gate.
+
+PLAN 20, the rename audit, filled the round instead — and came up
+CLEAN. Everything already keys internalName: seen bells, notified
+bells, lastKnown, previews, Spotlight, handoff, deep links, widget
+rows; open-by-name resolves either identifier; the open terminal's
+title follows session_renamed live. The discipline was built
+piecemeal across months of incidents (the session-identity-layers
+lesson), so the audit's value is the regression test that now pins
+it: a bell rings through a display rename, an unchanged bellSeq stays
+quiet through one, and a marker keyed by display name is a dead key.
+78 unit + 20 UI green.
+
 ## The keyboard gets a flight recorder (iteration 195)
 
 PLAN 11, activated by Jian's "still problematic as before": instead of

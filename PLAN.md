@@ -201,28 +201,34 @@ foreign render; a lost race adopts late). RESIDUAL: the fast paint
 still renders ~RTT at the PTY's foreign dims (must, for legibility);
 zero-flash needs attach-carries-size daemon-side — noted in
 HOP2-NOTES. Jian verdict wanted: is the flash gone in practice?
-## 18. Widget build (UNBLOCKED — Xcode signed in 2026-07-29)
-The widget is fully built and parked in commented project.yml with
-unlock instructions. Round: uncomment, build with the signed-in team
-(5AD7QB9795), fix whatever provisioning drift accrued, deploy, and
-verify the timeline renders the fleet (attention count + top wanting
-session). Then Jian adds it to his home screen.
+## 18. [RE-GATED 2026-07-29 — the sign-in didn't stick] Widget build
+Attempted: unparked the target, device build failed "No Accounts" for
+BOTH targets. Diagnosis, not guesswork: `defaults read com.apple.dt.
+Xcode DVTDeveloperAccountManagerAppleIDLists` shows an EMPTY account
+list (IDE.Identifiers.Prod = ()); the 5AD7QB9795 team entry present is
+a stale remnant of an old session. Re-parked; builds green again.
+JIAN: Xcode → Settings → Accounts → "+" → sign in with the Apple ID
+owning team 5AD7QB9795, and check the account actually appears in the
+list afterward. The next loop round re-attempts automatically.
 
-## 19. TestFlight attempt (Jian: "sure if you can")
+## 19. [SAME GATE as 18 — empty Xcode account list] TestFlight attempt (Jian: "sure if you can")
 Blocked previously at ASC key AUTH (issuer 254072af…). With Xcode now
 signed in, try the Xcode-account path: create the App Store Connect
 app record if the account can, archive, upload. If the key still gates
 uploads, report exactly what credential is missing rather than
 retrying blind.
 
-## 20. Rename-robustness audit (Jian: renames are intentional hop
-mechanism — "we should handle it well")
-Identity = internalName everywhere; display names are labels that
-churn. Audit: seen-bell markers, parked state, lastKnown, previews,
-Spotlight ids, handoff (now internalName path), notification routing,
-and the open-terminal title (does session_renamed update it live, as
-the web does?). Fix what's keyed by display name; add a renamed-fixture
-unit test per store.
+## 20. [DONE 2026-07-29 — audit CLEAN] Rename-robustness audit
+Every store already keys internalName: seen bells (seed + prune +
+attention), notified bells (+ threadIdentifier + clear), lastKnown,
+previews/screens, Spotlight, handoff path, hop:// links, widget rows.
+Open-by-name resolves internalName OR display name (notification taps,
+Siri, HOP_DEV_OPEN). The open terminal's title follows session_renamed
+live (renamedTitle override). Search matches display names — correct,
+users type what they see. One regression test now pins the discipline
+(bell rings through a rename; display-name markers are dead keys).
+Also this round: make uitest resolves the fixture from internalName
+(iteration 191's fix — same principle, harness side).
 
 ## 21. In-app full keyboard (Jian asked: how hard?)
 Answer: moderate — the clean native mechanism is UIResponder.inputView:

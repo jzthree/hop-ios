@@ -748,6 +748,27 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testRenamesNeverBreakIdentity() {
+        // Renames are an intentional hop mechanism (Jian, 2026-07-29): the
+        // daemon reassigns DISPLAY names freely (Meridian shows "nebula");
+        // identity is internalName. This pins the discipline the audit
+        // found: markers keyed by internalName survive any display rename.
+        let renamed = session(["internalName": "Meridian", "name": "nebula",
+                               "bellSeq": 7], seen: ["Meridian": 5])
+        XCTAssertTrue(renamed.attention,
+                      "a bell must ring through a display rename")
+        let quiet = session(["internalName": "Meridian", "name": "totally-new",
+                             "bellSeq": 5], seen: ["Meridian": 5])
+        XCTAssertFalse(quiet.attention,
+                       "a rename alone must not re-ring an already-seen bell")
+        // And a marker keyed by the DISPLAY name must not match — display
+        // names are labels other sessions can inherit tomorrow.
+        let wrongKey = session(["internalName": "Meridian", "name": "nebula",
+                                "bellSeq": 7], seen: ["nebula": 5])
+        XCTAssertFalse(wrongKey.attention,
+                       "display-name markers must be dead keys")
+    }
+
     @MainActor
     func testKBLogRingCapsAndTails() {
         for i in 0..<100 { KBLog.record("event \(i)") }

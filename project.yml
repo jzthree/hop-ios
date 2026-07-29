@@ -16,7 +16,7 @@ targets:
       - Sources/Shared
     dependencies:
       - package: SwiftTerm
-      # - target: HopWidget   # PARKED: see the HopWidget block below
+      # - target: HopWidget   # RE-PARKED: empty Xcode account list, see below
     info:
       path: Sources/HopSpike/Info.plist
       properties:
@@ -63,8 +63,12 @@ targets:
         # or the app registers against sandbox APNs and real pushes never
         # arrive. Debug keeps development so a cabled build still works.
         aps-environment: $(APS_ENVIRONMENT)
-        # PARKED with the widget: the App Group entitlement needs a
-        # provisioning identity this machine doesn't have (see below).
+        # RE-PARKED with the widget 2026-07-29 (second attempt): the sign-in
+        # did not stick — defaults read com.apple.dt.Xcode
+        # DVTDeveloperAccountManagerAppleIDLists shows an EMPTY account list
+        # (the 5AD7QB9795 team entry is a stale remnant). Jian: Xcode →
+        # Settings → Accounts → "+" → sign in with the Apple ID owning team
+        # 5AD7QB9795, and confirm the account LISTS afterwards.
         # com.apple.security.application-groups: [group.io.zhoulab.hop.spike]
     settings:
       base:
@@ -78,38 +82,33 @@ targets:
       configs:
         Release:
           APS_ENVIRONMENT: production
-  # PARKED, fully written and sim-verified: the Home Screen widget. Blocked
-  # on provisioning only — xcodebuild has NO signed-in account ("No
-  # Accounts"), and the ASC API key is rejected ("Authentication failed:
-  # bearer token"), so neither path can register the App Group or mint the
-  # widget profile. To unblock, EITHER sign into Xcode (Settings → Accounts,
-  # team 5AD7QB9795) OR give the ASC key an Admin role — then uncomment this
-  # target, the `- target: HopWidget` dependency and both app-group
-  # entitlement lines, and `make install`.
-  # HopWidgetPARKED:
-  #   type: app-extension
-  #   platform: iOS
-  #   sources:
-  #     - Widget
-  #     - Sources/Shared
-  #   info:
-  #     path: Widget/Info.plist
-  #     properties:
-  #       CFBundleDisplayName: hop
-  #       NSExtension:
-  #         NSExtensionPointIdentifier: com.apple.widgetkit-extension
-  #   entitlements:
-  #     path: HopWidget.entitlements
-  #     properties:
-  #       com.apple.security.application-groups: [group.io.zhoulab.hop.spike]
-  #   settings:
-  #     base:
-  #       PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike.widget
-  #       DEVELOPMENT_TEAM: 5AD7QB9795
-  #       CODE_SIGN_STYLE: Automatic
-  #       SWIFT_VERSION: "5.9"
-  #       TARGETED_DEVICE_FAMILY: "1"
-  #       SKIP_INSTALL: YES
+  # RE-PARKED 2026-07-29: build failed "No Accounts" — the account list is
+  # EMPTY (stale team entry only). Uncomment this target, the dependency
+  # above, and both app-group lines after a sign-in that sticks.
+  HopWidgetPARKED:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget
+      - Sources/Shared
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: hop
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: HopWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.zhoulab.hop.spike]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.zhoulab.hop.spike.widget
+        DEVELOPMENT_TEAM: 5AD7QB9795
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
   HopSpikeTests:
     type: bundle.unit-test
     platform: iOS
