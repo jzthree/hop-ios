@@ -207,6 +207,22 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A quiet round, said plainly (iteration 211)
+
+Planning round; every gate checked, none moved. Xcode account list:
+still empty. Phone: still unreachable — the 4-hour background
+installer keeps retrying with the folders+fork build. Daemon drift
+since the folders round: none on the API surface. The overnight web
+commits (6261f4a full-screen-on-purpose, 4aa7423 phone layout for the
+mobile switcher) were read for shared state and carry none — they are
+the web converging on the shape this app was built switcher-first
+with: the wall is the main UI, the terminal is a mode you enter on
+purpose. Direction validated; nothing to port; no items manufactured
+to fill the round.
+
+Standing: the STATUS-head checklist is the whole queue. Five device
+verdicts, one sign-in, two decisions.
+
 ## His folders, on the phone (iteration 210)
 
 PLAN 31, one round after the audit found it: the wall now renders
