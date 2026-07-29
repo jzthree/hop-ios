@@ -207,6 +207,21 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The loop slows itself down (iteration 212)
+
+Third consecutive round with every gate unmoved (account empty, phone
+unreachable — installer still retrying, zero daemon drift in four
+hours), and two cron fires arrived queued back-to-back. Per the note
+surfaced in iterations 204 and 205 — "if the cron keeps firing into
+an empty queue, stretching its interval is the honest move" — and the
+original delegation ("you can set an interval you think is
+reasonable"), the loop re-armed itself: every 2 hours (cron
+5077be90) instead of every 30 minutes. The queue is verdict-bound;
+drift is the only productive input and it arrives in bursts a 2-hour
+check catches promptly. The moment verdicts or the sign-in land, any
+round can act — and Jian can say the word to restore the faster
+cadence anytime.
+
 ## A quiet round, said plainly (iteration 211)
 
 Planning round; every gate checked, none moved. Xcode account list:
