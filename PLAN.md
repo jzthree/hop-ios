@@ -157,7 +157,7 @@ actions are CELLS (actionGroupCell) in the app's own tree, not
 Buttons, so app.buttons["Copy"] matches nothing while the sheet is
 plainly on screen.
 
-## 15. Hardware-keyboard commands (iPad / BT keyboard)
+## 15. [DROPPED 2026-07-29 — Jian: no BT keyboard] Hardware-keyboard commands (iPad / BT keyboard)
 Problem: with a physical keyboard attached the app offers nothing
 beyond raw typing — no next/prev session, no find, no way back to the
 wall without touching glass.
