@@ -236,6 +236,28 @@ Fixed by inseting the terminal by the bar's height while the keyboard is up
 and the last line sits directly above the keys. The fit is logged per layout
 change, so the same check works on a device.
 
+## Clicks, and the keyboard settle (iteration 184)
+
+Two device reports, one build. First: claude's "(click)" pills were
+unreachable by design — #55 removed phantom taps, and with them every
+click a mouse-aware app draws. The refined rule: in sessions that ASK
+for mouse reporting, a tap below the chrome strip sends a real SGR
+press+release at that cell. Terminal-testified: a scratch running
+cat -v with mouse modes on echoed ^[[<0;26;15M/m exactly where the
+probe tapped. Plain shells never see clicks; coast-brake and chrome
+strip keep their taps.
+
+Second: keyboard switches sometimes left the grid too small for the
+space remaining. A settle verifier now runs 700ms after each
+keyboard-frame burst — if the drawn grid disagrees with the current
+fit while we hold the claim, it re-asserts, and a layout pass
+recomputes SwiftTerm's own fit. First pass; Jian's device is the
+judge, and markers are the next step if it persists.
+
+Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
+detail. And the loop's contract changed at Jian's word: an empty plan
+now means the round PLANS — the cron re-armed accordingly.
+
 ## Two views, one button (iteration 183)
 
 Jian, by voice, asked the hop-ios agent to fix the navigation — and the

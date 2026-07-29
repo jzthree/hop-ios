@@ -720,6 +720,13 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertFalse(BioLock.shouldLock(enabled: false, phase: .background))
     }
 
+    func testClickSequenceIsPressAndRelease() {
+        XCTAssertEqual(clickSequence(col: 12, row: 40),
+                       "\u{1b}[<0;12;40M\u{1b}[<0;12;40m")
+        XCTAssertEqual(clickSequence(col: 0, row: -3),
+                       "\u{1b}[<0;1;1M\u{1b}[<0;1;1m", "clamped to the grid")
+    }
+
     func testCtrlComboMasksLikeTheArmedPath() {
         XCTAssertEqual(AccessoryKey.ctrlCombo("a").sequence, "\u{01}")
         XCTAssertEqual(AccessoryKey.ctrlCombo("r").sequence, "\u{12}")

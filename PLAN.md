@@ -49,4 +49,26 @@ is a plain label). The pill swipe stays — direct manipulation, not
 chrome. Native scroll bounce killed (the phantom scrolled-to-the-end
 animation on drags that rightly don't move the terminal).
 
-## 5. (space for Jian's next reports)
+## 5. [DONE 2026-07-28] Tap-to-click for mouse-on sessions
+Claude's "(click)" pills are reachable: a tap below the chrome strip in
+a session that ASKED for mouse reporting sends a real SGR press+release
+at that cell (terminal-testified: cat -v echoed ^[[<0;26;15M/m). Plain
+shells never see clicks; the coast-brake and chrome strip keep their
+taps.
+
+## 6. [FIRST PASS 2026-07-28] Keyboard-switch size nondeterminism
+Jian: switching keyboards sometimes leaves the grid too small for the
+space left. A settle verifier now runs 700ms after each keyboard-frame
+burst: if the drawn grid disagrees with the current fit (and we hold
+the claim), it re-asserts, and a layout pass recomputes SwiftTerm's own
+fit. Needs Jian's device verdict; if it persists, instrument the
+keyboard-frame sequence with markers next.
+
+## 7. Claude fullscreen-mode scrolling (NEEDS REPRO DETAIL)
+"Some sessions still have scrolling issues in claude fullscreen mode."
+Need one detail from the device: in that mode, does the transcript not
+move at all, move the wrong amount, or move the local viewport instead?
+And is it a session where the chip shows a foreign size? The sink
+logging added in the double-scroll round should name the path taken.
+
+## 8. (space for Jian's next reports)

@@ -108,6 +108,15 @@ func wheelSequence(rows: Int, cols: Int, screenRows: Int, cap: Int = 40) -> Stri
                   count: min(abs(rows), cap))
 }
 
+/// One SGR mouse CLICK — press and release at a cell. The phone finally
+/// answers the clickable things a mouse-aware app draws ("jump to bottom
+/// (click)" in claude, unreachable from a phone until now). Sent only when
+/// the app asked for mouse reporting, so plain shells never see it.
+func clickSequence(col: Int, row: Int) -> String {
+    let c = max(1, col), r = max(1, row)
+    return "\u{1b}[<0;\(c);\(r)M\u{1b}[<0;\(c);\(r)m"
+}
+
 /// The height of one DRAWN row.
 ///
 /// Not `viewHeight / terminal.rows`: the local terminal is resized to whatever

@@ -167,6 +167,10 @@ struct TerminalHostView: View {
                 else { return }
                 let up = end.origin.y < screen
                 accessoryInset = up ? HopTermView.accessoryHeight : 0
+                // Every keyboard-frame event schedules the settle check; the
+                // check debounces itself, so only the burst's last survivor
+                // runs.
+                controlAction = .keyboardSettled
             }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
@@ -553,7 +557,7 @@ struct FindRequest: Equatable {
     let direction: Int
 }
 
-enum ControlAction { case take, release, lock, unlock, links, claimSize }
+enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -1092,6 +1096,8 @@ struct TerminalScreen: UIViewRepresentable {
             case .lock: client.setCollab(false)
             case .unlock: client.setCollab(true)
             case .links: onLinks(visibleLinks())
+            case .keyboardSettled:
+                scheduleKeyboardSettleCheck()
             case .claimSize:
                 // The chip's tap: ask for our fitted size. The election may
                 // refuse (someone typed recently) — the refusal rebroadcast
@@ -1438,6 +1444,34 @@ struct TerminalScreen: UIViewRepresentable {
         /// Returning to an open session IS the same intent attaching is.
         private var reclaimTimer: Timer?
 
+        /// Keyboard switches (system ↔ emoji ↔ third-party) fire a burst of
+        /// frame changes, and the LAST one sometimes leaves the grid sized
+        /// for a keyboard that's gone — Jian, on device: "sometimes the
+        /// terminal size becomes too small compared to the space left".
+        /// After the burst settles, verify the grid against what the view
+        /// currently fits, and re-assert when they disagree. A no-op when
+        /// everything is consistent.
+        private var settleTask: Task<Void, Never>?
+
+        func scheduleKeyboardSettleCheck() {
+            settleTask?.cancel()
+            settleTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(700))
+                guard let self, !Task.isCancelled, self.claimed,
+                      !self.peerHoldsSize, !self.observeOnly,
+                      self.fittedCols > 1, self.fittedRows > 1,
+                      let t = self.view?.getTerminal() else { return }
+                if t.cols != self.fittedCols || t.rows != self.fittedRows {
+                    Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
+                        .info("keyboard settle: grid \(t.cols)x\(t.rows) vs fit \(self.fittedCols)x\(self.fittedRows) — re-asserting")
+                    self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
+                }
+                // And if SwiftTerm's own fit is stale (bounds moved without a
+                // sizeChanged), a layout pass recomputes it.
+                self.view?.setNeedsLayout()
+            }
+        }
+
         private func startReclaimRetry() {
             reclaimTimer?.invalidate()
             reclaimTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -1667,6 +1701,7 @@ final class HopTermView: TerminalView {
     /// keyboard".
     var onChromeTap: (() -> Void)?
     private weak var chromeTap: UITapGestureRecognizer?
+    private weak var clickTap: UITapGestureRecognizer?
     /// Big enough for a thumb, small enough not to steal taps meant for the
     /// first line of output. The grid extends under the status bar now, so
     /// the strip must too — a fixed 46 left the tappable band almost
@@ -1675,6 +1710,21 @@ final class HopTermView: TerminalView {
     static var chromeStrip: CGFloat { windowTopInset() + 46 }
 
     @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
+
+    @objc private func handleClickTap(_ g: UITapGestureRecognizer) {
+        let t = getTerminal()
+        // Visible-relative, like the chrome strip: location(in:) carries the
+        // scrollback offset on this scroll view.
+        let loc = g.location(in: self)
+        let x = loc.x - bounds.origin.x
+        let y = loc.y - bounds.origin.y
+        let cellH = drawnCellHeight(viewHeight: bounds.height,
+                                    drawnRows: drawnRows, terminalRows: t.rows)
+        let cellW = bounds.width / CGFloat(max(1, drawnCols))
+        let row = min(t.rows, Int(y / max(1, cellH)) + 1)
+        let col = min(t.cols, Int(x / max(1, cellW)) + 1)
+        keyHandler?.scrollInput(clickSequence(col: col, row: row))
+    }
 
     /// The way OUT, now that the terminal never shows a navigation bar.
     /// SwiftUI keeps its interactive pop DISABLED for a bar-less screen — no
@@ -1730,6 +1780,17 @@ final class HopTermView: TerminalView {
         tap.delegate = self
         addGestureRecognizer(tap)
         chromeTap = tap
+        // Taps become CLICKS for apps that asked for the mouse. #55 removed
+        // phantom taps because accidental activation was the pain; the pill
+        // case is the opposite — claude DRAWS click targets, and a phone
+        // that can never click can never reach them (Jian: "the jump to
+        // bottom button is not clickable"). Gated in shouldBegin: mouse-on
+        // sessions only, below the chrome strip, never while braking a
+        // coast.
+        let click = UITapGestureRecognizer(target: self, action: #selector(handleClickTap))
+        click.delegate = self
+        addGestureRecognizer(click)
+        clickTap = click
         let back = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe))
         back.edges = .left
         addGestureRecognizer(back)
@@ -1981,6 +2042,7 @@ final class HopTermView: TerminalView {
     /// The live value, for diagnostics: the snapshot's flag goes stale the
     /// moment the app switches screens.
     var remoteAltScreen: Bool { remote.altScreen }
+    var remoteTakesMouse: Bool { remote.takesWheel }
     private var sink: ScrollSink {
         scrollSink(altScreen: remote.altScreen, takesWheel: remote.takesWheel)
     }
@@ -2377,6 +2439,9 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // The strip means "the top of what you can SEE": bounds.origin.
             let inStrip = tap.location(in: self).y - bounds.origin.y < Self.chromeStrip
             if tap === chromeTap { return inStrip }
+            if tap === clickTap {
+                return !inStrip && remoteTakesMouse && momentumLink == nil
+            }
             if inStrip { return false }   // reaching for controls ≠ asking to type
         }
         // Everything else — tap, double tap, long press — is swallowed while
