@@ -748,6 +748,19 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testCopyableScreenStripsThePadding() {
+        // Grid padding: every line padded to cols, quiet tail is blank rows.
+        XCTAssertEqual(copyableScreen("$ ls   \n a.txt  \n       \n       "),
+                       "$ ls\n a.txt")
+        // Leading whitespace is CONTENT (indentation); only trailing goes.
+        XCTAssertEqual(copyableScreen("  indented   "), "  indented")
+        // Interior blank lines survive — only the tail is padding.
+        XCTAssertEqual(copyableScreen("a\n\nb\n\n"), "a\n\nb")
+        // Nothing worth copying hides the menu item.
+        XCTAssertNil(copyableScreen(nil))
+        XCTAssertNil(copyableScreen("   \n   "))
+    }
+
     func testFleetSummaryFullAndCompactAgreeOnTheFacts() {
         // Quiet fleet, everything visible.
         XCTAssertEqual(fleetSummaryLine(shown: 21, total: 21, wanting: 0,

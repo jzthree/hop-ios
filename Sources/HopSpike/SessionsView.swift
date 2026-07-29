@@ -79,6 +79,20 @@ struct SessionsView: View {
 
     private var parkedCount: Int { model.sessions.filter { !$0.isPort && $0.parked }.count }
 
+    /// "Copy screen" from the wall. The marker file exists because the UI
+    /// test CANNOT read the pasteboard back: since iOS 16, pasteboard reads
+    /// from a backgrounded process (the test runner) are silently denied, so
+    /// the probe verifies the action's content through this side channel and
+    /// the pasteboard write stays one uninstrumented line.
+    private func copyScreen(_ text: String) {
+        UIPasteboard.general.string = text
+        #if DEBUG
+        if let marker = ProcessInfo.processInfo.environment["HOP_COPY_MARKER"] {
+            try? text.write(toFile: marker, atomically: true, encoding: .utf8)
+        }
+        #endif
+    }
+
     /// (shown, total, wanting, hiddenWanting, parked) — one gathering point
     /// for both renderings of the toolbar summary.
     private var fleetCounts: (Int, Int, Int, Int, Int) {
@@ -130,6 +144,14 @@ struct SessionsView: View {
             } label: {
                 Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
                       systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+            }
+            // The peek lets you READ a screen without opening the session;
+            // this is the matching WRITE half — share it without entering
+            // the terminal. Menu dismissal is the ack.
+            if let grab = copyableScreen(model.screens[session.internalName]?.text) {
+                Button { copyScreen(grab) } label: {
+                    Label("Copy screen", systemImage: "doc.on.doc")
+                }
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
@@ -294,6 +316,11 @@ struct SessionsView: View {
                                 }
                                 Button { replyTarget = session; replyText = "" } label: {
                                     Label("Reply", systemImage: "arrowshape.turn.up.left")
+                                }
+                                if let grab = copyableScreen(model.screens[session.internalName]?.text) {
+                                    Button { copyScreen(grab) } label: {
+                                        Label("Copy screen", systemImage: "doc.on.doc")
+                                    }
                                 }
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                                 Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }

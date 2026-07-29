@@ -86,13 +86,14 @@ numbers when it doesn't ("21 · quiet · 1 parked", "18/21 · 2 want you
 (+1)"). VoiceOver always gets the full sentence via accessibilityLabel.
 Probe-shot: docs/screens/toolbar-compact.png — complete, no ellipsis.
 
-## 9. Copy a session's screen from the wall
-Problem: the peek lets you READ a screen without opening the session,
-but sharing it still requires entering the terminal and Copy screen.
-Evidence: /preview text is already in the screens store. Sketch: "Copy
-screen" in the tile/row context menu writing screens[name].text to the
-pasteboard; toast-free (menu dismissal is the ack); one probe asserting
-pasteboard content in the sim.
+## 9. [DONE 2026-07-28] Copy a session's screen from the wall
+"Copy screen" in both tile and row context menus (shown only when the
+screens store has the session); pasteboard gets the grid with trailing
+padding stripped (copyableScreen, unit-tested). Permanent UI test
+verifies the action's content via a DEBUG marker file — the runner
+CANNOT read the pasteboard back (iOS 16 background-paste privacy
+silently denies it; two red runs proved this), recorded in tools
+traps.
 
 ## 10. [HOP2 PROPOSAL — notes only] Agent input vs the size election
 Problem (root of the re-entry lottery): agents type through the API,

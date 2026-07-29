@@ -43,6 +43,7 @@ sends REAL input — use scratch sessions.
 | `simctl spawn log` shows nothing for os.Logger lines that provably ran | logd predicates in the sim lie | instrument with a marker FILE in the app container and read it via get_app_container |
 | echoing `$?` is not GATING on it | iteration 172 echoed "ui exit: 2" and the chain committed + deployed anyway | `EXIT=$?; [ $EXIT -ne 0 ] && stop` — the ship chain must die on red, not narrate it |
 | a diagnostic marker sliced prefix(12) while the code fetched prefix(16) | the instrument reported zero coverage for names the code was actually fetching | a marker must log the SAME expression the code executes, never a copy of it |
+| the XCUITest runner reads UIPasteboard as empty no matter what the app wrote | iOS 16 background-paste privacy silently denies reads from a process that is never foreground — the runner | verify copy actions via a DEBUG marker file (HOP_COPY_MARKER pattern), never by reading the pasteboard from the runner |
 
 
 ## The history-anchor probe (rerun recipe)

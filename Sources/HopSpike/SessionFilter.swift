@@ -181,6 +181,20 @@ func fleetStatusLine(wanting: Int, total: Int) -> String {
     return base + ", \(wanting) want\(wanting == 1 ? "s" : "") you."
 }
 
+/// What "Copy screen" puts on the pasteboard: the screen as text someone
+/// would paste into a message. The grid pads every line to the session's
+/// cols and the tail of a quiet screen is blank rows — strip both, or the
+/// paste arrives as a wall of trailing spaces. Nil when nothing remains,
+/// which is also what hides the menu item.
+func copyableScreen(_ text: String?) -> String? {
+    guard let text else { return nil }
+    var lines = text.components(separatedBy: "\n").map {
+        $0.replacingOccurrences(of: " +$", with: "", options: .regularExpression)
+    }
+    while lines.last?.isEmpty == true { lines.removeLast() }
+    return lines.isEmpty ? nil : lines.joined(separator: "\n")
+}
+
 /// The toolbar title, at full width: "18 of 21 · 2 want you (1 not shown
 /// here) · 1 parked". Pure so both renderings share one source of counts.
 func fleetSummaryLine(shown: Int, total: Int, wanting: Int,

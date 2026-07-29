@@ -258,6 +258,23 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Copy screen reaches the wall (iteration 186)
+
+PLAN 9: "Copy screen" now lives in both context menus on the wall,
+tile and row — the peek's WRITE half: share what a session shows
+without entering it. The item appears only when the screens store has
+the session, and what lands on the pasteboard is the grid stripped of
+its padding (trailing spaces per line, blank tail rows — copyableScreen,
+unit-tested), so a paste reads like a screen, not a wall of spaces.
+
+The probe fought two real environment facts worth keeping: the wall
+sorts by recency, so a quiet fixture sinks below the fold where a lazy
+list has NO element to find (the probe scroll-seeks now); and the test
+runner CANNOT verify the pasteboard — iOS 16's background-paste
+privacy silently denies reads from a never-foreground process. Two red
+runs proved it; the permanent test reads the action's content through
+a DEBUG marker file instead, and the trap is recorded in tools/README.
+
 ## The summary that fits (iteration 185)
 
 PLAN 8, the loop's top actionable item: the toolbar title ellipsized

@@ -112,6 +112,55 @@ final class ScrollUITests: XCTestCase {
                       "the key bar must survive: it's the only way to send esc")
     }
 
+    /// The wall's "Copy screen": share what a session shows without entering
+    /// it. The menu item existing and the copy producing content are
+    /// different claims — the item is gated on the screens store, and a gate
+    /// bug would leave a button that writes nothing. The content is read
+    /// through a DEBUG marker file: since iOS 16 the runner's own pasteboard
+    /// reads are silently denied (background paste privacy), which this test
+    /// spent two red runs proving.
+    func testCopyScreenFromTheWallProducesTheScreen() throws {
+        let marker = "/tmp/hop-copy-marker.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_COPY_MARKER"] = marker
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25),
+                      "never reached the wall")
+        // The wall sorts by recency, so a quiet fixture sinks below the fold —
+        // and a lazy list has no element for what it hasn't materialized.
+        // Seek by scrolling rather than assuming it's on the first screen.
+        let cell = app.staticTexts[Self.fixture].firstMatch
+        for _ in 0..<6 where !cell.exists { app.swipeUp() }
+        try XCTSkipUnless(cell.waitForExistence(timeout: 5),
+                          "fixture not in the fleet — environment, not regression")
+        // The item appears only once /preview has landed in the screens
+        // store; the long-press may need a retry while that poll completes.
+        let copy = app.buttons["Copy screen"]
+        for _ in 0..<4 where !copy.exists {
+            cell.press(forDuration: 0.7)
+            if copy.waitForExistence(timeout: 4) { break }
+            // Dismiss a menu that opened before the screens store had this
+            // session, wait out another poll, try again.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+            sleep(2)
+        }
+        XCTAssertTrue(copy.exists, "Copy screen never appeared in the context menu")
+        copy.tap()
+        // The menu item's action runs after the dismiss animation — poll.
+        var pasted = ""
+        for _ in 0..<16 where pasted.isEmpty {
+            usleep(500_000)
+            pasted = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        }
+        XCTAssertFalse(pasted.isEmpty, "Copy screen produced no content")
+        XCTAssertFalse(pasted.hasSuffix(" "), "trailing padding survived the trim")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.
