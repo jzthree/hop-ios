@@ -748,6 +748,38 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testFleetCacheRoundTripsThroughTheLiveParsers() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fleet-cache-test.json")
+        defer { FleetCache.delete(at: url) }
+        let raw: [[String: Any]] = [
+            ["internalName": "Meridian", "name": "nebula", "bellSeq": 7,
+             "lastActivityAt": 1_700_000_000_000.0, "live": true],
+            ["internalName": "Umbra", "name": "Umbra", "type": "port"]
+        ]
+        let screens: [String: [String: Any]] = [
+            "Meridian": ["text": "$ make test\n ok", "cols": 51, "rows": 49,
+                         "color": [[["t": "$ make test", "f": "#fff"]]]]
+        ]
+        FleetCache.save(.init(sessions: raw,
+                              previews: ["Meridian": "make test ok"],
+                              screens: screens), to: url)
+        let back = try XCTUnwrap(FleetCache.load(from: url))
+        // The point of raw JSON: the LIVE parsers run on the way out.
+        let parsed = back.sessions.compactMap { HopSession(json: $0, seenBellSeq: ["Meridian": 5]) }
+        XCTAssertEqual(parsed.count, 2)
+        let m = try XCTUnwrap(parsed.first { $0.internalName == "Meridian" })
+        XCTAssertEqual(m.name, "nebula")
+        XCTAssertTrue(m.attention, "attention recomputes against CURRENT markers, not cached state")
+        XCTAssertEqual(back.previews["Meridian"], "make test ok")
+        let sp = try XCTUnwrap(back.screens["Meridian"])
+        XCTAssertEqual(sp["text"] as? String, "$ make test\n ok")
+        XCTAssertFalse(TileInk.decode(sp["color"]).isEmpty, "color runs survive the round trip")
+        // Corrupt file → nil, never a crash or a half-loaded wall.
+        try Data("not json".utf8).write(to: url)
+        XCTAssertNil(FleetCache.load(from: url))
+    }
+
     func testHopBoardReachesAllPrintableASCII() {
         // A terminal keyboard with an unreachable | or backtick is a desk
         // you must walk back to. Every printable ASCII char, via some plane.

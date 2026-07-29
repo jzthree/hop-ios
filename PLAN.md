@@ -243,25 +243,20 @@ accessory-ctrl + board letter = a control chord. Sticky preference
 reachable; permanent UI test covers toggle, all three planes, and the
 hatch; screenshots in docs/screens. Jian: refinement reports welcome
 (key sizes, missing chords, a dedicated ctrl row?).
-## 22. Instant launch: the wall from cache (TOP for next round)
-Problem: cold launch renders a BLANK wall until /api/sessions and the
-preview fetches round-trip — on cellular that's seconds of empty
-screen in an app whose whole point is glanceability. The web never
-shows this (the tab was already open); native can beat it, not match
-it.
-Evidence: AppModel.sessions inits to [] and nothing in the model is
-Codable — no state survives process death. The widget pipeline already
-serializes a FleetSnapshot (Sources/Shared) precisely because it needs
-fleet state without a live app.
-Sketch: persist the session list + screens store to one JSON file in
-Application Support on each successful refresh (atomic, cheap — it's
-tens of KB); load it in init so the wall paints at first frame;
-staleness is self-labeling (row ages come from lastActivityAt, and
-the first live refresh replaces it in seconds). Probe: HOP_DEV_OFFLINE
-launch must show the cached wall instead of the connection error;
-verify with the existing offline harness. Careful: signOut must
-delete the cache (it holds session content).
-
+## 22. [DONE 2026-07-29] Instant launch: the wall from cache
+FleetCache persists the daemon's RAW JSON (sessions + previews +
+screens) on each successful refresh (20s throttle; the save after a
+cache paint goes immediately); bootstrap loads it before the first
+network round-trip and paints the wall at first frame — gated on a
+credential existing (no session content over a login screen), with
+authenticated set optimistically (a real 401 still flips to login).
+Raw JSON, not Codable mirrors: the load path re-runs the exact live
+parsers (HopSession(json:), TileInk.decode), so cache and live can
+never drift, and attention recomputes against CURRENT seen markers.
+signOut deletes the file. Unit test round-trips through the live
+parsers + corrupt-file safety; permanent UI test relaunches with
+HOP_DEV_CACHE_ONLY=1 (network path disabled) and the wall still
+paints.
 ## 23. Shortcuts verbs: Reply and New Session
 Problem: Siri/Shortcuts can OPEN a session and read fleet status, but
 the two write verbs — answering an agent, spinning up a session — still

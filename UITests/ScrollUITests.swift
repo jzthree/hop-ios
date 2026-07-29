@@ -303,6 +303,36 @@ final class ScrollUITests: XCTestCase {
                        "board still up after toggling back")
     }
 
+    /// Instant launch: after one normal run has filled the cache, a
+    /// relaunch with the network path DISABLED (HOP_DEV_CACHE_ONLY) must
+    /// still paint the wall — proof the first frame comes from disk, not
+    /// from the refresh round-trip.
+    func testWallPaintsFromCacheWithoutNetwork() throws {
+        let env = ProcessInfo.processInfo.environment
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        let cell = app.staticTexts[Self.fixture].firstMatch
+        var found = cell.waitForExistence(timeout: 25)
+        for _ in 0..<6 where !found { app.swipeUp(); found = cell.exists }
+        try XCTSkipUnless(found, "fixture not in the fleet — environment, not regression")
+        sleep(2)   // let the first refresh's cache save land
+        app.terminate()
+
+        let cold = XCUIApplication()
+        cold.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        cold.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        cold.launchEnvironment["HOP_DEV_CACHE_ONLY"] = "1"
+        cold.launchArguments += ["-hop-ui-testing"]
+        cold.launch()
+        let cached = cold.staticTexts[Self.fixture].firstMatch
+        var there = cached.waitForExistence(timeout: 8)
+        for _ in 0..<6 where !there { cold.swipeUp(); there = cached.exists }
+        XCTAssertTrue(there, "cached wall did not paint without the network")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

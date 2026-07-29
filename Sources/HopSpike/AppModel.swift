@@ -107,9 +107,49 @@ final class AppModel: ObservableObject {
             HTTPCookieStorage.shared.setCookie(cookie)
         }
 #endif
-        checkingAuth = true
+        // Instant launch: paint the last known wall before the network
+        // answers. Only when some credential exists — a cache render over a
+        // signed-out state would flash session content on a login screen.
+        if sessions.isEmpty, let cached = FleetCache.load(),
+           hasAnyCredential, !cached.sessions.isEmpty {
+            lastRawSessions = cached.sessions
+            previews = cached.previews
+            screensRaw = cached.screens
+            sessions = cached.sessions.compactMap { HopSession(json: $0, seenBellSeq: seenBells) }
+                .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
+            for s in sessions { lastKnown[s.internalName] = s }
+            screens = screensRaw.compactMapValues { d in
+                guard let text = d["text"] as? String else { return nil }
+                return ScreenPreview(text: text,
+                                     cols: jsonInt(d["cols"]) ?? 80,
+                                     rows: jsonInt(d["rows"]) ?? 24,
+                                     colorRows: TileInk.decode(d["color"]))
+            }
+            paintedFromCache = true
+            authenticated = true       // optimistic; a real 401 flips it back
+            checkingAuth = false
+        } else {
+            checkingAuth = true
+        }
+#if DEBUG
+        // The cache probe's tourniquet: with this set, ONLY the cache can
+        // have populated the wall.
+        if ProcessInfo.processInfo.environment["HOP_DEV_CACHE_ONLY"] == "1" {
+            checkingAuth = false
+            return
+        }
+#endif
         await refreshSessions(silent: true)
         checkingAuth = false
+    }
+
+    /// Whether anything could plausibly authenticate a refresh: the session
+    /// cookie or a saved password. Gates the optimistic cache paint.
+    private var hasAnyCredential: Bool {
+        if let url = baseURL,
+           HTTPCookieStorage.shared.cookies(for: url)?
+               .contains(where: { $0.name == "tunnel_session" }) == true { return true }
+        return Keychain.read(account: normalizedServerURL) != nil
     }
 
     /// Sign out for real: the cookie is what keeps you in, so dropping only
@@ -117,7 +157,24 @@ final class AppModel: ObservableObject {
     /// the saved password, and the badge and quick actions — both leak session
     /// names to anyone holding the phone, which is precisely who you signed
     /// out for.
+    /// Persist the wall's stores. Throttled: refreshes tick every few
+    /// seconds, and rewriting an unchanged 50 KB file that often is churn.
+    /// The first save after a cache paint goes immediately — it's the one
+    /// replacing stale data.
+    private func maybeSaveCache() {
+        let force = paintedFromCache
+        paintedFromCache = false
+        guard force || Date().timeIntervalSince(lastCacheSaveAt) > 20 else { return }
+        lastCacheSaveAt = Date()
+        FleetCache.save(.init(sessions: lastRawSessions,
+                              previews: previews,
+                              screens: screensRaw))
+    }
+
     func signOut() {
+        FleetCache.delete()
+        lastRawSessions = []
+        screensRaw = [:]
         if let url = baseURL {
             for cookie in HTTPCookieStorage.shared.cookies(for: url) ?? [] {
                 HTTPCookieStorage.shared.deleteCookie(cookie)
@@ -259,6 +316,8 @@ final class AppModel: ObservableObject {
 #endif
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
+            lastRawSessions = raw
+            maybeSaveCache()
             publishFleetSnapshot()
             publishSpotlight()
             authenticated = true
@@ -274,6 +333,7 @@ final class AppModel: ObservableObject {
             let alive = Set(sessions.map(\.internalName))
             previews = previews.filter { alive.contains($0.key) }
             screens = screens.filter { alive.contains($0.key) }
+            screensRaw = screensRaw.filter { alive.contains($0.key) }
             // Watching a session counts as seeing its bells: keep the marker
             // current so backing out doesn't leave a stale attention dot, and
             // never banner the terminal that's on screen.
@@ -354,6 +414,15 @@ final class AppModel: ObservableObject {
     /// changed — WidgetKit budgets timeline reloads, and burning the budget
     /// on every 2-second poll would leave none for the changes that matter.
     private var lastSnapshotRows: [FleetSnapshot.Row] = []
+    /// Raw JSON mirrors of what the wall renders, kept only to feed
+    /// FleetCache — persisting the daemon's own JSON means the load path
+    /// re-runs the exact live parsers and can never drift from them.
+    private var lastRawSessions: [[String: Any]] = []
+    private var screensRaw: [String: [String: Any]] = [:]
+    private var lastCacheSaveAt = Date.distantPast
+    /// True once this launch painted from cache — the first live refresh
+    /// is the one that replaces it, so it always saves.
+    private var paintedFromCache = false
     private func publishFleetSnapshot() {
         let browsable = sessions.filter { !$0.isPort && !$0.parked }
         let rows = browsable.prefix(4).map {
@@ -539,7 +608,14 @@ final class AppModel: ObservableObject {
                                colorRows: TileInk.decode(obj["color"]))
         // Same screen → no write → no re-render. The text comparison
         // short-circuits the colour-rows one for the common idle case.
-        if screens[internalName] != sp { screens[internalName] = sp }
+        if screens[internalName] != sp {
+            screens[internalName] = sp
+            var rawScreen: [String: Any] = ["text": text,
+                                            "cols": jsonInt(obj["cols"]) ?? 80,
+                                            "rows": jsonInt(obj["rows"]) ?? 24]
+            if let color = obj["color"] { rawScreen["color"] = color }
+            screensRaw[internalName] = rawScreen
+        }
         return Self.meaningfulTail(of: text, lines: 3)
     }
 

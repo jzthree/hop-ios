@@ -258,6 +258,31 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The wall survives the graveyard (iteration 199)
+
+PLAN 22: cold launch no longer renders a blank wall. FleetCache
+persists the daemon's raw JSON — sessions, previews, screens — on each
+successful refresh (throttled to every 20s; the first save after a
+cache paint is immediate), and bootstrap loads it before the network
+answers: the wall paints at first frame, ages self-label from
+lastActivityAt, and the live refresh replaces it seconds later.
+
+Two deliberate choices worth keeping: the cache stores RAW daemon
+JSON, not Codable mirrors, so loading re-runs the exact live parsers
+(HopSession(json:), TileInk.decode) — the cache cannot drift from the
+live path, and attention recomputes against the CURRENT seen markers
+rather than resurrecting cached dots. And the paint is gated on a
+credential existing, with authenticated set optimistically: session
+content never renders over a login screen, and a real 401 still
+bounces to login exactly as before.
+
+signOut deletes the file (it holds session content — the same reason
+signOut already cleared lastKnown). Proof: a unit round-trip through
+the live parsers plus corrupt-file safety, and a permanent UI test
+that fills the cache in one run, relaunches with the network path
+DISABLED (HOP_DEV_CACHE_ONLY), and asserts the wall still paints.
+80 unit + 22 UI green, strict zero.
+
 ## A planning round: the blank-wall gap (iteration 198)
 
 Everything in the queue is done or waiting on Jian (verdicts on
