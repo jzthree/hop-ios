@@ -79,12 +79,12 @@ inset fiddling, no indicator flash. Whatever scrolling issue remains
 after this build is by definition in OUR sink routing, which the sink
 log will name.
 
-## 8. Toolbar summary truncates ("21 sessions · nothing…")
-Problem: the principal slot is narrow between the two toolbar groups,
-and the summary ellipsizes exactly at the informative part (probe
-screenshots show it). Sketch: compact format under width pressure —
-"21 · quiet · 1 parked" / "21 · 2 want you" — via a shorter string plus
-minimumScaleFactor; pure formatter + test, screenshot before/after.
+## 8. [DONE 2026-07-28] Toolbar summary truncates ("21 sessions · nothing…")
+Fixed with two pure formatters (fleetSummaryLine / fleetSummaryCompact)
+and ViewThatFits in the principal slot: the sentence when it fits, the
+numbers when it doesn't ("21 · quiet · 1 parked", "18/21 · 2 want you
+(+1)"). VoiceOver always gets the full sentence via accessibilityLabel.
+Probe-shot: docs/screens/toolbar-compact.png — complete, no ellipsis.
 
 ## 9. Copy a session's screen from the wall
 Problem: the peek lets you READ a screen without opening the session,

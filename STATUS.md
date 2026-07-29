@@ -258,6 +258,29 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The summary that fits (iteration 185)
+
+PLAN 8, the loop's top actionable item: the toolbar title ellipsized
+exactly at its informative part ("21 sessions · nothing…") because the
+principal slot is narrow between the two toolbar groups. Now the
+summary is two PURE formatters — the sentence (fleetSummaryLine) and
+the numbers (fleetSummaryCompact: "21 · quiet · 1 parked",
+"18/21 · 2 want you (+1)") — and ViewThatFits picks whichever fits.
+VoiceOver always hears the full sentence (accessibilityLabel), so
+compaction costs sighted pixels nothing and accessibility nothing.
+Probe-shot docs/screens/toolbar-compact.png: the compact form complete
+in the slot, no ellipsis. Unit tests cover both formatters' agreement.
+
+Also this round: the coast-brake latch from 184 became a TIMESTAMP
+(0.8s freshness) after the full suite flaked once with the second tap
+dead — a Bool latch whose touch-end never delivers (recognizer
+arbitration under load) would eat every later tap until the next
+brake. A brake is a moment, not a state. Suite green twice
+consecutively after; watch testTapDuringCoastOnlyStopsIt for any
+recurrence (next suspect if it flakes again: the tap re-recognized as
+a long press starting a selection, which a marker on the shouldBegin
+decisions would confirm).
+
 ## The terminal is a fixed viewport (iteration 184)
 
 Jian, after the bounce fix: "the native scroll bar should never show

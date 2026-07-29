@@ -748,6 +748,34 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    func testFleetSummaryFullAndCompactAgreeOnTheFacts() {
+        // Quiet fleet, everything visible.
+        XCTAssertEqual(fleetSummaryLine(shown: 21, total: 21, wanting: 0,
+                                        hiddenWanting: 0, parked: 0),
+                       "21 sessions · nothing waiting on you")
+        XCTAssertEqual(fleetSummaryCompact(shown: 21, total: 21, wanting: 0,
+                                           hiddenWanting: 0, parked: 0),
+                       "21 · quiet")
+        // Filtered scope + parked note.
+        XCTAssertEqual(fleetSummaryLine(shown: 18, total: 21, wanting: 0,
+                                        hiddenWanting: 0, parked: 1),
+                       "18 of 21 · nothing waiting on you · 1 parked")
+        XCTAssertEqual(fleetSummaryCompact(shown: 18, total: 21, wanting: 0,
+                                           hiddenWanting: 0, parked: 1),
+                       "18/21 · quiet · 1 parked")
+        // Attention, with one wanter outside the visible rows.
+        XCTAssertEqual(fleetSummaryLine(shown: 18, total: 21, wanting: 2,
+                                        hiddenWanting: 1, parked: 0),
+                       "18 of 21 · 2 want you (1 not shown here)")
+        XCTAssertEqual(fleetSummaryCompact(shown: 18, total: 21, wanting: 2,
+                                           hiddenWanting: 1, parked: 0),
+                       "18/21 · 2 want you (+1)")
+        // Singular agreement survives compaction.
+        XCTAssertEqual(fleetSummaryCompact(shown: 1, total: 1, wanting: 1,
+                                           hiddenWanting: 0, parked: 0),
+                       "1 · 1 wants you")
+    }
+
     func testSpotlightEntriesShapeAndExclusions() {
         func s(_ name: String, tagline: String = "", cwd: String = "",
                port: Bool = false) -> HopSession {

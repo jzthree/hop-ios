@@ -2082,13 +2082,17 @@ final class HopTermView: TerminalView {
     /// Whether this runs before or after the recognizers are asked depends on
     /// whether the scroll view is delaying touch delivery (isScrollEnabled
     /// changes that), so the brake can't be inferred from momentumLink alone —
-    /// this latch marks the whole touch sequence as "the brake", and
-    /// gestureRecognizerShouldBegin refuses taps for as long as it's up.
-    private var brakeTouch = false
+    /// this latch marks the touch that killed the coast as "the brake", and
+    /// gestureRecognizerShouldBegin refuses taps while it's fresh. It's a
+    /// TIMESTAMP, not a flag: a brake is a moment, and if the end of its
+    /// touch is never delivered (recognizer arbitration under load), a stale
+    /// latch must not eat the next honest tap.
+    private var brakeTouchAt: CFTimeInterval = -1
+    private var brakeTouch: Bool { CACurrentMediaTime() - brakeTouchAt < 0.8 }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if momentumLink != nil {
             stopMomentum()
-            brakeTouch = true
+            brakeTouchAt = CACurrentMediaTime()
         }
         super.touchesBegan(touches, with: event)
     }
@@ -2096,11 +2100,11 @@ final class HopTermView: TerminalView {
     // view, so clearing here still leaves the braking tap refused — while the
     // NEXT tap starts clean.
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        brakeTouch = false
+        brakeTouchAt = -1
         super.touchesEnded(touches, with: event)
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        brakeTouch = false
+        brakeTouchAt = -1
         super.touchesCancelled(touches, with: event)
     }
 

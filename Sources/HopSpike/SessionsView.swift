@@ -79,22 +79,34 @@ struct SessionsView: View {
 
     private var parkedCount: Int { model.sessions.filter { !$0.isPort && $0.parked }.count }
 
-    private var fleetSummary: String {
-        let shown = visible.count
+    /// (shown, total, wanting, hiddenWanting, parked) — one gathering point
+    /// for both renderings of the toolbar summary.
+    private var fleetCounts: (Int, Int, Int, Int, Int) {
         // The denominator is what you could BROWSE to, so parking something
         // doesn't leave the list permanently reading "19 of 24" as though a
         // filter were stuck on. Parked sessions get their own count instead —
         // hidden, but never silently.
         let total = model.sessions.filter { !$0.isPort && !$0.parked }.count
-        let scope = shown == total
-            ? "\(shown) session\(shown == 1 ? "" : "s")"
-            : "\(shown) of \(total)"
-        let parkedNote = parkedCount > 0 ? " · \(parkedCount) parked" : ""
-        guard wanting > 0 else { return "\(scope) · nothing waiting on you\(parkedNote)" }
-        // And say so when the thing waiting isn't one of the rows you can see.
-        let hidden = wanting - visible.filter(\.attention).count
-        let note = hidden > 0 ? " (\(hidden) not shown here)" : ""
-        return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)\(parkedNote)"
+        return (visible.count, total, wanting,
+                wanting - visible.filter(\.attention).count, parkedCount)
+    }
+
+    /// The sentence when it fits, the numbers when it doesn't — the slot
+    /// between the two toolbar groups used to ellipsize the sentence exactly
+    /// at its informative part. VoiceOver always gets the sentence.
+    private var summaryText: some View {
+        let (shown, total, wanting, hidden, parked) = fleetCounts
+        return ViewThatFits(in: .horizontal) {
+            Text(fleetSummaryLine(shown: shown, total: total, wanting: wanting,
+                                  hiddenWanting: hidden, parked: parked))
+            Text(fleetSummaryCompact(shown: shown, total: total, wanting: wanting,
+                                     hiddenWanting: hidden, parked: parked))
+        }
+        .lineLimit(1)
+        .accessibilityLabel(fleetSummaryLine(shown: shown, total: total,
+                                             wanting: wanting,
+                                             hiddenWanting: hidden,
+                                             parked: parked))
     }
 
     /// One unlabelled section normally; project buckets when grouping is on.
@@ -383,18 +395,16 @@ struct SessionsView: View {
         ToolbarItem(placement: .principal) {
             if wanting > 0 {
                 Button { openWanting() } label: {
-                    Text(fleetSummary)
+                    summaryText
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(Color.hopAttention)
-                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens the session that wants you")
             } else {
-                Text(fleetSummary)
+                summaryText
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
         }
         // Scope as a dropdown, not a row: You/Agents/All spent a full row of

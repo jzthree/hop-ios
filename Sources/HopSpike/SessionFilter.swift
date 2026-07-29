@@ -181,6 +181,33 @@ func fleetStatusLine(wanting: Int, total: Int) -> String {
     return base + ", \(wanting) want\(wanting == 1 ? "s" : "") you."
 }
 
+/// The toolbar title, at full width: "18 of 21 · 2 want you (1 not shown
+/// here) · 1 parked". Pure so both renderings share one source of counts.
+func fleetSummaryLine(shown: Int, total: Int, wanting: Int,
+                      hiddenWanting: Int, parked: Int) -> String {
+    let scope = shown == total
+        ? "\(shown) session\(shown == 1 ? "" : "s")"
+        : "\(shown) of \(total)"
+    let parkedNote = parked > 0 ? " · \(parked) parked" : ""
+    guard wanting > 0 else { return "\(scope) · nothing waiting on you\(parkedNote)" }
+    // And say so when the thing waiting isn't one of the rows you can see.
+    let note = hiddenWanting > 0 ? " (\(hiddenWanting) not shown here)" : ""
+    return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)\(parkedNote)"
+}
+
+/// The same facts when the principal slot is too narrow for the sentence —
+/// which is exactly when it used to ellipsize at the informative part
+/// ("21 sessions · nothing…"). Numbers survive width pressure; filler
+/// words don't: "21 · quiet · 1 parked", "18/21 · 2 want you (+1)".
+func fleetSummaryCompact(shown: Int, total: Int, wanting: Int,
+                         hiddenWanting: Int, parked: Int) -> String {
+    let scope = shown == total ? "\(shown)" : "\(shown)/\(total)"
+    let parkedNote = parked > 0 ? " · \(parked) parked" : ""
+    guard wanting > 0 else { return "\(scope) · quiet\(parkedNote)" }
+    let note = hiddenWanting > 0 ? " (+\(hiddenWanting))" : ""
+    return "\(scope) · \(wanting) want\(wanting == 1 ? "s" : "") you\(note)\(parkedNote)"
+}
+
 /// What each session contributes to the system Spotlight index: the name to
 /// find it by, and the tagline (or cwd) so the result card says what it's
 /// for. Pure so the shape is testable; the donation side effect stays thin.
