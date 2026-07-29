@@ -258,6 +258,23 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Share screen, and a lesson in element trees (iteration 191)
+
+PLAN 14: "Share screen…" now sits beside Copy screen in both wall
+context menus — the same trimmed text, straight into Messages/Mail
+through the system sheet, no paste step. ShareLink with the session
+name as subject; gated on the screens store like its sibling.
+
+The verification was the actual work. The sheet presented on the very
+first build (screenshot: docs/screens/share-sheet.png) but the test
+insisted it hadn't: app.buttons["Copy"] matched nothing. A SpringBoard
+theory failed too. A tree dump with the sheet visibly up settled it —
+the sheet renders IN-process and its actions are CELLS
+(actionGroupCell, label "Copy"), not Buttons, so the landmark is a
+cells-by-label predicate. Trap recorded in tools/README next to its
+cousin (the out-of-process selection menu): dump the tree before
+guessing hosts. 19 UI + 76 unit green, gated.
+
 ## The session follows you to the desk (iteration 190)
 
 PLAN 13, first of the planning round's candidates: Handoff. The open

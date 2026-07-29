@@ -152,6 +152,11 @@ struct SessionsView: View {
                 Button { copyScreen(grab) } label: {
                     Label("Copy screen", systemImage: "doc.on.doc")
                 }
+                // Copy's sibling for OTHER apps: straight to Messages/Mail
+                // through the system sheet, no paste step.
+                ShareLink(item: grab, subject: Text(session.name)) {
+                    Label("Share screen…", systemImage: "square.and.arrow.up")
+                }
             }
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
@@ -320,6 +325,9 @@ struct SessionsView: View {
                                 if let grab = copyableScreen(model.screens[session.internalName]?.text) {
                                     Button { copyScreen(grab) } label: {
                                         Label("Copy screen", systemImage: "doc.on.doc")
+                                    }
+                                    ShareLink(item: grab, subject: Text(session.name)) {
+                                        Label("Share screen…", systemImage: "square.and.arrow.up")
                                     }
                                 }
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }

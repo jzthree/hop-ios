@@ -190,6 +190,46 @@ final class ScrollUITests: XCTestCase {
                       "handoff URL must be a web URL Safari can open: \(donated)")
     }
 
+    /// Share screen: the system sheet must actually present with the
+    /// session's content. The sheet is in-process (unlike the selection
+    /// menu), so this is testable — and the dismiss path matters as much,
+    /// since a stuck share sheet would wedge the wall.
+    func testShareScreenPresentsTheSystemSheet() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] =
+            ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25),
+                      "never reached the wall")
+        let cell = app.staticTexts[Self.fixture].firstMatch
+        for _ in 0..<6 where !cell.exists { app.swipeUp() }
+        try XCTSkipUnless(cell.waitForExistence(timeout: 5),
+                          "fixture not in the fleet — environment, not regression")
+        let share = app.buttons["Share screen…"]
+        for _ in 0..<4 where !share.exists {
+            cell.press(forDuration: 0.7)
+            if share.waitForExistence(timeout: 4) { break }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+            sleep(2)
+        }
+        XCTAssertTrue(share.exists, "Share screen never appeared in the context menu")
+        share.tap()
+        // The sheet renders IN-process but its actions are CELLS
+        // (actionGroupCell, label "Copy"), not Buttons — a tree dump while
+        // the sheet was visibly up proved app.buttons["Copy"] matches
+        // nothing. Query the cell by label.
+        let sheetLandmark = app.cells.matching(
+            NSPredicate(format: "label == %@", "Copy")).firstMatch
+        XCTAssertTrue(sheetLandmark.waitForExistence(timeout: 8),
+                      "share sheet never presented")
+        // Dismiss (tap the dimmed wall above the sheet) and confirm usable.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 8),
+                      "wall unusable after dismissing the share sheet")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

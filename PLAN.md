@@ -148,15 +148,14 @@ URL via DEBUG marker. ON JIAN'S DEVICE CHECKLIST: open a session on
 the phone near the Mac — Safari's Handoff icon should appear in the
 Dock and open the same session.
 
-## 14. Share a session's screen (the write half of Copy, for OTHER apps)
-Problem: Copy screen (item 9) lands on the pasteboard; sending the
-screen to Messages/Mail/Notes still takes a paste step.
-Evidence: copyableScreen() already produces the trimmed text; both
-context menus already exist.
-Sketch: "Share screen…" menu item presenting the system share sheet
-with the trimmed text; XCUITest can assert the activity sheet appears
-(it's in-process, unlike the selection menu); reuse copyableScreen
-tests. Small round, pairs with 9.
+## 14. [DONE 2026-07-28] Share a session's screen
+"Share screen…" (ShareLink, subject = session name) beside Copy screen
+in both context menus, same copyableScreen gating and trimming.
+Probe-verified visually (docs/screens/share-sheet.png) and by a
+permanent UI test — which surfaced a trap now recorded: the sheet's
+actions are CELLS (actionGroupCell) in the app's own tree, not
+Buttons, so app.buttons["Copy"] matches nothing while the sheet is
+plainly on screen.
 
 ## 15. Hardware-keyboard commands (iPad / BT keyboard)
 Problem: with a physical keyboard attached the app offers nothing
