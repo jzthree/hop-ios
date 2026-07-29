@@ -258,6 +258,28 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Siri learns to write (iteration 200)
+
+PLAN 23: the fleet's two write-verbs exist as App Intents. "Reply to
+Session" answers an agent through the same throwaway-socket sender the
+lock-screen reply uses — with an honest failure dialog, because an
+automation that fails silently teaches distrust of every success.
+"New Session" creates, refreshes, and lands in the terminal through
+the same requestedSession road every other entry point takes. Both
+carry Siri phrases in HopShortcuts.
+
+The verification is the part worth keeping: an intent's perform() is
+just a function, so the e2e unit test runs the REAL intent bodies
+against the REAL daemon — creates IntentProbe via NewSessionIntent,
+sends "echo intent-ok" via ReplyToSessionIntent, polls the daemon's
+own preview until the text shows on the session's screen, then kills
+the scratch. make test now forwards the daemon token so this runs in
+every suite (verified: 81 tests, zero skips, scratch confirmed dead
+afterward). One trap dodged en route: a Makefile edit that reported
+success but didn't land — re-applied and re-verified with make -n.
+
+81 unit + 22 UI green, strict zero.
+
 ## The wall survives the graveyard (iteration 199)
 
 PLAN 22: cold launch no longer renders a blank wall. FleetCache

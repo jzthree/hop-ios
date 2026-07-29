@@ -71,6 +71,57 @@ struct FleetStatusIntent: AppIntent {
     }
 }
 
+struct ReplyToSessionIntent: AppIntent {
+    static let title: LocalizedStringResource = "Reply to Session"
+    static let description = IntentDescription(
+        "Send a line of input to a hop session — answer an agent without opening the app.")
+
+    @Parameter(title: "Session")
+    var session: SessionEntity
+
+    @Parameter(title: "Reply")
+    var text: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        // The same throwaway-socket sender the lock-screen reply uses; a
+        // trailing newline is what makes it a LINE the agent acts on.
+        let ok = await QuickReply.send(text + "\n", to: session.id,
+                                       model: AppModel.shared)
+        // Say what happened — an automation that fails silently trains the
+        // user to distrust every success.
+        return .result(dialog: ok
+            ? IntentDialog(stringLiteral: "Sent to \(session.name).")
+            : IntentDialog(stringLiteral: "Couldn't reach \(session.name) — the reply was not delivered."))
+    }
+}
+
+struct NewSessionIntent: AppIntent {
+    static let title: LocalizedStringResource = "New Session"
+    static let description = IntentDescription("Start a new hop terminal session.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Name")
+    var name: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            return .result(dialog: "A session needs a name.")
+        }
+        let model = AppModel.shared
+        guard await model.createSession(name: trimmed) else {
+            return .result(dialog: IntentDialog(stringLiteral:
+                model.lastError ?? "The daemon refused the session."))
+        }
+        await model.refreshSessions(silent: true)
+        // Land IN the new terminal, the same road every other entry takes.
+        model.requestedSession = trimmed
+        return .result(dialog: IntentDialog(stringLiteral: "Started \(trimmed)."))
+    }
+}
+
 struct HopShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: OpenSessionIntent(),
@@ -82,5 +133,15 @@ struct HopShortcuts: AppShortcutsProvider {
                               "Check my \(.applicationName) sessions"],
                     shortTitle: "Fleet Status",
                     systemImageName: "dot.radiowaves.left.and.right")
+        AppShortcut(intent: ReplyToSessionIntent(),
+                    phrases: ["Reply to a \(.applicationName) session",
+                              "Answer a \(.applicationName) session"],
+                    shortTitle: "Reply",
+                    systemImageName: "arrowshape.turn.up.left")
+        AppShortcut(intent: NewSessionIntent(),
+                    phrases: ["New \(.applicationName) session",
+                              "Start a \(.applicationName) session"],
+                    shortTitle: "New Session",
+                    systemImageName: "plus.rectangle.on.rectangle")
     }
 }

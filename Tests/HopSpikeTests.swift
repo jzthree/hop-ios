@@ -748,6 +748,60 @@ final class HopSpikeTests: XCTestCase {
                        "19 sessions running, 3 want you.")
     }
 
+    /// The Shortcuts write-verbs, against the REAL daemon: NewSessionIntent
+    /// creates a scratch session, ReplyToSessionIntent sends a line into it,
+    /// and the daemon's own preview shows the text arrived. perform() is
+    /// just a function — the whole intent body runs, not a mock of it.
+    @MainActor
+    func testWriteIntentsRoundTripAgainstTheDaemon() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] != nil,
+                          "no daemon token in this environment")
+        let model = AppModel.shared
+        let scratch = "IntentProbe"
+
+        var create = NewSessionIntent()
+        create.name = scratch
+        _ = try await create.perform()
+        defer { Task { @MainActor in
+            if let dead = model.sessions.first(where: { $0.internalName == scratch }) {
+                _ = await model.killSession(dead)
+            }
+        } }
+        await model.refreshSessions(silent: true)
+        let made = model.sessions.first { $0.internalName == scratch || $0.name == scratch }
+        let entity = try XCTUnwrap(made.map {
+            SessionEntity(id: $0.internalName, name: $0.name, tagline: "")
+        }, "NewSessionIntent did not create the session")
+
+        var reply = ReplyToSessionIntent()
+        reply.session = entity
+        reply.text = "echo intent-ok"
+        _ = try await reply.perform()
+
+        // The daemon's preview is the witness: poll until the sent line shows.
+        var seen = false
+        for _ in 0..<20 where !seen {
+            try await Task.sleep(for: .milliseconds(500))
+            seen = await previewText(of: entity.id)?.contains("intent-ok") ?? false
+        }
+        XCTAssertTrue(seen, "the reply never reached the session's screen")
+    }
+
+    @MainActor
+    private func previewText(of internalName: String) async -> String? {
+        let model = AppModel.shared
+        guard var comps = model.baseURL
+            .map({ $0.appendingPathComponent("api/sessions/preview") })
+            .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
+        comps.queryItems = [.init(name: "name", value: internalName)]
+        guard let url = comps.url else { return nil }
+        var req = URLRequest(url: url)
+        if let t = model.accessToken { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["text"] as? String
+    }
+
     func testFleetCacheRoundTripsThroughTheLiveParsers() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("fleet-cache-test.json")

@@ -54,7 +54,7 @@ install-debug: build-debug
 	@xcrun devicectl device install app --device $(DEVICE) "$(DEBUG_APP)"
 
 test: gen
-	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
+	@TEST_RUNNER_HOP_DEV_TOKEN=$(TOKEN) xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO
 

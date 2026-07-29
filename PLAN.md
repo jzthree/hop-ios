@@ -257,19 +257,16 @@ signOut deletes the file. Unit test round-trips through the live
 parsers + corrupt-file safety; permanent UI test relaunches with
 HOP_DEV_CACHE_ONLY=1 (network path disabled) and the wall still
 paints.
-## 23. Shortcuts verbs: Reply and New Session
-Problem: Siri/Shortcuts can OPEN a session and read fleet status, but
-the two write verbs — answering an agent, spinning up a session — still
-need the app in hand.
-Evidence: QuickReply.send is already a standalone fire-and-forget
-sender (built for notification replies); AppModel.createSession(name:
-cwd:) exists; Intents.swift has the AppShortcuts scaffolding.
-Sketch: ReplyToSessionIntent (session entity + text param, via
-QuickReply) and NewSessionIntent (name, optional project chip cwd);
-add to HopShortcuts with natural phrases; unit-test the entity
-resolution; verify by invoking the intent from the Shortcuts app in
-the sim probe.
-
+## 23. [DONE 2026-07-29] Shortcuts verbs: Reply and New Session
+ReplyToSessionIntent (session entity + text, via the QuickReply
+throwaway socket, honest failure dialog) and NewSessionIntent (create,
+refresh, land in the terminal) — both registered in HopShortcuts with
+Siri phrases. Proven by an e2e unit test that runs the intents' own
+perform() against the REAL daemon: NewSessionIntent creates a scratch
+session, ReplyToSessionIntent sends "echo intent-ok", the daemon's
+preview shows the text arrived, teardown kills the scratch. make test
+now forwards the daemon token (TEST_RUNNER_HOP_DEV_TOKEN) so the
+round-trip runs in every suite instead of skipping.
 ## 24. [GATED with 18 — same provisioning] Live Activity: "wants you"
 on the Lock Screen
 Problem: a bell today is a notification that scrolls away; the state
