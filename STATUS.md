@@ -17,103 +17,52 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 
 ## Where this stands right now
 
-*(top rewritten at iteration 112 — everything above the parity matrix had gone
-stale: it still said twenty commits were waiting on an unreachable phone.)*
+*(top rewritten at iteration 207 — the previous head was iteration-112-era:
+it still discussed the TestFlight ISSUER key that has since failed AUTH, and
+a device checklist whose size-election items were closed by builds 229-237.)*
 
-**Installed and current.** The phone builds and installs in one shot again, and
-every functional commit through iteration 111 is on it.
+**Build 249 is on the phone**; every gate is green (88 unit, 24 UI, strict
+zero-tolerance at zero, TSan clean) and the loop's queue is entirely
+verdict-bound — nothing left is self-serviceable. Fork sessions (hop2
+f6e6852, today) is queued as PLAN 30 and needs no decision.
 
-**Waiting on you, in order of what unblocks most:**
-1. **The device checklist below.** Most of it is ordinary use — but four items
-   can ONLY be answered with a phone in hand, and two of those decide whether
-   features that look finished actually work at all.
-2. **App Store Connect → Apps → + → New App**, bundle ID `io.zhoulab.hop.spike`
-   (already registered, appears in the dropdown). Then
-   `make testflight ISSUER=254072af-7f14-4065-acd8-d09fe4924553` uploads, and
-   the phone installs over 5G — no more "is the phone on this network".
-3. **The APNs decision** (below): a daemon endpoint and a send-on-bell path.
-   Apple's half is done — explicit App ID, Push enabled, entitlement in the
-   signed app, client obtaining and displaying a token.
+## Waiting on you — one batch, ten minutes with the phone
 
-**Open questions for you, one line each:**
-- Should `archived` sessions (stopped but resumable) be marked as stopped in
-  the list?
-- Web previews now render the WHOLE screen at grid geometry, scaled to fit
-  (hop2 b7b8aaa, 7/27). Should phone rows follow suit, or stay 3-line text?
-  Cost note before choosing: scaled-screen rows are heavier per render and the
-  phone polls up to 8 previews on a cellular budget — the answer isn't
-  automatically "match the web". They are parsed and hidden with
-parked ones today; opening one resumes it transparently.
+The five that decide recent work:
+1. **Typing feel off wifi** (build 245+): the echo wait is gone in shells and
+   prompts? In Claude's composer, does typed text ever flicker/vanish on
+   repaint?
+2. **The hop keyboard** (240, landscape 248): ⌨ on the key bar. Worth keeping?
+   Key sizes, missing keys, want a ctrl row on the board itself?
+3. **Instant launch** (242+): kill the app, reopen — wall there at first
+   frame?
+4. **Wake-flash** (237+): lock, wait, unlock into an open terminal — does the
+   wrong-size flash still appear?
+5. **Handoff retry** (236+ carries the /s/ path fix): session open near the
+   Mac → Safari Dock icon → does it land IN the session now?
 
-**Handed over, not done here:** the preview-corruption bug in hop
-(`getOutputSince`'s reset tail can start mid-escape-sequence — see Reference).
-It affects the web switcher and iOS equally; the fix is a few lines of shared
-hop2 code.
+Standing: if a keyboard switch (system side) ever leaves the terminal too
+small again — immediately ⋯ → Server & account → Copy diagnostics and paste
+it here (238's flight recorder is in every build since).
 
-## Device checklist ⚠ ONLY YOU CAN DO THESE
+Never answered, still wanted (one line each): does the coast/flick feel
+right on the 120Hz screen; does the diagnostics `background:` line ever say
+it RAN (decides APNs urgency); notification long-press reply on a SHELL
+session; badge appearing and clearing; Low Data Mode degrading gracefully.
 
-Ordered by what is most likely to be wrong and what it costs if it is. The
-first four are the ones a simulator provably cannot answer.
+## The credentials gate (unblocks three queued features)
 
-If something looks wrong, the app says why in the log: **Console.app → your
-iPhone → search `io.zhoulab.hop.spike`** (Action → Include Info Messages).
-README has a table of what each line means.
-
-1. **Does the coast feel right?** Flick a claude session. The glide should
-   decay over roughly a couple of seconds, like any iOS scroll view. It is
-   built on UIScrollView's own deceleration rate and made frame-rate
-   independent specifically for your 120Hz screen (#103) — but the simulator
-   is 60Hz, so this number has never been felt on the hardware it was written
-   for. If it feels too fast or too short, that is a real finding.
-2. **Has iOS ever granted a background slot?** `⋯ → Server & account → Copy
-   diagnostics` → paste it here. The `background:` line reads
-   `requested … / ran …` or `never ran`. Background refresh is what lets a bell
-   reach you with the app closed, it has never once been observed working, and
-   the simulator refuses BGTaskScheduler outright (#107). If it says
-   `never ran` after a day of normal use, APNs stops being a nice-to-have.
-3. **Hardware ctrl combos**, if you have a keyboard case. ctrl+C should
-   interrupt, not type a `c`. Plain typing and arrows are verified; modifiers
-   are not, because XCUITest delivers `mods=0` (#104).
-4. **Keyboard feel — the thesis the app rests on.** Type a real command with
-   dictation and autocorrect. If this doesn't beat the web client, nothing else
-   in this repo matters.
-5. **Reconnect after a real suspend.** Open a shell session (not claude), lock
-   the phone for a minute, come back. History must not appear twice, no junk
-   like "35;197;31M" at the prompt, and the screen should repaint immediately
-   rather than after a pause. The simulator never truly suspends.
-6. **Walk out of wifi.** With a session open, leave the house on 5G. The
-   terminal should come back on its own within a second or two rather than
-   sitting dead for the backoff (#98) — that path is wired and logged here but
-   only a phone that moves can prove it.
-7. **Reply from the notification.** Long-press a bell notification, type a
-   reply, Send. **Do this first on a SHELL session, not an agent** — a stray
-   line in an agent session could approve something.
-8. **Quick actions with the app fully closed.** Long-press the hop icon → four
-   sessions, attention first → tap one → it should open THAT session.
-9. **Badge.** Let an agent ring with the app closed: a number appears and
-   clears when you read the session.
-10. **Attach claim.** Open a session a desktop also has open and typed in
-    recently. Text should wrap at PHONE width immediately.
-11. **Low Data Mode** (Settings → Cellular): live previews stop appearing; the
-    list still updates, slower.
-12. **Landscape, sign out, links, VoiceOver.** Rotation hiding chrome, sign-out
-    forgetting the password, `⋯ → Open link…`, and each row reading as one
-    sentence starting with the name.
+Xcode → Settings → Accounts → "+" → sign in with the Apple ID owning team
+5AD7QB9795 — and confirm the account then APPEARS IN THE LIST (last
+attempt left it empty: DVTDeveloperAccountManagerAppleIDLists shows
+`IDE.Identifiers.Prod = ()`; the visible team entry is a stale remnant).
+The moment it sticks, the loop auto-attempts: home-screen widget → 
+TestFlight (cellular installs) → "wants you" Live Activity.
 
 ## Decisions that are yours
-
-- **APNs background delivery**: device-token endpoint + push-on-bell in the
-  hop2 daemon. Client work is done — including the NSNumber coercion that path
-  will need (#111). This is the only thing between here and "phone buzzes while
-  locked". Needs a greenlight to touch hop2 and coordination with Solstice.
-  **`APNS-PLAN.md` now spells out the whole shape** — endpoints, payload,
-  collapse-id, the `410 Unregistered` cleanup, and the one decision that has to
-  come first (sandbox vs production hosts, which is why local installs are
-  pinned to `development`). Roughly 110 lines of daemon code; nothing further
-  on the client. Written so the answer can be yes or no rather than an
-  investigation.
-- **Archived sessions**: marked as stopped in the list, or left transparent?
-- Split panes / wall zoom: deliberately skipped — desktop-shaped.
+- **APNs**: `APNS-PLAN.md` has the whole daemon-side shape; client half
+  shipped long ago. Yes/no is all it needs.
+- **Archived sessions**: marked as stopped in the list, or transparent?
 
 ## Web-mobile parity matrix (re-audited 2026-07-25, after iteration 48)
 
@@ -257,6 +206,28 @@ judge, and markers are the next step if it persists.
 Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
+
+## Fork lands upstream; the head gets unstale (iteration 207)
+
+Planning round. The drift check earned its keep a second day running:
+hop2 f6e6852 (today) shipped SESSION FORKING — web's ⋯ sheet grew
+"Fork session", claude forks resume history under a fresh id, cwd and
+origin inherit. PLAN 30 queues the iOS side (context menus + the
+fork-and-open flow + a real-daemon e2e) as next round's top; the
+endpoint contract is already read and recorded there. The Xcode
+account gate was re-checked: still empty, still holding three
+features hostage.
+
+The other half of the round: STATUS's own head was iteration-112-era
+— it still pitched the TestFlight ISSUER that has since failed AUTH
+and a checklist whose size items builds 229-237 closed. Rewritten:
+current build, the five-verdict batch, the never-answered stragglers
+worth keeping, exact sign-in instructions with the defaults-key
+evidence, and the two standing decisions (APNs, archived). The
+hand-off document is the product in a verdict-bound phase; a stale
+one taxes every read.
+
+Docs-only round — no binary change, phone stays on 249.
 
 ## The zombie door, found by its own pin-test (iteration 206)
 
