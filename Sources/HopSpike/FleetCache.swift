@@ -34,7 +34,11 @@ enum FleetCache {
               let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        // completeUnlessOpen: terminal CONTENT on disk should be readable
+        // only with the device unlocked (which is when the app reads it);
+        // the asymmetric path still lets a background refresh WRITE a fresh
+        // cache while locked.
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
     }
 
     static func load(from url: URL = defaultURL) -> Payload? {

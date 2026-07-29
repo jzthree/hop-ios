@@ -55,7 +55,20 @@ final class HopBoardView: UIInputView {
     var onText: ((String) -> Void)?
     var onSystemKeyboard: (() -> Void)?
 
-    static let boardHeight: CGFloat = 232
+    /// Portrait keeps comfortable 50pt rows; landscape compresses to
+    /// leave the terminal MORE rows than the system keyboard would — a
+    /// 232pt board plus the 46pt accessory bar was 278pt of a ~390pt
+    /// landscape screen, a few rows of terminal under a wall of keys.
+    /// The anti-lottery guarantee (fixed height, item 6 can't fire)
+    /// holds PER ORIENTATION: each has one height, always.
+    static let portraitHeight: CGFloat = 232
+    static let landscapeHeight: CGFloat = 150
+    private var isLandscapeCompact: Bool {
+        traitCollection.verticalSizeClass == .compact
+    }
+    private var currentHeight: CGFloat {
+        isLandscapeCompact ? Self.landscapeHeight : Self.portraitHeight
+    }
 
     private enum Plane { case letters, numbers, symbols }
     private var plane: Plane = .letters
@@ -64,7 +77,7 @@ final class HopBoardView: UIInputView {
     private let column = UIStackView()
 
     init() {
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.boardHeight),
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.portraitHeight),
                    inputViewStyle: .keyboard)
         translatesAutoresizingMaskIntoConstraints = false
         allowsSelfSizing = true
@@ -80,12 +93,24 @@ final class HopBoardView: UIInputView {
             column.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3)
         ])
         rebuild()
+        registerOrientationObserver()
     }
 
     required init?(coder: NSCoder) { fatalError("not from a nib") }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: Self.boardHeight)
+        CGSize(width: UIView.noIntrinsicMetric, height: currentHeight)
+    }
+
+    /// iOS 17 trait observation — registered once in init (the closure
+    /// fires only on actual verticalSizeClass changes).
+    func registerOrientationObserver() {
+        registerForTraitChanges([UITraitVerticalSizeClass.self]) {
+            (self: HopBoardView, _: UITraitCollection) in
+            self.column.spacing = self.isLandscapeCompact ? 4 : 7
+            self.invalidateIntrinsicContentSize()
+            self.setNeedsLayout()
+        }
     }
 
     private func rebuild() {

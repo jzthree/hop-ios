@@ -295,6 +295,21 @@ final class ScrollUITests: XCTestCase {
         app.buttons["more symbols"].firstMatch.tap()
         XCTAssertTrue(app.buttons["|"].waitForExistence(timeout: 3), "symbols plane missing |")
         XCTAssertTrue(app.buttons["~"].exists, "symbols plane missing ~")
+        // Landscape must COMPRESS the board (232 -> 150): a fixed portrait
+        // height in landscape left a few terminal rows under 278pt of keys.
+        app.buttons["letters"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 3))
+        let portraitKeyHeight = app.buttons["q"].frame.height
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        sleep(2)
+        XCTAssertTrue(app.buttons["q"].exists, "board vanished on rotation")
+        let landscapeKeyHeight = app.buttons["q"].frame.height
+        XCTAssertLessThan(landscapeKeyHeight, portraitKeyHeight * 0.8,
+                          "landscape board did not compress (\(landscapeKeyHeight) vs \(portraitKeyHeight))")
+        XCUIDevice.shared.orientation = .portrait
+        sleep(2)
+
         // The escape hatch back to the system keyboard.
         app.buttons["system keyboard"].firstMatch.tap()
         XCTAssertTrue(app.keys["a"].waitForExistence(timeout: 5),

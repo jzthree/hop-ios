@@ -258,6 +258,28 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Landscape keys, locked cache (iteration 205)
+
+The two small items from the thin round, shipped together. The hop
+keyboard now compresses to 150pt in landscape (was a full 232 — with
+the accessory bar, 278pt of a ~390pt screen, leaving the terminal a
+few rows). The iOS 17 trait-observation API replaced the deprecated
+override after the zero-warning strict gate refused the first attempt
+— the gate keeps paying for itself. The permanent keyboard test now
+rotates and MEASURES: the q key must render under 80% of its portrait
+height in landscape. Fixed-height-per-orientation keeps the
+anti-lottery guarantee intact.
+
+And fleet-cache.json — terminal content on disk — now carries
+completeFileProtectionUnlessOpen: readable only unlocked (when the
+app actually reads it), still writable by a background refresh while
+locked. 88 unit + 23 UI green, strict zero.
+
+The queue is now fully Jian-gated; per iteration 204's note, the next
+rounds will be planning-only unless verdicts or the Xcode sign-in
+arrive. If the cron keeps firing into an empty queue, stretching its
+interval is the honest move.
+
 ## A thin planning round, honestly labeled (iteration 204)
 
 Queue drained again, so this round hunted. Ruled out by reading: the
