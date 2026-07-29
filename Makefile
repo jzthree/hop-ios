@@ -146,8 +146,10 @@ strict:
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-strict CODE_SIGNING_ALLOWED=NO \
 	  SWIFT_STRICT_CONCURRENCY=complete build > build-strict.log 2>&1; \
-	  echo "warnings in our sources: $$(grep -cE 'Sources/HopSpike/.*warning:' build-strict.log)"; \
-	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u
+	  count=$$(grep -cE 'Sources/HopSpike/.*warning:' build-strict.log); \
+	  echo "warnings in our sources: $$count"; \
+	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u; \
+	  [ "$$count" -eq 0 ] || { echo "strict gate RED — the baseline is ZERO (retired 2026-07-29)"; exit 1; }
 
 tsan: gen
 	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \

@@ -690,7 +690,7 @@ struct TerminalScreen: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, TerminalViewDelegate, AccessoryKeyHandler {
+    final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate, AccessoryKeyHandler {
         /// A terminal holds a 5000-line buffer and a socket. If leaving a
         /// session ever stops releasing this, a phone that opens twenty
         /// sessions in a session accumulates twenty of them — and the only
@@ -832,10 +832,14 @@ struct TerminalScreen: UIViewRepresentable {
                 client.sendTyping(true)
             }
             typingTimer?.invalidate()
+            // Timers fire on the main run loop but their closure is typed
+            // Sendable-nonisolated; assumeIsolated states the run-loop fact.
             typingTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
-                guard let self else { return }
-                self.typingActive = false
-                self.client.sendTyping(false)
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.typingActive = false
+                    self.client.sendTyping(false)
+                }
             }
         }
 
@@ -2282,8 +2286,13 @@ final class HopTermView: TerminalView {
     }
 
     deinit {
-        repeatTimer?.invalidate()
-        momentumLink?.invalidate()      // a live CADisplayLink outlives the view
+        // A UIView deinits on the main thread in practice; assumeIsolated
+        // makes that a CHECKED fact instead of an unspoken one, and gives
+        // this nonisolated deinit legal access to the MainActor timers.
+        MainActor.assumeIsolated {
+            repeatTimer?.invalidate()
+            momentumLink?.invalidate()  // a live CADisplayLink outlives the view
+        }
     }
 
     @objc private func endRepeat() {

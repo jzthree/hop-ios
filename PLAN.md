@@ -169,14 +169,15 @@ find-in-scrollback, Cmd+W back to the wall; unit-test the keyCommands
 table; feel needs Jian's hardware verdict (does he use a BT keyboard?).
 LOWER priority until Jian confirms the use case.
 
-## 16. Swift 6 migration (retire the named baseline)
-Problem: strict concurrency carries 5 accepted warnings in the old
-input machinery; every strict run needs the "named baseline" caveat.
-Evidence: STATUS "strict debt" entries; the baseline is re-explained
-each round that touches TerminalScreen.
-Sketch: migrate the input path to Swift 6 isolation (MainActor
-annotations the code already honors de facto), drop the baseline to
-zero, tighten the gate so ANY new warning is red. Mechanical but
-touchy — its own round, suites after every file.
+## 16. [DONE 2026-07-29] Swift 6 migration — the named baseline is retired
+Zero strict-concurrency warnings, and `make strict` is now RED on any.
+The five sites, each fixed by stating a runtime fact the code already
+relied on: HopTermView.deinit invalidates its timers inside
+MainActor.assumeIsolated (a UIView deinits on main — now checked);
+Coordinator conforms via @preconcurrency TerminalViewDelegate
+(SwiftTerm's protocol is nonisolated, the witnesses run on main); the
+typing-settle Timer callback wraps in assumeIsolated (run-loop timers
+fire on main, the closure type just couldn't say so). No behavior
+change; full suites green after.
 
 ## 17. (space for Jian's next reports)

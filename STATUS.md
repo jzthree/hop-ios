@@ -258,6 +258,25 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The named baseline is retired (iteration 192)
+
+PLAN 16, the last unblocked queue item: strict concurrency is at ZERO
+warnings and `make strict` now exits red on any regression — no more
+"5 accepted warnings in the old input machinery" caveat re-explained
+every time TerminalScreen changes.
+
+Each fix states a runtime fact the code already depended on, rather
+than restructuring anything: the view's deinit invalidates its timers
+inside MainActor.assumeIsolated (UIViews deinit on main; now that's
+checked instead of assumed silently), the Coordinator's SwiftTerm
+conformance is @preconcurrency (the delegate protocol is nonisolated
+but every witness runs on main), and the typing-settle Timer callback
+asserts its main-run-loop reality the same way. The reclaim-retry
+Timer got this pattern back in #112c; the stragglers now match it.
+
+Behavior is unchanged by construction — every fix is an assertion, not
+a restructure. Suites: strict 0/red-gated, 76 unit, 19 UI, all green.
+
 ## Share screen, and a lesson in element trees (iteration 191)
 
 PLAN 14: "Share screen…" now sits beside Copy screen in both wall
