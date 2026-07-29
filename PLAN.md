@@ -136,4 +136,50 @@ on hardware once touch-claims land — candidates: underfill rendering
 (small foreign grid leaves dead space), the observe-only Fit-to-width
 floor (4pt texture), chip visibility.
 
-## 13. (space for Jian's next reports)
+## 13. Handoff: pick the session up at the desk
+Problem: the core hop flow is phone->desk and back, but moving from the
+phone to the Mac means finding the session again by hand. Native owns a
+purpose-built affordance the web cannot: Handoff.
+Evidence: hop web already has per-session URLs (`?room=<name>`,
+App.tsx pushState at 2536); the app knows the server URL and the open
+session's internalName; QuickActions already handles INCOMING
+activities — nothing is ever donated OUTGOING.
+Sketch: while a terminal is open, publish an NSUserActivity
+(eligibleForHandoff, webpageURL = serverURL + "?room=<internalName>"),
+invalidate on leave; sim probe asserts the donation via a DEBUG marker;
+real pickup (Safari icon in the Mac Dock) goes on Jian's device
+checklist. Half a day, no daemon change.
+
+## 14. Share a session's screen (the write half of Copy, for OTHER apps)
+Problem: Copy screen (item 9) lands on the pasteboard; sending the
+screen to Messages/Mail/Notes still takes a paste step.
+Evidence: copyableScreen() already produces the trimmed text; both
+context menus already exist.
+Sketch: "Share screen…" menu item presenting the system share sheet
+with the trimmed text; XCUITest can assert the activity sheet appears
+(it's in-process, unlike the selection menu); reuse copyableScreen
+tests. Small round, pairs with 9.
+
+## 15. Hardware-keyboard commands (iPad / BT keyboard)
+Problem: with a physical keyboard attached the app offers nothing
+beyond raw typing — no next/prev session, no find, no way back to the
+wall without touching glass.
+Evidence: the web has hotkeys (e.g. its Ctrl+Q kill parity binding);
+neighborSession() already computes the switch ring; UIKeyCommand is
+idle native surface.
+Sketch: Cmd+] / Cmd+[ next/prev session via neighborSession, Cmd+F
+find-in-scrollback, Cmd+W back to the wall; unit-test the keyCommands
+table; feel needs Jian's hardware verdict (does he use a BT keyboard?).
+LOWER priority until Jian confirms the use case.
+
+## 16. Swift 6 migration (retire the named baseline)
+Problem: strict concurrency carries 5 accepted warnings in the old
+input machinery; every strict run needs the "named baseline" caveat.
+Evidence: STATUS "strict debt" entries; the baseline is re-explained
+each round that touches TerminalScreen.
+Sketch: migrate the input path to Swift 6 isolation (MainActor
+annotations the code already honors de facto), drop the baseline to
+zero, tighten the gate so ANY new warning is red. Mechanical but
+touchy — its own round, suites after every file.
+
+## 17. (space for Jian's next reports)

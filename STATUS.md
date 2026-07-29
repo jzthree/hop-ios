@@ -258,6 +258,32 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## A planning round (iteration 189)
+
+Every queue item is now Jian-gated (device verdicts on 229/230's size
+work, full-bleed clearance, keyboard-settle, fullscreen-scroll repro),
+so this round planned instead of building, per the loop's contract.
+
+Studied: STATUS history, the web client (routing, hotkeys), the fleet,
+and the app's dormant native surface. Ruled OUT before writing items:
+background bell polling (BackgroundRefresh.swift already exists), icon
+badge (done), notification-tap routing (done), port-session support
+(zero port sessions in today's fleet — speculative).
+
+Appended PLAN 13-16: Handoff donation of the open session (web has
+?room= URLs; the phone->desk pickup is the one hop flow with no native
+affordance yet), Share screen via the system sheet (Copy's sibling for
+other apps), hardware-keyboard commands (gated on whether Jian uses
+one), and the Swift 6 migration to retire the 5-warning baseline.
+
+Fleet hygiene note for Jian: ProbeP and ProbeR ("Temporary
+experimental workspace", "Scratch workspace for testing") look like
+leftover scratch sessions — not deleting without your word, since
+they're live and might be yours.
+
+No build shipped this round (nothing implemented, by design); the
+phone stays on 230.
+
 ## The election was already winnable (iteration 188)
 
 PLAN 10 was written as a daemon proposal: agents type through hop's
