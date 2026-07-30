@@ -361,4 +361,50 @@ UI: By folder renders a real live folder-name section
 (fixture-tolerant); Move-to presence asserted in the long-press menu;
 probe-shot docs/screens/folders-wall.png shows Research/Softwares
 sections live.
-## 32. (space for Jian's next reports)
+## 32. [DONE 2026-07-29] Select and copy, no modes
+Jian: "select and copy is not working — in mobile web we choose
+between scrolling and selecting; we shouldn't have to in native." We
+don't: PRESS-AND-HOLD selects the word under the finger (a hold is
+never a scroll), SwiftTerm's own handles extend it, our scroll pan
+already yielded to active selections, and a hop-styled Copy chip in a
+FIXED top-trailing slot copies text CAPTURED at chip-creation (immune
+to whatever later clears the live selection). What was broken: the
+whole SwiftTerm copy UI is UIMenuController — dead on modern iOS; and
+in mouse sessions double-tap goes to the app, so no path existed.
+Battle scars recorded in comments: recognizer-set mutation mid-touch
+resets the gesture; UIEditMenuInteraction + SwiftTerm's UITextInput
+fight (menu churned the keyboard, cleared selection under itself);
+canPerformAction is public-not-open; the system text-input menu
+(Paste/Select/Select All) still appears at the selection and coexists
+with the chip. E2E: pressed "1030" in a scratch, tapped the chip's
+slot, marker witnessed exactly "1030". A11y caveat: the chip lives
+under the SwiftUI hosting boundary and misses the element tree —
+VoiceOver follow-up queued.
+
+## 33. Production-grade disconnect handling (Jian, TOP next)
+"The app still does not handle disconnect that gracefully — handle it
+like a production-ready app." Round: enumerate every disconnect path
+(tunnel drop, daemon restart, cellular blip, suspend) in the sim with
+the offline harness; grade each surface (banner honesty, retry
+transparency, buffered-input visibility, cached-wall behavior,
+terminal frozen-state clarity); fix the gaps — likely: a clear
+"reconnecting in Ns / retry now" affordance, frozen-screen dimming or
+timestamp, input-buffered indicator, and never a dead-end screen.
+
+## 34. Keyboard-top margin (Jian)
+"The app still has margin above the keyboard that we can eliminate."
+Audit the gap between the accessory bar and the terminal's last row —
+suspects: the deliberate bottom-safe-area inset (comment says last
+lines behind the home indicator are worse), accessoryInset padding,
+and SwiftTerm's own bottom inset. Measure with a ruler screenshot,
+reclaim what's honest, keep the home-indicator clearance when the
+keyboard is DOWN only.
+
+## 35. Back button vs ⋯ menu (Jian conflicted — needs his call after
+reading the recommendation in STATUS/summary)
+Options: keep both (chevron = way out, ⋯ = actions; they're different
+jobs); or chevron-only with actions moved to a long-press on the
+title; or menu-only (rejected once already — iteration 183 restored
+the chevron by his own directive). Recommendation: keep both.
+
+## 36. (space for Jian's next reports)

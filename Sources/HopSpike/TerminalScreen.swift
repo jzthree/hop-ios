@@ -1963,6 +1963,7 @@ final class HopTermView: TerminalView {
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
         addGestureRecognizer(pan)
+        scrollPan = pan
         // The top strip belongs to the chrome: it is where anyone reaches for
         // controls, and it is the one place a tap is not meant as "give me the
         // keyboard".
@@ -1977,6 +1978,25 @@ final class HopTermView: TerminalView {
         // bottom button is not clickable"). Gated in shouldBegin: mouse-on
         // sessions only, below the chrome strip, never while braking a
         // coast.
+        // SELECT AND COPY (Jian: "select and copy is not working — in mobile
+        // web we choose between scrolling and selecting; we shouldn't have to
+        // in native"). We don't: press-and-hold SELECTS (a hold is never a
+        // scroll — pans need movement), dragging afterwards extends through
+        // SwiftTerm's own selection pan, and our scroll pan already yields
+        // while a selection is active. What was actually broken: SwiftTerm's
+        // whole copy UI is UIMenuController, which modern iOS silently
+        // refuses to show — the machinery worked, its face didn't. The face
+        // is now UIEditMenuInteraction.
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleSelectHold))
+        hold.minimumPressDuration = 0.45
+        // Delegate = us, for the simultaneity grant: SwiftTerm installs its
+        // own long-press on the same view, and without simultaneous
+        // recognition exactly one of the two fires — arbitration picked
+        // theirs (probe-proven: the menu never appeared).
+        hold.delegate = self
+        addGestureRecognizer(hold)
+        selectHold = hold
+
         let click = UITapGestureRecognizer(target: self, action: #selector(handleClickTap))
         click.delegate = self
         addGestureRecognizer(click)
@@ -2280,6 +2300,10 @@ final class HopTermView: TerminalView {
     private var brakeTouchAt: CFTimeInterval = -1
     private var brakeTouch: Bool { CACurrentMediaTime() - brakeTouchAt < 0.8 }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let chip = copyChip, let t = touches.first,
+           !chip.frame.contains(t.location(in: self)) {
+            hideCopyChip()
+        }
         if momentumLink != nil {
             stopMomentum()
             brakeTouchAt = CACurrentMediaTime()
@@ -2421,6 +2445,133 @@ final class HopTermView: TerminalView {
         lastFrameAt = link.timestamp
     }
     private var lastFrameAt: CFTimeInterval = 0
+
+    private var selectHold: UILongPressGestureRecognizer?
+    private var scrollPan: UIPanGestureRecognizer?
+
+    private var selectHoldPoint: CGPoint = .zero
+    private var keyboardWasUpAtHold = true
+
+    @objc private func handleSelectHold(_ g: UILongPressGestureRecognizer) {
+        switch g.state {
+        case .began:
+            stopMomentum()
+            // If the keyboard is about to RISE (we weren't first responder),
+            // the layout will churn for ~0.7s — the menu must outwait it or
+            // the tap lands in a moved world (probe-traced: sizeChanged
+            // right after present, action never fired).
+            keyboardWasUpAtHold = isFirstResponder
+            _ = becomeFirstResponder()
+            selectHoldPoint = g.location(in: self)
+            // SwiftTerm's own long-press records the pressed cell
+            // (lastLongSelect). NOTHING may mutate the recognizer set here:
+            // select() adds the selection pan, and adding a recognizer
+            // mid-touch RESETS this hold — .ended never arrives
+            // (probe-proven: first press lost its up-event every time).
+            if responds(to: NSSelectorFromString("longPress:")) {
+                perform(NSSelectorFromString("longPress:"), with: g)
+            }
+            selectMark("hold-began")
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case .ended, .cancelled:
+            // Finger up: NOW select the word (the pan it installs can't hurt
+            // a finished gesture) and offer Copy.
+            select(nil)
+            selectMark("hold-ended sel=\(selectionActive)")
+            guard selectionActive else { return }
+            showCopyChip(at: selectHoldPoint)
+            // Re-offer after SwiftTerm's selection pan extends the range.
+            for gr in gestureRecognizers ?? [] where gr is UIPanGestureRecognizer {
+                if gr !== scrollPan, gr.isEnabled, gr.view === self,
+                   !(gr is UIScreenEdgePanGestureRecognizer) {
+                    gr.removeTarget(self, action: #selector(selectionPanChanged(_:)))
+                    gr.addTarget(self, action: #selector(selectionPanChanged(_:)))
+                }
+            }
+        default: break
+        }
+    }
+
+    func selectMark(_ line: String) {
+        #if DEBUG
+        if let m = ProcessInfo.processInfo.environment["HOP_SELECT_MARKER"] {
+            let prev = (try? String(contentsOfFile: m, encoding: .utf8)) ?? ""
+            try? (prev + line + "\n").write(toFile: m, atomically: true, encoding: .utf8)
+        }
+        #endif
+    }
+
+    @objc private func selectionPanChanged(_ g: UIPanGestureRecognizer) {
+        guard g.state == .ended, selectionActive else { return }
+        showCopyChip(at: g.location(in: self))
+    }
+
+    /// The Copy offer: a hop chip, not the system edit menu. Six probe
+    /// cycles established that UIEditMenuInteraction and SwiftTerm's
+    /// UITextInput conformance fight — presentation churned the keyboard and
+    /// cleared the selection under the menu. The chip is ours: in-process,
+    /// steady, and it CAPTURES the selected text the moment it appears, so
+    /// nothing that happens to the live selection afterwards can lose it.
+    private var copyChip: UIButton?
+
+    private func showCopyChip(at point: CGPoint) {
+        guard let captured = getSelection(), !captured.isEmpty else { return }
+        copyChip?.removeFromSuperview()
+        var cfg = UIButton.Configuration.filled()
+        cfg.title = "Copy"
+        cfg.image = UIImage(systemName: "doc.on.doc")
+        cfg.imagePadding = 5
+        cfg.baseForegroundColor = .white
+        cfg.background.backgroundColor = .hopRaised
+        cfg.background.cornerRadius = 15
+        cfg.background.strokeColor = UIColor(white: 1, alpha: 0.14)
+        cfg.background.strokeWidth = 0.5
+        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+        cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+            return out
+        }
+        let chip = UIButton(configuration: cfg)
+        chip.accessibilityLabel = "Copy selection"
+        chip.addAction(UIAction { [weak self] _ in
+            UIPasteboard.general.string = captured
+            self?.selectMark("chip-copied \(captured.count) chars")
+            #if DEBUG
+            if let marker = ProcessInfo.processInfo.environment["HOP_COPY_MARKER"] {
+                try? captured.write(toFile: marker, atomically: true, encoding: .utf8)
+            }
+            #endif
+            self?.hideCopyChip()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }, for: .touchUpInside)
+        chip.sizeToFit()
+        // FIXED slot, top-trailing under the chrome strip (where the size
+        // chip taught the eye to look) — NOT at the finger: the system's
+        // text-input menu (Paste/Select/Select All, from SwiftTerm's
+        // UITextInput) presents there and occluded a finger-anchored chip
+        // (screenshot-proven; canPerformAction is public-not-open, so the
+        // system menu cannot be suppressed from a subclass). Hosted on the
+        // SUPERVIEW: the terminal's subtree is opaque to accessibility.
+        guard let host = superview else { return }
+        _ = point
+        let size = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        chip.frame = CGRect(x: host.bounds.width - size.width - 12,
+                            y: Self.chromeStrip + 8,
+                            width: size.width, height: size.height)
+        host.addSubview(chip)
+        copyChip = chip
+        selectMark("chip-shown")
+        // A selection you walked away from shouldn't leave UI behind.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self, weak chip] in
+            if let chip, chip === self?.copyChip { self?.hideCopyChip() }
+        }
+    }
+
+    private func hideCopyChip() {
+        copyChip?.removeFromSuperview()
+        copyChip = nil
+    }
 
     /// The hop keyboard. Sticky across sessions and launches: a keyboard
     /// choice is a preference, not a per-terminal mood.
@@ -2746,6 +2897,12 @@ extension HopTermView: UIGestureRecognizerDelegate {
                 .info("coast braked by touch")
             stopMomentum()
             return false
+        }
+        // Press-and-hold selects — but not in the chrome strip (reaching for
+        // controls), and never while a coast is being braked (below).
+        if g === selectHold {
+            let inStrip = g.location(in: self).y - bounds.origin.y < Self.chromeStrip
+            if inStrip { return false }
         }
         // An APPROVED single tap on the terminal body is the user engaging —
         // "a single touch should trigger autofit". This is the one place

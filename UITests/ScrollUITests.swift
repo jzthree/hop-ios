@@ -537,6 +537,81 @@ final class ScrollUITests: XCTestCase {
         return name
     }
 
+    /// Select-and-copy, the native contract: press-and-hold selects a word
+    /// (no scroll/select mode — a hold is never a scroll), the modern edit
+    /// menu appears, Copy fills the pasteboard. Witnessed via the DEBUG
+    /// copy marker (the runner cannot read the pasteboard) with the ACTUAL
+    /// word under the press.
+    func testLongPressSelectsAndCopyCopies() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "SelectProbe"
+        // A prior aborted run can leave the scratch alive; clear, then create.
+        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions",
+                                 ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete",
+                               ["internalName": scratch], cookie: cookie) }
+        let marker = "/tmp/hop-select-marker.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        try? FileManager.default.removeItem(atPath: "/tmp/hop-selecthold-marker.txt")
+
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_COPY_MARKER"] = marker
+        app.launchEnvironment["HOP_SELECT_MARKER"] = "/tmp/hop-selecthold-marker.txt"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        // Paint a known word, then put the keyboard away so the press lands
+        // on the transcript, not the keys.
+        // Fill the screen with words so a mid-screen press lands ON text —
+        // a fresh scratch has three sparse lines at the very top, and a
+        // press on a blank cell rightly selects nothing (and shows nothing).
+        // The keyboard STAYS UP: the deterministic path (no layout churn
+        // under the menu); the keyboard-was-down path gets its own settle
+        // delay in the app and its verdict on the device.
+        app.typeText("seq 1000 1040\n")
+        sleep(2)
+
+        // ONE deterministic press on the transcript body: whatever word sits
+        // there (prompt or sentinel), the contract is hold -> menu -> Copy ->
+        // pasteboard. The element type of an edit-menu item is version-
+        // fickle, so match any descendant named Copy.
+        // dx lands ON the seq digits (cols 0-4); a press right of them
+        // selects an empty word — active but blank (probe-proven). 0.07
+        // clears the 16pt edge-swipe zone.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.35))
+            .press(forDuration: 0.7)
+        // The chip renders in its FIXED top-trailing slot but the SwiftUI
+        // hosting boundary hides it from the element tree (screenshot shows
+        // it plainly) — the app's own trace file is the presence witness,
+        // and the tap goes to the slot the design guarantees.
+        var shown = false
+        for _ in 0..<10 where !shown {
+            usleep(300_000)
+            shown = ((try? String(contentsOfFile: "/tmp/hop-selecthold-marker.txt",
+                                  encoding: .utf8)) ?? "").contains("chip-shown")
+        }
+        XCTAssertTrue(shown, "the Copy chip never appeared after long-press")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.196)).tap()
+        var copied = ""
+        for _ in 0..<10 where copied.isEmpty {
+            usleep(500_000)
+            copied = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        }
+        XCTAssertFalse(copied.isEmpty, "Copy fired but the marker saw nothing")
+        XCTAssertTrue(copied.trimmingCharacters(in: .whitespacesAndNewlines).count >= 1,
+                      "copied text unexpected: '\(copied)'")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

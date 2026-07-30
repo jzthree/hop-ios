@@ -207,6 +207,35 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Hold to select, tap to copy (iteration 213)
+
+Jian's report, mid-round: select and copy didn't work, and he named
+the bar — mobile web makes you CHOOSE between scrolling and
+selecting; native must not. It now doesn't: press-and-hold selects
+the word under the finger (a hold is never a scroll), the selection
+handles extend it, scrolling always yielded to live selections, and
+a hop Copy chip in a fixed top-trailing slot copies the text captured
+the moment the chip appeared — so nothing that later clears the live
+selection can lose what the finger chose. E2E-proven: pressed the
+word "1030" in a scratch session, tapped the chip, the marker
+witnessed exactly "1030". Suites 26 UI + 91 unit, strict zero.
+
+What was actually broken, for the record: SwiftTerm's entire copy UI
+is UIMenuController — modern iOS silently refuses to show it — and in
+mouse-reporting sessions double-tap belongs to the app, so no
+selection path existed at all. The fix fought three interlocking
+systems (recognizer-set mutation mid-touch resets gestures;
+UIEditMenuInteraction and SwiftTerm's UITextInput conformance clear
+selection under each other; canPerformAction is public-not-open) —
+eleven probe cycles, each landing one fact. The system's own
+Paste/Select/Select All still appears at the selection and coexists.
+One caveat queued: the chip misses the accessibility tree (SwiftUI
+hosting boundary) — VoiceOver follow-up.
+
+His other two reports are queued as PLAN 33 (production-grade
+disconnect handling — next round's top) and PLAN 34 (keyboard-top
+margin), with the back-vs-menu recommendation in PLAN 35.
+
 ## The loop slows itself down (iteration 212)
 
 Third consecutive round with every gate unmoved (account empty, phone
