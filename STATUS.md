@@ -207,6 +207,19 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The front door matches the app (iteration 220)
+
+First round with a public audience: the README had zero visuals while
+docs/screens held twenty verification screenshots, and its feature
+list predated the hop keyboard, echo, folders, fork, select-and-copy,
+Handoff, Shortcuts and the disconnect story. Now: four screenshots
+inline at the top (wall, folders, hop keyboard, disconnect banner —
+each a real probe artifact, and the caption says so), the What-it-does
+section rewritten to the app that actually exists, stale numbers
+fixed (the suite is 28 tests / ~5 min, not 48s), and the layout table
+gains the five load-bearing new files. Raw-image URL verified serving
+200 on the public repo. Docs-only; the phone stays on 262.
+
 ## Public (iteration 219)
 
 Jian: "ready to make this public (and link from hop?)" — done, after
