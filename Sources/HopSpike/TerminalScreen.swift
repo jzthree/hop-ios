@@ -1736,29 +1736,29 @@ struct TerminalScreen: UIViewRepresentable {
             tv.getTerminal().resize(cols: cols, rows: rows)
             onGridChange()
         }
-        #if DEBUG
-        /// The wake instrument (PLAN 17): timestamped lines to a marker
-        /// file, one per size-relevant event, so a single lock/unlock on a
-        /// device names the exact sequence that painted the wrong size.
+        /// The wake instrument (PLAN 17), now RELEASE-visible: every
+        /// size-relevant event lands in the KBLog ring (Copy diagnostics),
+        /// so "wrong size when idle and back" on the real phone is one
+        /// paste away from a named culprit. The env-gated file marker stays
+        /// for probes.
         private var wakeEpoch = Date()
         func wakeMark(_ line: String) {
-            guard let path = ProcessInfo.processInfo.environment["HOP_WAKE_MARKER"] else { return }
             let ms = Int(Date().timeIntervalSince(wakeEpoch) * 1000)
+            KBLog.record("wake t+\(ms)ms \(line)")
+            #if DEBUG
+            guard let path = ProcessInfo.processInfo.environment["HOP_WAKE_MARKER"] else { return }
             let entry = "t+\(ms)ms \(line)\n"
             if let h = FileHandle(forWritingAtPath: path) {
                 h.seekToEndOfFile(); h.write(Data(entry.utf8)); try? h.close()
             } else {
                 try? entry.write(toFile: path, atomically: true, encoding: .utf8)
             }
+            #endif
         }
         func wakeEpochReset(_ reason: String) {
             wakeEpoch = Date()
             wakeMark("== \(reason)")
         }
-        #else
-        func wakeMark(_ line: String) {}
-        func wakeEpochReset(_ reason: String) {}
-        #endif
 
         /// Resizes are held until this is true. Opening a session used to send
         /// TWO: the claim at the pre-keyboard height, then another when the
@@ -1844,6 +1844,16 @@ struct TerminalScreen: UIViewRepresentable {
         private func sendAttachClaim() {
             guard !claimed, !observeOnly else { return }
             claimed = true
+            // Claim what IS, not what was: after a wake the cached fit can
+            // describe the PRE-LOCK layout (keyboard rows included), and a
+            // deliberate claim with stale dims WINS the election with the
+            // wrong size — "often wrong when idle and back" (Jian, on 260).
+            // A synchronous layout pass makes SwiftTerm re-fit the CURRENT
+            // bounds and fire sizeChanged before we read.
+            if let v = view {
+                v.setNeedsLayout()
+                v.layoutIfNeeded()
+            }
             let t = view?.getTerminal()
             let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
             let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)

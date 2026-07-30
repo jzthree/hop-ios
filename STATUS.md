@@ -207,6 +207,23 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Claim what is, not what was (iteration 217)
+
+Jian, on 260: the terminal still often wakes at the wrong size. Every
+downstream mechanism has been probe-proven (deliberate claims win
+outright, adopts defer, settle re-asserts), so the remaining suspect
+is the INPUT: a wake claim that reads cached fitted dims computed
+under the pre-lock layout — keyboard rows included — and wins the
+election with a stale size. sendAttachClaim now forces a synchronous
+layout pass first, so SwiftTerm re-fits the CURRENT bounds and the
+claim carries reality.
+
+And the wake trace went release-visible: wakeMark now writes through
+the KBLog ring, so every claim, active_size verdict, snapshot and
+fast paint shows up in Copy diagnostics on the REAL phone. If a wake
+still lands wrong, one paste names the actor — no more fixing by
+plausibility. 93 unit + 28 UI green, strict zero.
+
 ## Three verdicts in, three fixes out (iteration 216)
 
 THE BLIP RULE (37): the lock/unlock "two lines of red text" were the

@@ -459,4 +459,20 @@ still hears the full sentence. (ViewThatFits measured its own
 proposal, not its neighbors' appetite — device font scaling made the
 sentence win while overlapping.)
 
-## 40. (space for Jian's next reports)
+## 40. [FIX + INSTRUMENT SHIPPED 2026-07-30 — awaiting one bad trace]
+Re-entry size STILL often wrong (Jian, on 260)
+The remaining machinery all works (probe-proven repeatedly), so the
+suspect is upstream: the wake claim reading CACHED fitted dims from
+the pre-lock layout — a deliberate claim with stale dims WINS the
+election with the wrong size, and nothing corrects it until the next
+layout-changing event. Fix shipped: sendAttachClaim forces a
+synchronous layout pass first (SwiftTerm re-fits CURRENT bounds,
+sizeChanged fires, THEN we read). And the wake trace is now
+RELEASE-visible through the KBLog ring: every claim, active_size,
+snapshot, fastPaint and epoch lands in Copy diagnostics.
+JIAN'S MOVE if it happens again: the moment a terminal wakes wrong,
+⋯ → Server & account → Copy diagnostics, paste it here — the wake
+lines name the exact actor (stale claim dims / foreign adopt / fast
+paint / no claim at all) and the next fix is surgical.
+
+## 41. (space for Jian's next reports)
