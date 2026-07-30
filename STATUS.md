@@ -239,6 +239,34 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The socket stops lying (iteration 223)
+
+Jian's report was precise: the terminal shows but takes no input, and
+back-and-re-enter fixes it — with the ask that readiness be visible
+without typing, and self-healing when absent. The mechanism was the
+half-open socket: idle suspension kills the connection SILENTLY, no
+close event arrives, the screen paints from cache, the dot claims
+live — and sendInput's completion handler ignored errors, so typed
+keys vanished into the corpse.
+
+Three fixes shipped: send failures tear the socket down and re-buffer
+the very keystroke that discovered the death (the replay machinery
+delivers it after reconnect — nothing typed is lost, ever); every
+foreground wake pings the socket with a deadline, so the corpse is
+found and replaced BEFORE the first keystroke; and the pill dot now
+breathes while connecting, solid green only when the claim is
+verified — the readiness indicator made trustworthy rather than
+merely added. E2E: a DEBUG half-open simulator (generation-orphaned
+close — the app genuinely believes it's live) plus a probe that types
+into the corpse and reads the full line off the daemon's screen after
+auto-recovery. The probe's first run passed FALSELY against a normal
+drop because the sim hook hadn't landed — caught, fixed, re-proven.
+
+His second report (dictation insertion + the missing transcription
+UI) is PLAN 45, split honestly: the marked-text path is ours to fix;
+the transcript-preview interface looks like flowboard's surface, to
+confirm before building. 93 unit + 29 UI green, strict zero.
+
 ## Dense rows, agentic examples (iteration 222)
 
 Two Jian directives in one round. The list facelift (chosen over

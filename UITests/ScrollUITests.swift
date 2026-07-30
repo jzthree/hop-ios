@@ -688,6 +688,47 @@ final class ScrollUITests: XCTestCase {
         return app
     }
 
+    /// The half-open socket (Jian: "the terminal shows, but it doesn't
+    /// take any user input — go back and re-enter and it works"): after a
+    /// SILENT socket death the app believes it's live. The first keystroke
+    /// must discover the corpse, reconnect, and REPLAY itself — nothing
+    /// typed is lost, no back-and-re-enter required.
+    func testHalfOpenSocketRecoversOnFirstKeystroke() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "HalfOpenProbe"
+        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions",
+                                 ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete",
+                               ["internalName": scratch], cookie: cookie) }
+
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_DROP_WS"] = "2"
+        app.launchEnvironment["HOP_DEV_HALFOPEN"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(4)   // the silent death at t+2 has happened; the app still shows live
+        app.typeText("echo half-ok\n")
+        // The keystrokes discover the corpse, buffer, reconnect, replay —
+        // the daemon's screen is the witness.
+        var screen = ""
+        for _ in 0..<24 where !screen.contains("half-ok") {
+            usleep(500_000)
+            screen = daemonPreview(of: scratch, cookie: cookie) ?? ""
+        }
+        XCTAssertTrue(screen.contains("echo half-ok"),
+                      "typed line never survived the half-open recovery: \(screen.suffix(200))")
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

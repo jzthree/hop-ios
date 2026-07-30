@@ -6,6 +6,11 @@ import os
 @MainActor
 final class HayClient: NSObject {
     enum Event {
+        /// A send hit a dead socket — the classic HALF-OPEN after idle: the
+        /// screen paints, no close event ever arrived, and typed input
+        /// vanished silently (the send completion used to ignore errors).
+        /// Carries the original text so the coordinator can re-buffer it.
+        case sendFailed(String)
         case connected
         case output(String)
         // Full replay. The mode flags travel BESIDE the data because the
@@ -142,7 +147,9 @@ final class HayClient: NSObject {
         receiveLoop(generation)
     }
 
-    func sendInput(_ text: String) { sendJSON(["type": "input", "data": text]) }
+    func sendInput(_ text: String) {
+        sendJSON(["type": "input", "data": text], lostPayload: text)
+    }
     func takeControl() { sendJSON(["type": "take_control"]) }
     func releaseControl() { sendJSON(["type": "release_control"]) }
     func setCollab(_ enabled: Bool) { sendJSON(["type": "toggle_collab", "enabled": enabled]) }
@@ -180,10 +187,53 @@ final class HayClient: NSObject {
 
     private var generation = 0
 
-    private func sendJSON(_ obj: [String: Any]) {
+    /// Wake-time liveness probe: a half-open socket answers nothing, and
+    /// URLSession won't notice until a send fails. Ping with a deadline;
+    /// no pong in time → tear down so the reconnect machinery runs BEFORE
+    /// the user's first keystroke discovers the corpse.
+    func verifyLiveness(timeout: TimeInterval = 2.5) {
+        guard let task else { return }
+        let generation = self.generation
+        let pingID = UUID()
+        pendingPing = pingID
+        task.sendPing { [weak self] error in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.generation else { return }
+                if self.pendingPing == pingID { self.pendingPing = nil }
+                if error != nil { self.killDeadSocket() }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            guard let self, generation == self.generation,
+                  self.pendingPing == pingID else { return }
+            self.pendingPing = nil
+            self.killDeadSocket()
+        }
+    }
+
+    private var pendingPing: UUID?
+
+    /// One teardown for every way a dead socket is discovered.
+    private func killDeadSocket(lostPayload: String? = nil) {
+        generation += 1
+        task?.cancel(with: .abnormalClosure, reason: nil)
+        if let lostPayload { onEvent?(.sendFailed(lostPayload)) }
+        onEvent?(.failed("connection died while idle", permanent: false))
+    }
+
+    private func sendJSON(_ obj: [String: Any], lostPayload: String? = nil) {
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let str = String(data: data, encoding: .utf8) else { return }
-        task?.send(.string(str)) { _ in }
+        let generation = self.generation
+        task?.send(.string(str)) { [weak self] error in
+            guard error != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.generation else { return }
+                // First failed send on this socket tears it down; the rest
+                // of the burst rides the same teardown.
+                self.killDeadSocket(lostPayload: lostPayload)
+            }
+        }
     }
 
     private var connectedAt: Date?
@@ -270,8 +320,17 @@ final class HayClient: NSObject {
                 Self.devDropFired = true
                 Self.devDropRemaining = (ProcessInfo.processInfo
                     .environment["HOP_DEV_DROP_WS_COUNT"].flatMap(Int.init) ?? 1) - 1
+                let halfOpen = ProcessInfo.processInfo.environment["HOP_DEV_HALFOPEN"] == "1"
                 DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
-                    self?.task?.cancel(with: .abnormalClosure, reason: nil)
+                    guard let self else { return }
+                    if halfOpen {
+                        // Silent death: bump the generation FIRST so the
+                        // pending receive's failure is orphaned — the app
+                        // keeps believing the socket is live, exactly what
+                        // an idle suspension does to a real socket.
+                        self.generation += 1
+                    }
+                    self.task?.cancel(with: .abnormalClosure, reason: nil)
                 }
             }
 #endif

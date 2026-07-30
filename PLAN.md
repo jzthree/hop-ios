@@ -506,4 +506,37 @@ the keyboard section (hop keyboard for terminal symbols + hopboard
 for voice), and possibly an in-app pointer. A dead link is worse than
 none, so this waits for the URL.
 
-## 44. (space for Jian's next reports)
+## 44. [DONE 2026-07-30] The half-open socket: input readiness is real now
+Jian: "the terminal shows, but it doesn't take any user input — go
+back and re-enter and it works"; and readiness should be VISIBLE
+without typing. Root: after idle the socket dies SILENTLY (no close
+event), the screen paints from cache, the dot says live, and
+sendInput's completion IGNORED errors — keystrokes vanished into a
+corpse. Three fixes: (1) send failures now tear the socket down and
+RE-BUFFER the discovering keystroke (PendingInput replays it after
+reconnect — nothing typed is ever lost); (2) every foreground wake
+pings the socket with a 2.5s deadline — a corpse feeds the normal
+reconnect machinery BEFORE the first keystroke, and the blip-grace
+keeps a healthy pong invisible; (3) the pill dot breathes (sonar)
+while connecting and is solid green only when verified — the ready
+signal Jian asked for, made trustworthy rather than added. E2E:
+HOP_DEV_HALFOPEN simulates the silent death (generation-orphaned
+close); the probe types into the corpse and the daemon's screen shows
+the full line after auto-recovery. (First run of the probe passed
+FALSELY against a normal drop — the hook hadn't landed; caught by
+timestamp discipline.)
+
+## 45. Dictation insertion + transcription UI (Jian, next)
+"Insertion into the terminal sometimes does not work even when I can
+type into the keyboard… it didn't even show the prior interface that
+shows the transcribed text with one-tap insert." Two halves: (a) OUR
+side — dictated text arrives through UITextInput's marked-text/
+replacement machinery, not plain insertText; SwiftTerm's conformance
+is partial and likely drops it. Investigate setMarkedText/
+insertDictationResult on HopTermView and route the final transcript
+through typedText. (b) The transcription-preview-with-insert UI is
+not in this repo's history — it sounds like flowboard/hopboard
+surface; confirm with Jian which app owns it before building
+anything.
+
+## 46. (space for Jian's next reports)

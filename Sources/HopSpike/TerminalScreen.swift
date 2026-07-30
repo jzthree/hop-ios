@@ -458,6 +458,12 @@ struct TerminalHostView: View {
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
                 if phase == .active, status == .closed { reconnectToken += 1 }
                 if phase == .active, retryAt != nil { retryAt = Date() }   // wake: trying now
+                // A LIVE-looking socket can be half-open after idle: the
+                // screen paints, keystrokes vanish. Ping it on every wake;
+                // a corpse feeds the normal reconnect machinery before the
+                // user's first keystroke finds it (Jian: "the terminal
+                // shows, but it doesn't take any user input").
+                if phase == .active, status == .live { controlAction = .verifyLiveness }
             }
             // The route changed under us — wifi to 5G, or a dead path coming
             // back. Every open socket is already dead; waiting out a backoff
@@ -563,9 +569,15 @@ struct TerminalHostView: View {
     /// and viewer glyphs remain the terminal's one-line status.
     private var titleLabel: some View {
         HStack(spacing: 7) {
+            // The readiness signal (Jian: "indicate clearly whether it is
+            // ready for keyboard input without typing"): solid green is now
+            // a VERIFIED claim — send failures and the wake ping both
+            // demote a lying socket within a beat — and anything not-ready
+            // breathes so the eye catches it without reading.
             Circle()
                 .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
                 .frame(width: 8, height: 8)
+                .sonar(when: status == .connecting, color: .yellow)
             Text(renamedTitle ?? session.name)
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
@@ -732,7 +744,7 @@ struct FindRequest: Equatable {
     let direction: Int
 }
 
-enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled }
+enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled, verifyLiveness }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -1091,6 +1103,11 @@ struct TerminalScreen: UIViewRepresentable {
             client.onEvent = { [weak self] event in
                 guard let self, let tv = self.view else { return }
                 switch event {
+                case .sendFailed(let text):
+                    // The keystroke that discovered the corpse: into the
+                    // replay buffer with every right to be replayed — the
+                    // user typed it, the socket lied about being alive.
+                    self.pending.append(text, at: Date())
                 case .connected:
                     self.retryAttempt = 0      // healthy again: reset backoff
                     self.onRetryState(nil, 0)
@@ -1380,6 +1397,8 @@ struct TerminalScreen: UIViewRepresentable {
             case .links: onLinks(visibleLinks())
             case .keyboardSettled:
                 scheduleKeyboardSettleCheck()
+            case .verifyLiveness:
+                verifyAliveOnWake()
             case .claimSize:
                 // The chip's tap: ask for our fitted size. The election may
                 // refuse (someone typed recently) — the refusal rebroadcast
@@ -1538,6 +1557,15 @@ struct TerminalScreen: UIViewRepresentable {
                                         token: self.token_, using: self.urlSession)
                 }
             }
+        }
+
+        /// Foreground wake: a socket that LOOKS live may be half-open.
+        /// Ping it; the failure path feeds the normal reconnect machinery,
+        /// and the blip-grace keeps a healthy pong invisible.
+        func verifyAliveOnWake() {
+            guard isLive, !sessionEnded else { return }
+            wakeMark("liveness ping")
+            client.verifyLiveness()
         }
 
         func reconnectIfNeeded(token: Int, view: HopTermView) {
