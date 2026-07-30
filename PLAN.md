@@ -483,4 +483,27 @@ identity in tests (the coordinate-tap workaround is gone; the e2e
 taps buttons["Copy selection"] and the marker still witnesses the
 copied word).
 
-## 42. (space for Jian's next reports)
+## 42. [DONE 2026-07-30] List facelift + agentic screenshots
+Jian: the list "is not using the screen real estate efficiently —
+hide it or do a face lift"; and "examples would be better if they are
+agentic." Facelift chosen over hiding (the list uniquely carries
+taglines, swipe actions and grouping): time inline on the name line
+(the trailing column spent a gutter on four characters), subheadline
+name, caption2 tagline, 2-line preview with tighter chrome, 5pt row
+insets — ~9 visible rows where ~5.5 fit before, nothing dropped. The
+demo screenshot fleet was rebuilt AGENTIC (⏺/⎿ transcript content,
+task-shaped taglines: PR review, flaky-test hunt, perf audit…) and
+both wall shots retaken under a top-10 cleanliness guard (the denser
+list shows more rows, so the guard grew with it; his brand-new
+hopboard session kept topping the fleet mid-shoot and had to be
+waited out).
+
+## 43. [GATED on Jian's hopboard repo going public] Link hopboard
+Jian: hopboard (Flowboard iOS voice keyboard) is going public; hop-ios
+should link it for dictation — "free, better than Apple native, close
+to paid app level." When the repo URL exists: a README paragraph in
+the keyboard section (hop keyboard for terminal symbols + hopboard
+for voice), and possibly an in-app pointer. A dead link is worse than
+none, so this waits for the URL.
+
+## 44. (space for Jian's next reports)

@@ -241,6 +241,8 @@ struct SessionsView: View {
         // element the List owns. A wash the width of the row is what makes the
         // one that wants you findable while scrolling past nineteen.
         .listRowBackground(session.attention ? Color.hopAttention.opacity(0.13) : nil)
+        // Dense rows: the default insets spent ~14pt per row on air.
+        .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
         .onAppear { visibleRows.insert(session.internalName) }
         .onDisappear { visibleRows.remove(session.internalName) }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -963,11 +965,11 @@ struct SessionRow: View {
                         .sonar(when: session.busy && session.live, color: .hopLive)
                 }
             }
-            .frame(width: 22)
-            VStack(alignment: .leading, spacing: 3) {
+            .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.name)
-                        .font(.system(.body, design: .monospaced).weight(.semibold))
+                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                         // At accessibility sizes a name wrapped mid-word
                         // ("Sol-" / "stice"), which reads as a broken row.
                         // Shrink first, truncate second, never hyphenate.
@@ -992,20 +994,26 @@ struct SessionRow: View {
                         Image(systemName: "eye.fill").font(.system(size: 9))
                             .foregroundStyle(.secondary)
                     }
-
+                    Spacer(minLength: 4)
+                    // Inline, not a trailing column: the column reserved a
+                    // whole gutter for four characters (Jian: the list "is
+                    // not using the screen real estate efficiently").
+                    Text(session.relativeTime)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
                 }
                 if !session.tagline.isEmpty {
-                    Text(session.tagline).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(session.tagline).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 } else if !session.shortCwd.isEmpty {
                     Text(session.shortCwd)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.head)
                 }
                 if let preview, !preview.isEmpty {
                     // Coloured when the session has a colour report — the
                     // same ink the tiles use — with the plain text as the
                     // fallback, not a second code path.
-                    Text(screen.flatMap { TileInk.snippet($0, lines: 3) }
+                    Text(screen.flatMap { TileInk.snippet($0, lines: 2) }
                          ?? AttributedString(preview))
                         .font(.system(size: 9, design: .monospaced))
                         // The preview is a glance aid, not body text. Letting
@@ -1015,18 +1023,14 @@ struct SessionRow: View {
                         // scale all the way.
                         .dynamicTypeSize(...DynamicTypeSize.large)
                         .foregroundStyle(.secondary.opacity(0.85))
-                        .lineLimit(3)
+                        .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(6)
-                        .background(Color.hopSurface, in: RoundedRectangle(cornerRadius: 7))
-                        .padding(.top, 3)
+                        .padding(.horizontal, 5).padding(.vertical, 4)
+                        .background(Color.hopSurface, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.top, 2)
                 }
             }
-            Spacer()
-            Text(session.relativeTime)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
         // One row = one utterance. Element-by-element, VoiceOver would read a

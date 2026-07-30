@@ -239,6 +239,30 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Dense rows, agentic examples (iteration 222)
+
+Two Jian directives in one round. The list facelift (chosen over
+hiding it — the list uniquely carries taglines, swipe actions and
+grouping): the trailing time column is gone (inline on the name
+line), fonts tightened one step, the preview dropped to two lines
+with slimmer chrome, and row insets halved. Roughly nine rows now fit
+where five and a half did. And the public screenshots are AGENTIC:
+the demo fleet was rebuilt with ⏺/⎿ transcript content and
+task-shaped taglines (PR review, flaky-test hunt, perf audit,
+release notes), so the examples finally look like what hop is for.
+
+The reshoot fought the usual reality: the denser list shows MORE
+rows, so the cleanliness guard grew to top-10 with two extra demo
+sessions (a leak peeked at row 9 on the first take, plus a recreated
+session missing its neutral prompt); and Jian's brand-new hopboard
+session kept topping the fleet mid-shoot — waited out rather than
+touched, since he was typing in it. hopboard itself is queued as
+PLAN 43: he plans to publish it, and hop-ios will link it for voice
+dictation once the URL exists.
+
+Demo fleet deleted, fleet verified clean, 93 unit + 28 UI green,
+strict zero.
+
 ## The screenshots stop testifying (iteration 221)
 
 Jian: "change my hop ios screenshots to not leak my real terminals —
