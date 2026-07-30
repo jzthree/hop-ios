@@ -239,6 +239,30 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Every input door gets a bell (iteration 224)
+
+PLAN 45(a): flowboard's insertion path is invisible until it runs
+against the real app, so this round shipped forensics, not guesses.
+Every UITextInput door rings the KBLog ring — insertText with length
+and prefix, setMarkedText, unmarkText, deleteBackward, and an
+explicit insertDictationResult. replace(_:withText:) is public-not-
+open and can't be instrumented: silence across all logged doors
+convicts it by elimination. The ring grew to 240 lines after the
+diagnosis walk itself evicted the keystroke being diagnosed.
+
+The round's real catch came from its own probe: the day-old half-open
+fix re-buffered only the FIRST key of an errored burst — the daemon's
+screen read "eho half-ok", the 'c' died with a generation guard. Every
+errored send now re-buffers its payload unconditionally; teardown
+stays first-failure-only. Two suite traps recorded: typeText
+synthesizes HARDWARE key events that bypass insertText entirely, and
+the sim's hardware-keyboard mode can pin software keys offscreen
+forever (the forensics assert skips honestly there).
+
+When a flowboard transcript next fails: Copy diagnostics right then —
+the ti.* lines name the door, or the silence names replace().
+93 unit + 29 UI green, strict zero.
+
 ## The socket stops lying (iteration 223)
 
 Jian's report was precise: the terminal shows but takes no input, and

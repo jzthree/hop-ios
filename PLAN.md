@@ -526,17 +526,21 @@ the full line after auto-recovery. (First run of the probe passed
 FALSELY against a normal drop — the hook hadn't landed; caught by
 timestamp discipline.)
 
-## 45. Dictation insertion + transcription UI (Jian, next)
-"Insertion into the terminal sometimes does not work even when I can
-type into the keyboard… it didn't even show the prior interface that
-shows the transcribed text with one-tap insert." Two halves: (a) OUR
-side — dictated text arrives through UITextInput's marked-text/
-replacement machinery, not plain insertText; SwiftTerm's conformance
-is partial and likely drops it. Investigate setMarkedText/
-insertDictationResult on HopTermView and route the final transcript
-through typedText. (b) The transcription-preview-with-insert UI is
-not in this repo's history — it sounds like flowboard/hopboard
-surface; confirm with Jian which app owns it before building
-anything.
-
+## 45. [INSTRUMENT SHIPPED 2026-07-30 — awaiting one failed dictation]
+Dictation insertion + transcription UI
+Half (a), ours: every UITextInput door now logs to the KBLog ring —
+insertText (length + prefix), setMarkedText, unmarkText,
+deleteBackward, and an explicit insertDictationResult. The one
+uninstrumentable door is replace(_:withText:) (public-not-open in
+SwiftTerm): a failed insertion whose trace shows NO door firing
+convicts replace() by elimination. Ring grown to 240 lines so the
+trace survives the walk to Copy diagnostics. En route, a REAL bug in
+the fresh half-open fix: errored sends re-buffered only the burst's
+FIRST key (daemon read "eho half-ok"); now every errored payload
+re-buffers regardless of generation. JIAN'S MOVE: next failed
+flowboard insert → Copy diagnostics immediately; the ti.* lines (or
+their silence) name the door.
+Half (b), the transcript-preview one-tap-insert UI: not in this
+repo's history — likely flowboard's surface. Jian to confirm
+ownership before anything is built here.
 ## 46. (space for Jian's next reports)
