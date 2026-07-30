@@ -131,6 +131,24 @@ final class ScrollUITests: XCTestCase {
         XCTAssertEqual(ctrl.value as? String, "", "tapping again disarms rather than sticking")
     }
 
+    /// The terminal's ⋯ must carry the web sheet's session verbs — Rename
+    /// was reported missing from inside a session (everything lived only on
+    /// the wall's long-press).
+    func testTerminalMenuCarriesSessionVerbs() throws {
+        let app = launchIntoSession(Self.fixture)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.buttons["Terminal actions"].tap()
+        XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 5),
+                      "Rename missing from the terminal menu")
+        XCTAssertTrue(app.buttons["Edit tagline"].exists)
+        XCTAssertTrue(app.buttons["Park"].exists)
+        XCTAssertTrue(app.buttons["Kill"].exists)
+        XCTAssertTrue(app.buttons["Move to Agents"].exists || app.buttons["Move to You"].exists,
+                      "origin move missing")
+        // Dismiss without touching anything destructive.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+    }
+
     /// Landscape was verified only by a dev flag that forced the compact
     /// layout in portrait — a proxy for the thing, not the thing. XCUIDevice
     /// can actually rotate, so assert the real behaviour: in landscape the
@@ -292,9 +310,16 @@ final class ScrollUITests: XCTestCase {
         }
         XCTAssertTrue(board.waitForExistence(timeout: 5), "toggle key missing from the bar")
         board.tap()
-        // Letters plane up.
-        XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5),
-                      "hop keyboard letters plane never appeared")
+        // Letters plane up. The preference is STICKY: a prior aborted run
+        // can leave the board ON, in which case that tap just turned it
+        // OFF — toggle once more rather than fail on inherited state
+        // (trap: a stuck-ON board also breaks every keys[]-based test).
+        var lettersUp = app.buttons["q"].waitForExistence(timeout: 4)
+        if !lettersUp {
+            board.tap()
+            lettersUp = app.buttons["q"].waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(lettersUp, "hop keyboard letters plane never appeared")
         // 123 plane.
         app.buttons["numbers"].firstMatch.tap()
         XCTAssertTrue(app.buttons["1"].waitForExistence(timeout: 3), "numbers plane missing")
@@ -309,7 +334,18 @@ final class ScrollUITests: XCTestCase {
         let portraitKeyHeight = app.buttons["q"].frame.height
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
-        sleep(2)
+        // The sim sometimes refuses to rotate under suite load (recorded
+        // trap: rotation wedge) — poll for the rotation actually landing,
+        // and SKIP if it never does: a wedged sim is environment, and a
+        // wedge here used to cascade into the landscape test after this.
+        var rotated = false
+        for _ in 0..<12 where !rotated {
+            usleep(300_000)
+            let w = app.windows.firstMatch.frame
+            rotated = w.width > w.height
+        }
+        try XCTSkipUnless(rotated, "sim refused to rotate — environment, not regression")
+        sleep(1)
         XCTAssertTrue(app.buttons["q"].exists, "board vanished on rotation")
         let landscapeKeyHeight = app.buttons["q"].frame.height
         XCTAssertLessThan(landscapeKeyHeight, portraitKeyHeight * 0.8,
@@ -617,9 +653,12 @@ final class ScrollUITests: XCTestCase {
     /// NOW), and a successful reconnect must clear it. HOP_DEV_DROP_WS
     /// hard-drops the socket once, deterministically.
     func testDisconnectShowsBannerAndRecovers() throws {
-        let app = launchIntoSessionWithDrop(Self.fixture, dropAfter: 2)
+        // COUNT=3 sustains the outage across backoffs: a single drop
+        // reconnects inside the grace period and rightly shows NOTHING
+        // (the lock/unlock-blip rule, Jian's verdict on the red text).
+        let app = launchIntoSessionWithDrop(Self.fixture, dropAfter: 2, count: 3)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
-        // The drop fires at t+2; the first retry backoff is 1-2s, so the
+        // The drop fires at t+2 and keeps dropping; past the 1.2s grace the
         // banner must appear with either wording.
         let banner = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS 'Connection lost' OR label CONTAINS 'Reconnecting'")
@@ -635,11 +674,12 @@ final class ScrollUITests: XCTestCase {
         // presence is in the screenshot.)
         let gone = NSPredicate(format: "exists == false")
         expectation(for: gone, evaluatedWith: banner, handler: nil)
-        waitForExpectations(timeout: 20)
+        waitForExpectations(timeout: 30)
         XCTAssertTrue(app.buttons["escape"].exists, "session unusable after recovery")
     }
 
-    private func launchIntoSessionWithDrop(_ name: String, dropAfter: Int) -> XCUIApplication {
+    private func launchIntoSessionWithDrop(_ name: String, dropAfter: Int,
+                                           count: Int = 1) -> XCUIApplication {
         let app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
         app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
@@ -647,6 +687,8 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_OPEN"] = name
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchEnvironment["HOP_DEV_DROP_WS"] = String(dropAfter)
+        app.launchEnvironment["HOP_DEV_DROP_WS_COUNT"] = String(count)
+        app.launchEnvironment["HOP_RETRY_MARKER"] = "/tmp/hop-retry-marker.txt"
         app.launch()
         return app
     }

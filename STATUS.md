@@ -207,6 +207,35 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Three verdicts in, three fixes out (iteration 216)
+
+THE BLIP RULE (37): the lock/unlock "two lines of red text" were the
+coordinator feeding disconnect strings into the terminal — pre-banner
+legacy that also lived in scrollback forever. Feeds deleted; the
+banner and dim now wait out a 1.2s grace measured from the outage's
+START (the first implementation re-armed per state-update and could
+never fire — marker-traced). Brief drop: nothing at all. Real outage:
+the countdown banner. The drop hook grew HOP_DEV_DROP_WS_COUNT to
+sustain outages by killing reconnects PRE-join — post-join kills make
+a blip-train, which the grace rightly silences; telling those apart
+cost three probe cycles and is exactly the UX being built.
+
+THE SWEEP (38): "missing rename" turned out to be a category — every
+session verb was wall-only, and origin refile existed nowhere. The
+terminal ⋯ gained a full Session section (rename, tagline, folder,
+origin, park, kill-with-confirm), both wall menus gained Move to
+You/Agents, and the origin verb round-trips e2e on the live daemon.
+
+THE OVERLAP (39): the toolbar summary is compact-numbers-only now —
+overlap-proof by construction, sentence preserved for VoiceOver.
+
+Suite health en route: a sim rotation wedge plus the STICKY board
+preference (an aborted run leaves the hop keyboard ON, which breaks
+every keys[]-based test after it) produced three red runs that were
+environment, not regression — the board test self-corrects now, the
+rotation leg skips a refusing sim, both recorded in traps.
+93 unit + 28 UI green, strict zero.
+
 ## The app says who it is (iteration 215)
 
 Drift round. hop2 18f86ce changed origin semantics overnight —

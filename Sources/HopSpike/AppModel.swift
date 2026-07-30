@@ -578,6 +578,14 @@ final class AppModel: ObservableObject {
         await post("api/folders/delete", ["id": id])
     }
 
+    /// Refile a session between You and Agents (the web sheet's "Move to
+    /// user/agent sessions"). Origin is a filing decision, not a fact about
+    /// the creator — hop lets you correct it.
+    func setOrigin(_ internalName: String, createdBy: String) async -> Bool {
+        await post("api/sessions/origin",
+                   ["internalName": internalName, "createdBy": createdBy])
+    }
+
     func killSession(_ s: HopSession) async -> Bool {
         await post("api/sessions/delete", ["internalName": s.internalName])
     }

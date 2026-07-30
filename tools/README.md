@@ -46,6 +46,7 @@ sends REAL input — use scratch sessions.
 | the XCUITest runner reads UIPasteboard as empty no matter what the app wrote | iOS 16 background-paste privacy silently denies reads from a process that is never foreground — the runner | verify copy actions via a DEBUG marker file (HOP_COPY_MARKER pattern), never by reading the pasteboard from the runner |
 | the fixture's display name churns daemon-side (Meridian->nebula, third incident) and every churn reads as a scroll regression | display names are ungated writes; internal names are stable | make uitest resolves TEST_RUNNER_HOP_E2E_FIXTURE from FIXTURE_INTERNAL via /api/sessions at suite start — repoint FIXTURE_INTERNAL, never the display string |
 | the share sheet is visibly on screen but app.buttons["Copy"] matches nothing (and so does springboard) | its actions are CELLS — actionGroupCell with label "Copy" — in the APP's own tree, not buttons anywhere | query app.cells by label predicate; dump app.debugDescription with the sheet up before guessing hosts |
+| the hop-keyboard suite fails differently every run after a wedge | the board preference is UserDefaults-sticky; an aborted run leaves it ON, breaking every keys[]-based test after it | the toggle test self-corrects (tap again if letters don't appear) and ends on the system keyboard; if keys[] tests all fail at once, suspect the sticky board first |
 
 
 ## The history-anchor probe (rerun recipe)

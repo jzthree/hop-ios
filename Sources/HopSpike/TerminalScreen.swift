@@ -58,6 +58,14 @@ struct TerminalHostView: View {
     @State private var reconnectToken = 0
     @State private var retryAt: Date?
     @State private var retryAttempt = 0
+    @State private var retryGeneration = 0
+    @State private var retryGraceArmed = -1
+    @State private var bannerVisible = false
+    @State private var renameShown = false
+    @State private var renameText = ""
+    @State private var taglineShown = false
+    @State private var taglineText = ""
+    @State private var killConfirmShown = false
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
@@ -142,16 +150,54 @@ struct TerminalHostView: View {
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
-                           retryAt = at
+                           #if DEBUG
+                           if let m = ProcessInfo.processInfo.environment["HOP_RETRY_MARKER"] {
+                               let line = "retryState at=\(at.map { String(format: "%.1f", $0.timeIntervalSinceNow) } ?? "nil") attempt=\(attempt)\n"
+                               let prev = (try? String(contentsOfFile: m, encoding: .utf8)) ?? ""
+                               try? (prev + line).write(toFile: m, atomically: true, encoding: .utf8)
+                           }
+                           #endif
                            retryAttempt = attempt
+                           guard let at else {
+                               // Recovery: everything resets, banner drops.
+                               retryAt = nil
+                               bannerVisible = false
+                               retryGeneration += 1
+                               return
+                           }
+                           retryAt = at                    // countdown follows every cycle
+                           // Grace measured from the OUTAGE'S START, not the
+                           // last state change — retry cycles update state
+                           // every second, and a per-update timer never
+                           // matures (probe-caught: no outage length could
+                           // show the banner). A blip that recovers inside
+                           // the grace shows nothing at all.
+                           if !bannerVisible, retryAt != nil, retryGeneration == retryGraceArmed {
+                               // grace already armed for this outage
+                           } else if retryGraceArmed != retryGeneration {
+                               retryGraceArmed = retryGeneration
+                               let gen = retryGeneration
+                               Task { @MainActor in
+                                   try? await Task.sleep(for: .milliseconds(1200))
+                                   if gen == retryGeneration, retryAt != nil {
+                                       bannerVisible = true
+                                       #if DEBUG
+                                       if let m = ProcessInfo.processInfo.environment["HOP_RETRY_MARKER"] {
+                                           let prev = (try? String(contentsOfFile: m, encoding: .utf8)) ?? ""
+                                           try? (prev + "bannerVisible\n").write(toFile: m, atomically: true, encoding: .utf8)
+                                       }
+                                       #endif
+                                   }
+                               }
+                           }
                        })
     }
 
     var body: some View {
         screen
-            .saturation(retryAt == nil ? 1 : 0.55)
-            .opacity(retryAt == nil ? 1 : 0.82)
-            .animation(.easeInOut(duration: 0.3), value: retryAt == nil)
+            .saturation(bannerVisible ? 0.55 : 1)
+            .opacity(bannerVisible ? 0.82 : 1)
+            .animation(.easeInOut(duration: 0.3), value: bannerVisible)
             .padding(.horizontal, 2)
             // Rows begin just under the status text (probe-caught at 26:
             // row zero ran straight through the clock). ~19pt reclaimed over
@@ -185,6 +231,29 @@ struct TerminalHostView: View {
                 // check debounces itself, so only the burst's last survivor
                 // runs.
                 controlAction = .keyboardSettled
+            }
+            .alert("Rename session", isPresented: $renameShown) {
+                TextField("name", text: $renameText).textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    Task { _ = await model.renameSession(session, to: renameText) }
+                }
+            }
+            .alert("Edit tagline", isPresented: $taglineShown) {
+                TextField("What is this session for?", text: $taglineText)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    Task { _ = await model.setTagline(session, to: taglineText.trimmingCharacters(in: .whitespaces)) }
+                }
+            }
+            .confirmationDialog("Kill \(session.name)?", isPresented: $killConfirmShown,
+                                titleVisibility: .visible) {
+                Button("Kill session", role: .destructive) {
+                    Task {
+                        if await model.killSession(session) { dismiss() }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
             }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
@@ -225,7 +294,7 @@ struct TerminalHostView: View {
                 // The reconnect story, in words: a production app never
                 // leaves a frozen screen unexplained. Shown whenever a
                 // retry is pending or in flight; "Now" skips the backoff.
-                if let retryAt, goneReason == nil {
+                if bannerVisible, let retryAt, goneReason == nil {
                     HStack(spacing: 8) {
                         Image(systemName: "wifi.exclamationmark")
                             .font(.system(size: 12, weight: .semibold))
@@ -388,7 +457,7 @@ struct TerminalHostView: View {
                 // flight tore it down and started over — and every connect
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
                 if phase == .active, status == .closed { reconnectToken += 1 }
-                if phase == .active, retryAt != nil { retryAt = Date() }
+                if phase == .active, retryAt != nil { retryAt = Date() }   // wake: trying now
             }
             // The route changed under us — wifi to 5G, or a dead path coming
             // back. Every open socket is already dead; waiting out a backoff
@@ -590,6 +659,48 @@ struct TerminalHostView: View {
                         Label(iHoldControl ? "Release control" : "Take control",
                               systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
                     }
+                }
+            }
+            // The web sheet's session verbs, reachable WITHOUT leaving the
+            // terminal (Jian: "missing rename — review the main hop web
+            // version"). Same daemon calls the wall menus make.
+            Section("Session") {
+                Button { renameText = session.name; renameShown = true } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button { taglineText = session.tagline; taglineShown = true } label: {
+                    Label("Edit tagline", systemImage: "text.quote")
+                }
+                Menu {
+                    ForEach(model.folders) { f in
+                        Button {
+                            Task { _ = await model.moveSession(session.internalName, toFolder: f.id) }
+                        } label: {
+                            if session.folderId == f.id {
+                                Label(f.name, systemImage: "checkmark")
+                            } else { Text(f.name) }
+                        }
+                    }
+                    if session.folderId != nil {
+                        Button {
+                            Task { _ = await model.moveSession(session.internalName, toFolder: nil) }
+                        } label: { Label("Unfiled", systemImage: "tray") }
+                    }
+                } label: { Label("Move to", systemImage: "folder") }
+                Button {
+                    Task { _ = await model.setOrigin(session.internalName,
+                                                     createdBy: session.createdBy == "agent" ? "user" : "agent") }
+                } label: {
+                    Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
+                          systemImage: "arrow.left.arrow.right")
+                }
+                Button {
+                    Task {
+                        if await model.setParked(session, parked: true) { dismiss() }
+                    }
+                } label: { Label("Park", systemImage: "moon.zzz") }
+                Button(role: .destructive) { killConfirmShown = true } label: {
+                    Label("Kill", systemImage: "xmark.circle")
                 }
             }
             Section {
@@ -1174,23 +1285,24 @@ struct TerminalScreen: UIViewRepresentable {
                     // leaving it up invites typing into a session that is gone.
                     _ = tv.resignFirstResponder()
                     self.setStatus(.closed)
-                    self.onGone(message)
-                    tv.feed(text: "\r\n\u{1b}[2m[\(message)]\u{1b}[0m\r\n")
+                    self.onGone(message)   // the gone screen says it; the buffer stays clean
                 case .failed(let reason, let permanent):
                     // After a known end, the socket closing is a consequence,
                     // not news. Saying "connection lost" under "session
                     // terminated" reads as a second, unrelated problem.
                     if self.sessionEnded { return }
                     self.setStatus(.closed)
+                    // NO text into the terminal (Jian, on device: "two lines
+                    // of red text" flashing on every lock/unlock — and living
+                    // in the scrollback forever). Permanent failures get the
+                    // gone screen with the reason; transient ones get the
+                    // banner, and only if they outlast the grace period.
                     if permanent { self.onGone(reason) }
-                    tv.feed(text: "\r\n\u{1b}[31m[\(reason)]\u{1b}[0m\r\n")
-                    // A gone room or a rejected identity won't fix itself.
                     if !permanent { self.scheduleRetry() }
                 case .closed:
                     if self.sessionEnded { return }
                     self.echo.reset()
                     self.setStatus(.closed)
-                    tv.feed(text: "\r\n\u{1b}[2m[disconnected]\u{1b}[0m\r\n")
                     self.scheduleRetry()
                 }
             }

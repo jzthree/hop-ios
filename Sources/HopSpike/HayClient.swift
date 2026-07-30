@@ -41,6 +41,7 @@ final class HayClient: NSObject {
     private var task: URLSessionWebSocketTask?
 #if DEBUG
     nonisolated(unsafe) static var devDropFired = false
+    nonisolated(unsafe) static var devDropRemaining = -1
 #endif
     var onEvent: ((Event) -> Void)?
 
@@ -127,6 +128,17 @@ final class HayClient: NSObject {
         t.maximumMessageSize = 32 * 1024 * 1024
         task = t
         t.resume()
+#if DEBUG
+        // Follow-up drops kill the reconnect BEFORE its join completes, so a
+        // COUNT>1 outage is one continuous story, not a train of blips (the
+        // blip-train is exactly what the grace period exists to silence).
+        if Self.devDropFired, Self.devDropRemaining > 0 {
+            Self.devDropRemaining -= 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak t] in
+                t?.cancel(with: .abnormalClosure, reason: nil)
+            }
+        }
+#endif
         receiveLoop(generation)
     }
 
@@ -248,11 +260,16 @@ final class HayClient: NSObject {
             onEvent?(.connected)
 #if DEBUG
             // Disconnect-UX probe hook: HOP_DEV_DROP_WS=<secs> hard-drops the
-            // socket once per process, N seconds after the first connect —
-            // the only deterministic way to watch the retry story on demand.
-            if !Self.devDropFired,
-               let secs = ProcessInfo.processInfo.environment["HOP_DEV_DROP_WS"].flatMap(Double.init) {
+            // socket N seconds after the first connect; HOP_DEV_DROP_WS_COUNT
+            // (default 1) also drops that many FOLLOW-UP reconnects shortly
+            // after they land, sustaining an outage across backoffs — the
+            // only deterministic way to watch the whole retry story,
+            // including the grace period that hides blips.
+            if let secs = ProcessInfo.processInfo.environment["HOP_DEV_DROP_WS"].flatMap(Double.init),
+               !Self.devDropFired {
                 Self.devDropFired = true
+                Self.devDropRemaining = (ProcessInfo.processInfo
+                    .environment["HOP_DEV_DROP_WS_COUNT"].flatMap(Int.init) ?? 1) - 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
                     self?.task?.cancel(with: .abnormalClosure, reason: nil)
                 }

@@ -866,6 +866,32 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(model.sessions.first { $0.internalName == scratch }?.folderId)
     }
 
+    /// Origin refile (web parity: "Move to user/agent sessions"): a scratch
+    /// created as user moves to agent and back, round-tripped through the
+    /// live daemon's list.
+    @MainActor
+    func testOriginMoveRoundTripsAgainstTheDaemon() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] != nil,
+                          "no daemon token in this environment")
+        let model = AppModel.shared
+        let scratch = "OriginMoveProbe"
+        let created = await model.createSession(name: scratch, cwd: "/tmp")
+        XCTAssertTrue(created)
+        defer { Task { @MainActor in
+            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+                _ = await model.killSession(s)
+            }
+        } }
+        let moved = await model.setOrigin(scratch, createdBy: "agent")
+        XCTAssertTrue(moved, "origin move refused: \(model.actionError ?? "?")")
+        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.createdBy,
+                       "agent")
+        let back = await model.setOrigin(scratch, createdBy: "user")
+        XCTAssertTrue(back)
+        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.createdBy,
+                       "user")
+    }
+
     /// Fork, against the real daemon: fork a scratch, the fork exists with
     /// the "-fork" name and the SAME cwd, and both die at teardown.
     @MainActor

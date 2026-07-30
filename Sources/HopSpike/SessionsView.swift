@@ -121,12 +121,12 @@ struct SessionsView: View {
     /// at its informative part. VoiceOver always gets the sentence.
     private var summaryText: some View {
         let (shown, total, wanting, hidden, parked) = fleetCounts
-        return ViewThatFits(in: .horizontal) {
-            Text(fleetSummaryLine(shown: shown, total: total, wanting: wanting,
-                                  hiddenWanting: hidden, parked: parked))
-            Text(fleetSummaryCompact(shown: shown, total: total, wanting: wanting,
-                                     hiddenWanting: hidden, parked: parked))
-        }
+        // COMPACT ONLY (Jian, on device: the sentence overlapped the toolbar
+        // buttons — ViewThatFits measures the proposal, not the neighbors'
+        // appetite). The numbers can't overlap anything; VoiceOver still
+        // hears the sentence.
+        return Text(fleetSummaryCompact(shown: shown, total: total, wanting: wanting,
+                                        hiddenWanting: hidden, parked: parked))
         .lineLimit(1)
         .accessibilityLabel(fleetSummaryLine(shown: shown, total: total,
                                              wanting: wanting,
@@ -189,6 +189,13 @@ struct SessionsView: View {
             } label: {
                 Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
                       systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+            }
+            Button {
+                Task { _ = await model.setOrigin(session.internalName,
+                                                 createdBy: session.createdBy == "agent" ? "user" : "agent") }
+            } label: {
+                Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
+                      systemImage: "arrow.left.arrow.right")
             }
             // The peek lets you READ a screen without opening the session;
             // this is the matching WRITE half — share it without entering
@@ -375,6 +382,13 @@ struct SessionsView: View {
                                 } label: {
                                     Label(session.agentPermitted ? "Block agent access" : "Allow agent access",
                                           systemImage: session.agentPermitted ? "hand.raised.slash" : "cpu")
+                                }
+                                Button {
+                                    Task { _ = await model.setOrigin(session.internalName,
+                                                                     createdBy: session.createdBy == "agent" ? "user" : "agent") }
+                                } label: {
+                                    Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
+                                          systemImage: "arrow.left.arrow.right")
                                 }
                                 Button { replyTarget = session; replyText = "" } label: {
                                     Label("Reply", systemImage: "arrowshape.turn.up.left")

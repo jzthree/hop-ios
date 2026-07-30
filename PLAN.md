@@ -424,4 +424,39 @@ createdBy=user on the live daemon (fails without the header). Also
 skimmed e150138 (records durability + web full-screen demotion): no
 client-facing API change.
 
-## 37. (space for Jian's next reports)
+## 37. [DONE 2026-07-30] The blip rule: silence for brief drops
+Jian: lock/unlock flashed "two lines of red text." Root: the
+coordinator FED disconnect text into the terminal — pre-banner legacy
+that also polluted scrollback forever. All disconnect feeds removed
+(the gone screen carries permanent reasons; the banner carries
+transient ones), and the banner+dim now sit behind a 1.2s grace
+measured from the OUTAGE'S START (the first grace attempt reset per
+state-update and could never mature — marker-traced). A blip shows
+NOTHING; a real outage gets the countdown banner. Verified with the
+upgraded drop hook (HOP_DEV_DROP_WS_COUNT sustains an outage by
+killing follow-up reconnects pre-join — a post-join kill makes a
+blip-train, which the grace rightly silences; that distinction cost
+three probe cycles and is the whole point).
+
+## 38. [DONE 2026-07-30] Web-sheet sweep: rename in-terminal + origin move
+Jian: "missing rename — review the main hop web version." Sweep of
+the web session sheet found TWO gaps: every session verb was
+wall-only (nothing inside the terminal), and origin refile ("Move to
+user/agent sessions", POST /api/sessions/origin) existed NOWHERE in
+the app. Now: the terminal ⋯ has a Session section — Rename, Edit
+tagline, Move to folder ▸, Move to You/Agents, Park (dismisses), Kill
+(confirmed, dismisses) — and both wall menus carry Move to
+You/Agents. E2E: origin round-trips user→agent→user on the live
+daemon; permanent UI test asserts the terminal menu carries the
+verbs. Sheet items verified covered: full screen (row tap), fork,
+agent access, park/unpark, rename, tagline, origin, folders.
+
+## 39. [DONE 2026-07-30] Toolbar summary overlap
+Jian: the sentence overlapped the toolbar buttons on device.
+Principal slot now renders ONLY the compact numeric form ("21 · quiet
+· 1 parked") — short enough that overlap is impossible; VoiceOver
+still hears the full sentence. (ViewThatFits measured its own
+proposal, not its neighbors' appetite — device font scaling made the
+sentence win while overlapping.)
+
+## 40. (space for Jian's next reports)
