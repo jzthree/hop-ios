@@ -10,12 +10,22 @@ and can't notify you when an agent wants attention. This app can.
 Standalone by design: it consumes hop's public HTTP + WebSocket API and needs
 **no changes to hop** to run. If it stops earning its keep, delete the repo.
 
+<p align="center">
+<img src="docs/screens/ink-tiles.png" width="180" alt="The session wall: live coloured miniatures" />
+<img src="docs/screens/folders-wall.png" width="180" alt="Sessions grouped by your own folders" />
+<img src="docs/screens/hopboard-letters.png" width="180" alt="The hop keyboard: fixed height, terminal symbols one plane away" />
+<img src="docs/screens/disconnect-banner.png" width="180" alt="A disconnect tells its story: countdown, retry now, dimmed content" />
+</p>
+
+*(More in [`docs/screens/`](docs/screens/) — every image is a real
+verification artifact from a probe run, not a staged shot.)*
+
 ## Quick start
 
 ```bash
 brew install xcodegen          # once
 make test                      # unit suite in the simulator
-make uitest                    # real gestures via XCUITest (~48s for the suite)
+make uitest                    # real gestures via XCUITest (~5 min, 28 tests)
 make install                   # signed build -> connected iPhone
 ```
 
@@ -41,13 +51,33 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 - **Fast opens** — the session's current screen paints immediately over HTTP
   while the (much larger) WebSocket snapshot downloads.
 - **Terminal** — SwiftTerm over hop's WebSocket, with the native keyboard plus
-  a key bar (esc, tab, sticky ctrl, alt/meta, ^C, arrows, `| / - ~`, PgUp/PgDn,
-  paste). Find in scrollback, copy screen/all, font size (menu or pinch),
-  light/dark, jump-to-live, and session switching from the title.
+  a key bar (esc, tab, sticky ctrl, alt/meta, ^C, arrows, PgUp/PgDn, paste) —
+  or the **hop keyboard**: a fixed-height in-app board (abc/123/#+= planes,
+  mono face, every ASCII symbol one plane away) that sidesteps keyboard-switch
+  resizing entirely. **Optimistic local echo** renders keystrokes before the
+  tunnel answers. **Hold to select** a word (handles extend it; scrolling never
+  fights selection), then tap the Copy chip. Taps become real SGR clicks in
+  apps that asked for the mouse. Find in scrollback, copy/share screen or all,
+  font size (menu or pinch), light/dark, jump-to-live, pill-swipe to the next
+  session, and the full session sheet (rename, tagline, folder, park, fork,
+  kill) without leaving the terminal. A disconnect shows an honest banner —
+  real backoff countdown, retry-now — never two lines of red into your
+  scrollback; brief blips show nothing at all.
 - **Attention** — a session that rings the terminal bell raises a dot, a
   haptic, an app-icon badge, and (opt-in) a local notification that opens
-  straight to it. Long-press the icon for the four sessions most likely to want
-  you. Never for the session you're currently watching.
+  straight to it — or answers it: long-press the notification and REPLY from
+  the lock screen. Long-press the icon for the four sessions most likely to
+  want you. Never for the session you're currently watching.
+- **Fleet organization** — group the wall by recency, by project (cwd), or by
+  your own server-side **folders** (create and file from any session's
+  long-press). **Fork** any session — a claude fork continues the conversation
+  under a fresh id while the original runs on. Move sessions between You and
+  Agents. Tile view renders live coloured miniatures of every screen.
+- **System surface** — Siri/Shortcuts (open a session, fleet status, reply,
+  new session), Spotlight (every session searchable), **Handoff** (walk to
+  the Mac, the session follows into Safari), `hop://` deep links, Face ID
+  lock, and an instant-launch cache: the wall paints at first frame from the
+  last known state, then refreshes live.
 - **Good pocket citizen** — polling follows the network: 5s on Wi-Fi, backed
   off on cellular, and Low Data Mode drops live previews entirely.
 - **Resilience** — input typed during an outage is buffered and replayed
@@ -71,7 +101,12 @@ Developer Mode enabled on the phone, and a hop daemon reachable at that URL.
 | `SessionFilter.swift` | pure list shaping (unit-tested) |
 | `Links.swift` | URLs off the screen, wrap-aware (unit-tested) |
 | `QuickActions.swift` | Home Screen shortcuts + the scene delegate they need |
-| `AccountView.swift` | server info, sign out, version |
+| `AccountView.swift` | server info, sign out, version, Copy diagnostics |
+| `HopBoard.swift` | the hop keyboard (fixed-height inputView, three planes) |
+| `OptimisticEcho.swift` | local echo, ported from hop web's model |
+| `FleetCache.swift` | instant launch: last known wall, on disk |
+| `KBLog.swift` | the diagnostics ring: keyboard, wake, frame-gap traces |
+| `Intents.swift` | Siri/Shortcuts: open, status, reply, new session |
 
 ## Talking to hop
 
@@ -124,8 +159,8 @@ a session, which has no place in a shipping build. The rest only pick a screen.
 
 UI tests pass `-hop-ui-testing`, which stops the caret blinking. A blinking
 caret is a permanent animation, and XCUITest waits for animations before every
-interaction — with it on, each tap sat through a 60s timeout and the suite took
-longer than ten minutes instead of 48 seconds.
+interaction — with it on, each tap sat through a 60s timeout per interaction
+and the suite became unrunnable.
 
 ### Which build am I running?
 
