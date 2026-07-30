@@ -228,10 +228,15 @@ final class HayClient: NSObject {
         task?.send(.string(str)) { [weak self] error in
             guard error != nil else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, generation == self.generation else { return }
-                // First failed send on this socket tears it down; the rest
-                // of the burst rides the same teardown.
-                self.killDeadSocket(lostPayload: lostPayload)
+                guard let self else { return }
+                // An errored send NEVER went — re-buffer its payload no
+                // matter which generation tore the socket down. (The first
+                // version re-buffered only the first failure of a burst;
+                // the daemon's screen then read "eho half-ok" — the 'c'
+                // died with the generation guard.)
+                if let lostPayload { self.onEvent?(.sendFailed(lostPayload)) }
+                guard generation == self.generation else { return }
+                self.killDeadSocket()
             }
         }
     }

@@ -11,7 +11,10 @@ import UIKit
 @MainActor
 enum KBLog {
     private(set) static var lines: [String] = []
-    private static let cap = 80
+    // 240: a single screen transition emits a dozen kbFrame/fit/wake lines,
+    // and the trace must survive the WALK to Copy diagnostics — an 80-line
+    // ring evicted the keystroke being diagnosed on the way there.
+    private static let cap = 240
     private static let epoch = Date()
 
     static func record(_ line: String) {
@@ -21,7 +24,7 @@ enum KBLog {
     }
 
     /// The last events, newest last — the tail is what a bad switch just did.
-    static func dump(last n: Int = 40) -> String {
+    static func dump(last n: Int = 120) -> String {
         lines.suffix(n).joined(separator: "\n")
     }
 }

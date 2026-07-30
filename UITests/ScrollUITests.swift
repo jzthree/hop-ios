@@ -39,6 +39,23 @@ final class ScrollUITests: XCTestCase {
         sleep(1)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         sleep(2)
+        // One real SOFTWARE keystroke so the text-input forensics have
+        // something to record: typeText synthesizes HARDWARE events, which
+        // bypass insertText entirely (SwiftTerm routes them via presses —
+        // probe-proven silence). Poll for hittable; mid-rise keys exist
+        // offscreen and AX can't scroll to them.
+        let eKey = app.keys["e"]
+        var canTap = false
+        for _ in 0..<16 where !canTap {
+            usleep(500_000)
+            canTap = eKey.exists && eKey.isHittable
+        }
+        // The sim's hardware-keyboard mode can pin software keys offscreen
+        // forever — an environment fact. The forensics' real consumer is
+        // the device; assert only when the sim cooperates.
+        try XCTSkipUnless(canTap, "software keyboard never rose — sim hardware-kb mode")
+        eKey.tap()
+        sleep(1)
         // Back out and into the Account sheet, where the trace surfaces.
         app.buttons["Back to sessions"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10))
@@ -58,6 +75,7 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(text.contains("kbFrame"), "no keyboard events in the trace: \(text.suffix(400))")
         XCTAssertTrue(text.contains("fit "), "no fit lines in the trace")
         XCTAssertTrue(text.contains("settle"), "no settle verdicts in the trace")
+        XCTAssertTrue(text.contains("ti."), "no text-input forensics in the trace")
     }
 
     /// Couples to a session that exists in the live fleet — when the fleet
