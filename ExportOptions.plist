@@ -9,7 +9,14 @@
 	<key>uploadSymbols</key>
 	<true/>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>io.zhoulab.hop.spike</key>
+		<string>Hop AppStore</string>
+	</dict>
 	<key>destination</key>
 	<string>upload</string>
 </dict>
