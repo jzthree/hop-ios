@@ -787,6 +787,29 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(seen, "the reply never reached the session's screen")
     }
 
+    /// Origin declaration (hop2 18f86ce): an undeclared Bearer-token caller
+    /// now files sessions as AGENT. This app declares x-hop-actor: user on
+    /// every write — so a session it creates over token auth must land
+    /// createdBy=user. This test FAILS without the header on today's daemon.
+    @MainActor
+    func testAppCreatedSessionsDeclareHumanOrigin() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["HOP_DEV_TOKEN"] != nil,
+                          "no daemon token in this environment")
+        let model = AppModel.shared
+        let scratch = "OriginProbe"
+        let created = await model.createSession(name: scratch, cwd: "/tmp")
+        XCTAssertTrue(created)
+        defer { Task { @MainActor in
+            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+                _ = await model.killSession(s)
+            }
+        } }
+        await model.refreshSessions(silent: true)
+        let made = try XCTUnwrap(model.sessions.first { $0.internalName == scratch })
+        XCTAssertEqual(made.createdBy, "user",
+                       "a phone-created session filed as \(made.createdBy) — the actor declaration is broken")
+    }
+
     func testFolderGroupingRendersJiansFilingVerbatim() {
         func f(_ id: String, _ name: String) -> HopFolder {
             HopFolder(json: ["id": id, "name": name])!

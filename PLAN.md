@@ -411,4 +411,17 @@ Jian accepted keep-both with the refinement that the menu must feel
 integrated, not overlapping. Done in the same round: the ⋯ is no
 longer a floating circled button — a hairline seam and a bare glyph
 inside the pill, the chevron's visual sibling at the other end.
-## 36. (space for Jian's next reports)
+## 36. [DONE 2026-07-29] Origin declaration (drift: hop2 18f86ce)
+The daemon now files undeclared Bearer-token callers as AGENT (probe
+sessions like SelectProbe under User is what prompted it — our own
+harness's fingerprints). Contract read: explicit x-hop-actor wins;
+cookie auth infers user; token auth without x-hop-via infers agent.
+The app now DECLARES x-hop-actor: user on every write (post + fork) —
+everything this app does is a human's act. On-device cookie auth was
+never at risk; the declaration makes it true on every auth path and
+future-proof. E2E: a session created over Bearer auth lands
+createdBy=user on the live daemon (fails without the header). Also
+skimmed e150138 (records durability + web full-screen demotion): no
+client-facing API change.
+
+## 37. (space for Jian's next reports)

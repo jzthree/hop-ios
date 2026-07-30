@@ -381,6 +381,10 @@ final class AppModel: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Origin is DECLARED, not inferred (hop2 18f86ce): undeclared
+        // Bearer-token callers default to agent now. Everything this app
+        // does is a human's act — say so, on every write.
+        req.setValue("user", forHTTPHeaderField: "x-hop-actor")
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         actionError = nil        // this attempt replaces the last one's verdict
@@ -536,6 +540,7 @@ final class AppModel: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("user", forHTTPHeaderField: "x-hop-actor")   // same declaration as post()
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["internalName": internalName])
         actionError = nil

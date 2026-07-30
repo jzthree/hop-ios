@@ -207,6 +207,26 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The app says who it is (iteration 215)
+
+Drift round. hop2 18f86ce changed origin semantics overnight —
+undeclared Bearer-token callers now file their sessions as AGENT (the
+commit's own motivation was our probe fleet: "why is SelectProbe
+under User?"). Contract read from the diff: explicit x-hop-actor wins
+outright; cookie auth infers user; token auth without a via stamp
+infers agent.
+
+The client's answer is declaration, not inference: every write the
+app makes now carries x-hop-actor: user — a phone is a human surface,
+and the sessions it creates (sheet, fork, Siri) are human acts. The
+on-device cookie path was never at risk; the header makes the truth
+explicit on every auth path. Proven against the live daemon: a
+session created over Bearer auth lands createdBy=user, a test that
+FAILS without the header on today's daemon. e150138 (records
+durability, web full-screen demotion) skimmed: no client contract
+change. 92 unit + 27 UI green, strict zero. Phone still unreachable;
+the installer loop now carries builds 250-259.
+
 ## Complete all (iteration 214)
 
 Jian: "complete all." Three reports closed in one round.
