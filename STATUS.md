@@ -239,6 +239,31 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The screenshots stop testifying (iteration 221)
+
+Jian: "change my hop ios screenshots to not leak my real terminals —
+remake the repo if needed." Done, the thorough way. A demo fleet of
+eight scratch sessions (synthetic names, taglines, output, and a
+neutral demo@shop prompt) was staged and screenshotted for a new
+five-image set: list wall, tile wall, hop keyboard, disconnect
+banner, select-and-copy. Every frame was eyeballed before acceptance,
+and the wall captures were API-verified demo-only through the capture
+window (his live agents kept out-recencying the demo fleet — the
+manager session itself had to briefly file as agent-origin, restored
+after). The traps en route: a filter fires the server-side CONTENT
+search and surfaces real sessions; recency staging decays in ~30s
+against a live fleet; test-without-building screenshots the past; an
+impatient fallback tap toggles the board back off mid-presentation.
+
+Then the history: git filter-repo stripped docs/screens from EVERY
+commit (verified zero screen files anywhere in history) and main was
+force-pushed — the old images are no longer served from the repo at
+any ref. The new set is committed fresh with an honest provenance
+note ("no real terminal content appears here by construction").
+README's inline strip now uses the new images. Demo fleet deleted,
+fleet verified clean. Cached GitHub raw URLs may serve stale copies
+briefly; the repo itself is clean.
+
 ## The chip becomes real (iteration 218)
 
 Quiet-gates round (account empty, drift already handled, phone

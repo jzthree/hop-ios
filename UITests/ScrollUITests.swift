@@ -60,20 +60,6 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(text.contains("settle"), "no settle verdicts in the trace")
     }
 
-    private func launchIntoSession(_ name: String) -> XCUIApplication {
-        let app = XCUIApplication()
-        let env = ProcessInfo.processInfo.environment
-        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
-        app.launchArguments += ["-hop-ui-testing"]   // steady caret: see TerminalScreen
-        app.launchEnvironment["HOP_DEV_OPEN"] = name
-        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
-        app.launch()
-        return app
-    }
-
-    /// Scrolling has to move the buffer AND leave it recoverable: a terminal
-    /// you can scroll but not return to the live edge is worse than one you
-    /// can't scroll at all.
     func testDragScrollsAndLiveButtonReturns() throws {
         // A SHELL session, not claude: TUI apps run in the alternate screen
         // buffer, which by definition has no scrollback, so there is nothing

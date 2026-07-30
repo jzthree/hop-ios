@@ -11,14 +11,14 @@ Standalone by design: it consumes hop's public HTTP + WebSocket API and needs
 **no changes to hop** to run. If it stops earning its keep, delete the repo.
 
 <p align="center">
-<img src="docs/screens/ink-tiles.png" width="180" alt="The session wall: live coloured miniatures" />
-<img src="docs/screens/folders-wall.png" width="180" alt="Sessions grouped by your own folders" />
-<img src="docs/screens/hopboard-letters.png" width="180" alt="The hop keyboard: fixed height, terminal symbols one plane away" />
+<img src="docs/screens/wall-tiles.png" width="180" alt="Tile view: live coloured miniatures of every screen" />
+<img src="docs/screens/wall-list.png" width="180" alt="The session list: taglines, previews, attention-first" />
+<img src="docs/screens/hop-keyboard.png" width="180" alt="The hop keyboard: fixed height, terminal symbols one plane away" />
 <img src="docs/screens/disconnect-banner.png" width="180" alt="A disconnect tells its story: countdown, retry now, dimmed content" />
 </p>
 
-*(More in [`docs/screens/`](docs/screens/) — every image is a real
-verification artifact from a probe run, not a staged shot.)*
+*(More in [`docs/screens/`](docs/screens/) — captured by the probe
+harness against a synthetic demo fleet.)*
 
 ## Quick start
 
