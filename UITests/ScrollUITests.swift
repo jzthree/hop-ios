@@ -626,18 +626,14 @@ final class ScrollUITests: XCTestCase {
         // clears the 16pt edge-swipe zone.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.35))
             .press(forDuration: 0.7)
-        // The chip renders in its FIXED top-trailing slot but the SwiftUI
-        // hosting boundary hides it from the element tree (screenshot shows
-        // it plainly) — the app's own trace file is the presence witness,
-        // and the tap goes to the slot the design guarantees.
-        var shown = false
-        for _ in 0..<10 where !shown {
-            usleep(300_000)
-            shown = ((try? String(contentsOfFile: "/tmp/hop-selecthold-marker.txt",
-                                  encoding: .utf8)) ?? "").contains("chip-shown")
-        }
-        XCTAssertTrue(shown, "the Copy chip never appeared after long-press")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.196)).tap()
+        // Window-hosted, the chip is a REAL element now — tappable by
+        // identity, reachable by VoiceOver (the superview attempt sat
+        // behind the SwiftUI hosting boundary and needed blind
+        // coordinate taps).
+        let chip = app.buttons["Copy selection"].firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 6),
+                      "the Copy chip never appeared after long-press")
+        chip.tap()
         var copied = ""
         for _ in 0..<10 where copied.isEmpty {
             usleep(500_000)

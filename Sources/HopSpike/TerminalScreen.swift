@@ -2735,14 +2735,17 @@ final class HopTermView: TerminalView {
         // UITextInput) presents there and occluded a finger-anchored chip
         // (screenshot-proven; canPerformAction is public-not-open, so the
         // system menu cannot be suppressed from a subclass). Hosted on the
-        // SUPERVIEW: the terminal's subtree is opaque to accessibility.
-        guard let host = superview else { return }
+        // WINDOW: both the terminal's subtree and the SwiftUI hosting
+        // boundary are opaque to accessibility — a superview-hosted chip
+        // was invisible to VoiceOver and untappable by tests. The window is
+        // above all of it.
+        guard let win = window else { return }
         _ = point
         let size = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        chip.frame = CGRect(x: host.bounds.width - size.width - 12,
+        chip.frame = CGRect(x: win.bounds.width - size.width - 12,
                             y: Self.chromeStrip + 8,
                             width: size.width, height: size.height)
-        host.addSubview(chip)
+        win.addSubview(chip)
         copyChip = chip
         selectMark("chip-shown")
         // Nudge assistive tech at the new element; the SwiftUI hosting

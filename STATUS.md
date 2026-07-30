@@ -207,6 +207,17 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## The chip becomes real (iteration 218)
+
+Quiet-gates round (account empty, drift already handled, phone
+current), so the one open thread from a DONE item got closed: the
+Copy chip's accessibility caveat. Hosting it on the WINDOW puts it
+above both opaque boundaries — the terminal's subtree and the SwiftUI
+hosting view — so VoiceOver can reach it and the e2e taps it by
+identity instead of blind coordinates. Same fixed slot, same captured
+text, one less brittle workaround in the suite. 93 unit + 28 UI
+green, strict zero.
+
 ## Claim what is, not what was (iteration 217)
 
 Jian, on 260: the terminal still often wakes at the wrong size. Every

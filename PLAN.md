@@ -475,4 +475,12 @@ JIAN'S MOVE if it happens again: the moment a terminal wakes wrong,
 lines name the exact actor (stale claim dims / foreign adopt / fast
 paint / no claim at all) and the next fix is surgical.
 
-## 41. (space for Jian's next reports)
+## 41. [DONE 2026-07-30] Copy chip: real element, real accessibility
+The PLAN-32 caveat closed: the chip now hosts on the WINDOW — above
+both opaque boundaries (the terminal's subtree and the SwiftUI
+hosting view) — so it's reachable by VoiceOver and tappable by
+identity in tests (the coordinate-tap workaround is gone; the e2e
+taps buttons["Copy selection"] and the marker still witnesses the
+copied word).
+
+## 42. (space for Jian's next reports)
