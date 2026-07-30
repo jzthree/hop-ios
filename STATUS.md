@@ -207,6 +207,37 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Complete all (iteration 214)
+
+Jian: "complete all." Three reports closed in one round.
+
+DISCONNECT (PLAN 33): the app now tells the reconnect story instead
+of freezing wordlessly — a banner under the pill counts down the real
+backoff ("Connection lost — retrying in 4s"), flips to
+"Reconnecting…" when the attempt fires, and carries a NOW button that
+skips the wait. The frozen screen dims and desaturates until the
+socket returns. All state comes from the coordinator's own retry
+scheduler, so the words are the truth. The verification hook this
+class of UX always lacked is now permanent: HOP_DEV_DROP_WS
+hard-drops the socket once on demand (DEBUG), and the suite asserts
+banner-appears then banner-clears-on-recovery. Screenshot shows the
+whole story in one frame — banner, amber dot, dimmed content.
+
+KEYBOARD MARGIN (PLAN 34): root-caused as double-counting — SwiftUI's
+avoidance already includes the accessory bar in the keyboard frame,
+so our extra 46pt inset was a dead band exactly the bar's height.
+Machinery deleted; screenshot-verified flush with nothing hidden.
+
+BACK VS MENU (PLAN 35): keep both, per the recommendation Jian
+accepted — refined so the ⋯ reads as part of the pill (hairline seam,
+bare glyph, the chevron's sibling) rather than a floating button.
+
+Also: the Copy chip now posts a layoutChanged accessibility
+notification when it appears (the SwiftUI hosting boundary otherwise
+hides it from assistive tech — deeper exposure still queued).
+27 UI + 91 unit green, strict zero. Phone still unreachable; the
+background installer carries everything from fork onward.
+
 ## Hold to select, tap to copy (iteration 213)
 
 Jian's report, mid-round: select and copy didn't work, and he named

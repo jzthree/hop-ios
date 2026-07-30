@@ -39,6 +39,9 @@ final class HayClient: NSObject {
     private(set) var clientId: String?
 
     private var task: URLSessionWebSocketTask?
+#if DEBUG
+    nonisolated(unsafe) static var devDropFired = false
+#endif
     var onEvent: ((Event) -> Void)?
 
     /// Enough to redraw a TUI screen and leave a little shell history, and
@@ -243,6 +246,18 @@ final class HayClient: NSObject {
             // else was sized for.
             onEvent?(.joined(cols: jsonInt(obj["cols"]) ?? 0, rows: jsonInt(obj["rows"]) ?? 0))
             onEvent?(.connected)
+#if DEBUG
+            // Disconnect-UX probe hook: HOP_DEV_DROP_WS=<secs> hard-drops the
+            // socket once per process, N seconds after the first connect —
+            // the only deterministic way to watch the retry story on demand.
+            if !Self.devDropFired,
+               let secs = ProcessInfo.processInfo.environment["HOP_DEV_DROP_WS"].flatMap(Double.init) {
+                Self.devDropFired = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
+                    self?.task?.cancel(with: .abnormalClosure, reason: nil)
+                }
+            }
+#endif
             if let collabMode = obj["collabMode"] as? Bool {
                 onEvent?(.collab(collabMode, obj["controllerId"] as? String))
             }

@@ -381,30 +381,34 @@ slot, marker witnessed exactly "1030". A11y caveat: the chip lives
 under the SwiftUI hosting boundary and misses the element tree —
 VoiceOver follow-up queued.
 
-## 33. Production-grade disconnect handling (Jian, TOP next)
-"The app still does not handle disconnect that gracefully — handle it
-like a production-ready app." Round: enumerate every disconnect path
-(tunnel drop, daemon restart, cellular blip, suspend) in the sim with
-the offline harness; grade each surface (banner honesty, retry
-transparency, buffered-input visibility, cached-wall behavior,
-terminal frozen-state clarity); fix the gaps — likely: a clear
-"reconnecting in Ns / retry now" affordance, frozen-screen dimming or
-timestamp, input-buffered indicator, and never a dead-end screen.
-
-## 34. Keyboard-top margin (Jian)
-"The app still has margin above the keyboard that we can eliminate."
-Audit the gap between the accessory bar and the terminal's last row —
-suspects: the deliberate bottom-safe-area inset (comment says last
-lines behind the home indicator are worse), accessoryInset padding,
-and SwiftTerm's own bottom inset. Measure with a ruler screenshot,
-reclaim what's honest, keep the home-indicator clearance when the
-keyboard is DOWN only.
-
-## 35. Back button vs ⋯ menu (Jian conflicted — needs his call after
-reading the recommendation in STATUS/summary)
-Options: keep both (chevron = way out, ⋯ = actions; they're different
-jobs); or chevron-only with actions moved to a long-press on the
-title; or menu-only (rejected once already — iteration 183 restored
-the chevron by his own directive). Recommendation: keep both.
-
+## 33. [DONE 2026-07-29] Production-grade disconnect handling
+The reconnect story is now told, not implied: a socket drop shows a
+banner under the pill — "Connection lost — retrying in Ns" counting
+down, then "Reconnecting…", with a NOW button that skips the backoff
+(reconnectToken, the same road the menu's Reconnect takes). The frozen
+content dims and desaturates while disconnected and restores on
+reconnect; the pill's status dot was already honest (amber). All fed
+by onRetryState from the coordinator's own scheduleRetry — the UI
+shows the real schedule, not a guess. Verified deterministically via
+HOP_DEV_DROP_WS (DEBUG: hard-drops the socket once, N seconds after
+first connect — the permanent probe hook this class of UX needed):
+permanent test asserts banner appears after the drop and CLEARS on
+auto-recovery, session usable after; screenshot in docs/screens.
+Existing machinery already covered: input buffering with honest
+replay-or-discard, offline wall banner, cached-wall launch, foreground
+reconnect, dead-session gone-screen.
+## 34. [DONE 2026-07-29] Keyboard-top margin
+Root-caused, not tuned: SwiftUI's keyboard avoidance already clears
+the FULL keyboard frame including the accessory bar riding on it, so
+the app's own accessoryInset padding (46pt when the keyboard is up)
+was pure double-counting — a dead band above the key bar exactly the
+bar's height. Removed, along with its keyboardWillChangeFrame
+machinery; screenshot-verified flush (last row directly above esc,
+nothing hidden). The keyboard-DOWN home-indicator clearance is a
+separate mechanism and stays.
+## 35. [CLOSED 2026-07-29 — keep both, integrated] Back button vs ⋯ menu
+Jian accepted keep-both with the refinement that the menu must feel
+integrated, not overlapping. Done in the same round: the ⋯ is no
+longer a floating circled button — a hairline seam and a bare glyph
+inside the pill, the chevron's visual sibling at the other end.
 ## 36. (space for Jian's next reports)

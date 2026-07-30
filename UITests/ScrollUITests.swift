@@ -612,6 +612,45 @@ final class ScrollUITests: XCTestCase {
                       "copied text unexpected: '\(copied)'")
     }
 
+    /// The disconnect story, production-grade: a dropped socket must show
+    /// an honest banner (what happened, when it retries, a way to retry
+    /// NOW), and a successful reconnect must clear it. HOP_DEV_DROP_WS
+    /// hard-drops the socket once, deterministically.
+    func testDisconnectShowsBannerAndRecovers() throws {
+        let app = launchIntoSessionWithDrop(Self.fixture, dropAfter: 2)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        // The drop fires at t+2; the first retry backoff is 1-2s, so the
+        // banner must appear with either wording.
+        let banner = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'Connection lost' OR label CONTAINS 'Reconnecting'")
+        ).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 10),
+                      "no reconnect banner after a socket drop")
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(
+            to: URL(fileURLWithPath: "/tmp/disconnect-banner.png"))
+        // Recovery: the auto-retry reconnects and the banner clears — the
+        // drop hook fires only once per process. ("Now" is deliberately not
+        // tapped: recovery often lands within the same second and a tap on
+        // a vanishing button is a framework failure, not a finding. Its
+        // presence is in the screenshot.)
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: banner, handler: nil)
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(app.buttons["escape"].exists, "session unusable after recovery")
+    }
+
+    private func launchIntoSessionWithDrop(_ name: String, dropAfter: Int) -> XCUIApplication {
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = name
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_DROP_WS"] = String(dropAfter)
+        app.launch()
+        return app
+    }
+
     /// Sign-out is destructive, had a race (an in-flight refresh could land
     /// after it and put you straight back in), and lives three taps deep behind
     /// a menu — so it is exactly the flow nobody exercises by hand twice.

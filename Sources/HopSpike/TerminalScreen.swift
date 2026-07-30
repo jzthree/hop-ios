@@ -56,6 +56,8 @@ struct TerminalHostView: View {
     /// sitting in a claude composer instead of the find field.
     @FocusState private var findFocused: Bool
     @State private var reconnectToken = 0
+    @State private var retryAt: Date?
+    @State private var retryAttempt = 0
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
@@ -76,7 +78,6 @@ struct TerminalHostView: View {
     /// the terminal's frame ran on underneath the strip and autofit sized rows
     /// for space the user cannot see — the bottom of the session, including
     /// claude's prompt line, sat behind the keys.
-    @State private var accessoryInset: CGFloat = 0
     /// Set when the session is gone for good — ended, or a room the server no
     /// longer has. A red line buried in the scrollback is easy to miss when
     /// you've just tapped in expecting a live terminal.
@@ -139,18 +140,30 @@ struct TerminalHostView: View {
                        },
                        onBackSwipe: { dismiss() },
                        onFitRefresh: { fitTick += 1 },
-                       onSizeState: { peerSize = $0 })
+                       onSizeState: { peerSize = $0 },
+                       onRetryState: { at, attempt in
+                           retryAt = at
+                           retryAttempt = attempt
+                       })
     }
 
     var body: some View {
         screen
+            .saturation(retryAt == nil ? 1 : 0.55)
+            .opacity(retryAt == nil ? 1 : 0.82)
+            .animation(.easeInOut(duration: 0.3), value: retryAt == nil)
             .padding(.horizontal, 2)
             // Rows begin just under the status text (probe-caught at 26:
             // row zero ran straight through the clock). ~19pt reclaimed over
             // the old safe-area start, and the band above reads as the
             // terminal's own surface instead of dead space.
             .padding(.top, 40)
-            .padding(.bottom, accessoryInset)
+            // NO accessory padding: SwiftUI's keyboard avoidance already
+            // clears the FULL keyboard frame INCLUDING the inputAccessoryView
+            // riding on it, so the extra 46pt here was double-counted — a
+            // dead band above the key bar exactly the bar's height (Jian:
+            // "margin above the keyboard we can eliminate"; screenshot-
+            // verified flush after removal, nothing hidden behind the bar).
             // Deliberately NOT ignoring the bottom safe area. Doing so let the
             // terminal run under the home indicator with the keyboard down, and
             // autofit counted those rows too — the same defect as the key bar,
@@ -168,7 +181,6 @@ struct TerminalHostView: View {
                 let up = end.origin.y < screen
                 let dur = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? -1
                 KBLog.record("kbFrame endY=\(Int(end.origin.y)) h=\(Int(end.height)) screen=\(Int(screen)) up=\(up) dur=\(dur)")
-                accessoryInset = up ? HopTermView.accessoryHeight : 0
                 // Every keyboard-frame event schedules the settle check; the
                 // check debounces itself, so only the burst's last survivor
                 // runs.
@@ -210,6 +222,34 @@ struct TerminalHostView: View {
             // ours. A refusal (someone typed recently) re-arms it — state,
             // not magic.
             .overlay(alignment: .topTrailing) {
+                // The reconnect story, in words: a production app never
+                // leaves a frozen screen unexplained. Shown whenever a
+                // retry is pending or in flight; "Now" skips the backoff.
+                if let retryAt, goneReason == nil {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 12, weight: .semibold))
+                        TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+                            let left = max(0, retryAt.timeIntervalSince(ctx.date))
+                            Text(left > 0.5
+                                 ? "Connection lost — retrying in \(Int(left.rounded()))s"
+                                 : "Reconnecting…")
+                                .font(.caption.weight(.medium)).monospacedDigit()
+                        }
+                        Button("Now") { reconnectToken += 1 }
+                            .font(.caption.weight(.bold))
+                            .buttonStyle(.borderedProminent)
+                            .tint(.hopPurple)
+                            .controlSize(.mini)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.hopAttention.opacity(0.5), lineWidth: 0.75))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, windowTopInset() + 52)
+                    .transition(.opacity)
+                    .accessibilityElement(children: .combine)
+                }
                 if let peerSize, goneReason == nil {
                     Button {
                         controlAction = .claimSize
@@ -348,6 +388,7 @@ struct TerminalHostView: View {
                 // flight tore it down and started over — and every connect
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
                 if phase == .active, status == .closed { reconnectToken += 1 }
+                if phase == .active, retryAt != nil { retryAt = Date() }
             }
             // The route changed under us — wifi to 5G, or a dead path coming
             // back. Every open socket is already dead; waiting out a backoff
@@ -555,11 +596,20 @@ struct TerminalHostView: View {
                 Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.system(size: 17))
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
-                .accessibilityLabel("Terminal actions")
+            // Part of the pill, not a floating button: a hairline seam and a
+            // bare glyph — the chevron's visual sibling at the other end
+            // (Jian: the menu should feel integrated, not overlapping).
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.10))
+                    .frame(width: 0.5, height: 22)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.hopPurple)
+                    .frame(width: 38, height: 34)
+            }
+            .contentShape(Rectangle())
+            .accessibilityLabel("Terminal actions")
         }
     }
 }
@@ -609,13 +659,17 @@ struct TerminalScreen: UIViewRepresentable {
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
     /// lottery becomes visible state with a one-tap exit.
     var onSizeState: (String?) -> Void = { _ in }
+    /// (nextRetryAt, attempt) — nil when live. Feeds the reconnect banner.
+    var onRetryState: (Date?, Int) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
+        let c = Coordinator(wsBase: model.wsBase, httpBase: model.normalizedServerURL, token: model.accessToken,
                     urlSession: model.urlSession, room: room, onToast: onToast, onLinks: onLinks,
                     onFontChange: onFontChange, onRenamed: onRenamed, onGone: onGone,
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll,
                     onSizeState: onSizeState) { status = $0 }
+        c.onRetryState = onRetryState
+        return c
     }
 
     func makeUIView(context: Context) -> HopTermView {
@@ -726,6 +780,10 @@ struct TerminalScreen: UIViewRepresentable {
         private let room: String
         private let pushStatus: (TerminalHostView.ConnState) -> Void
         let onSizeState: (String?) -> Void
+        /// The reconnect story, told honestly: (nextRetryAt, attempt) while a
+        /// backoff is pending, nil once live again. Production apps don't
+        /// leave a frozen screen wordless.
+        var onRetryState: (Date?, Int) -> Void = { _, _ in }
         private var isLive = false
         /// A peer holds the PTY size (we adopted theirs). While true, layout
         /// changes do NOT re-send our fitted size: every keyboard show/hide
@@ -924,6 +982,7 @@ struct TerminalScreen: UIViewRepresentable {
                 switch event {
                 case .connected:
                     self.retryAttempt = 0      // healthy again: reset backoff
+                    self.onRetryState(nil, 0)
                     self.echo.reset()
                     self.setStatus(.live)
                     self.claimSizeOnAttach()
@@ -1343,6 +1402,7 @@ struct TerminalScreen: UIViewRepresentable {
             guard alive, !sessionEnded, retryTask == nil else { return }
             let delay = min(15.0, pow(2.0, Double(retryAttempt)))
             retryAttempt += 1
+            onRetryState(Date().addingTimeInterval(delay), retryAttempt)
             retryTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(delay))
                 guard let self, self.alive, !Task.isCancelled else { return }
@@ -1350,6 +1410,7 @@ struct TerminalScreen: UIViewRepresentable {
                     self.retryTask = nil
                     guard let tv = self.view else { return }
                     self.setStatus(.connecting)
+                    self.onRetryState(Date(), self.retryAttempt)   // "now": trying
                     // The automatic retry is the MOST common reconnect — a
                     // tunnel blip, or a phone waking up — and it was the one
                     // path that never fast-painted, so the case where you're
@@ -2562,6 +2623,9 @@ final class HopTermView: TerminalView {
         host.addSubview(chip)
         copyChip = chip
         selectMark("chip-shown")
+        // Nudge assistive tech at the new element; the SwiftUI hosting
+        // boundary otherwise leaves the chip undiscovered (recorded caveat).
+        UIAccessibility.post(notification: .layoutChanged, argument: chip)
         // A selection you walked away from shouldn't leave UI behind.
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self, weak chip] in
             if let chip, chip === self?.copyChip { self?.hideCopyChip() }
