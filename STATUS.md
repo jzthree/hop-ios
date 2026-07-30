@@ -207,6 +207,25 @@ Also queued (PLAN 7): claude fullscreen scrolling, awaiting one repro
 detail. And the loop's contract changed at Jian's word: an empty plan
 now means the round PLANS — the cron re-armed accordingly.
 
+## Public (iteration 219)
+
+Jian: "ready to make this public (and link from hop?)" — done, after
+the audit. github.com/jzthree/hop-ios is PUBLIC; hop's README mobile
+section links it (minimal separately-committed hop change, per the
+mandate). Audit findings: no secret VALUES in the tree or anywhere in
+history (verified by searching history for the live sessionSecret —
+only code that reads ~/.hop2 at runtime, which is the correct shape);
+no .p8/.env ever committed. Deliberately matched hop's licensing
+status quo: NO license file (all-rights-reserved by default) — a
+license is Jian's decision, one line away if wanted.
+
+Knowingly visible, for the record: docs/screens carries real session
+screenshots (taglines, hostnames, conversation fragments), STATUS/
+PLAN/HOP2-NOTES carry the project's working notes, and
+hop.zhoulab.io appears as the default server (auth-gated). If any of
+that should retreat, say so — a prune + history rewrite is a
+mechanical round.
+
 ## The chip becomes real (iteration 218)
 
 Quiet-gates round (account empty, drift already handled, phone
