@@ -545,23 +545,20 @@ repo's history — likely flowboard's surface. Jian to confirm
 ownership before anything is built here.
 ## 46. (space for Jian's next reports)
 
-## 47. Case-folded name resolution at the client's addressing boundaries
-PROBLEM: hop2 e4bdd86 (2026-07-30) made every daemon surface that
-addresses a session BY NAME case-insensitive — /s/<name> URLs, hop
-attach, rename/tagline targets — with an exact-match-first, folded-
-fallback, ambiguous-folds-resolve-to-nothing contract. hop-ios still
-compares with `==` wherever it resolves a name it did not mint: the
-Handoff /s/ path, HOP_DEV_OPEN, Shortcuts/QuickReply intent targets,
-and the navigationDestination lookup. A URL the daemon happily serves
-("titan" for "Titan") dead-ends in the app at "Session not found".
-EVIDENCE: e4bdd86's diff (foldedAmbiguous machinery); TerminalScreen's
-navigationDestination does `first(where: { $0.internalName == name })`.
-ROUND SKETCH: one folding helper mirroring the daemon's contract
-(exact first, unique-fold fallback, ambiguity = miss), applied ONLY at
-boundaries where the name enters from outside (URL, env, intent) —
-internal lookups stay exact so daemon-minted names never alias. Unit
-tests for the ambiguity rule; e2e: open a case-mangled /s/ URL against
-the real daemon, land in the session.
+## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries
+hop2 e4bdd86 made every daemon surface that addresses a session BY
+NAME case-insensitive (exact-first, unique-fold fallback, ambiguous
+folds resolve to nothing). Mirrored client-side as
+resolveSessionName() — internal-exact, display-exact, internal-fold,
+display-fold, ambiguity = miss — applied at the THREE choke points
+every outside door funnels through: the warm requestedSession /
+pendingOpen onChange handlers (which previously pushed the RAW string
+with no resolution at all — even an exact display name dead-ended
+warm) and the cold openPendingSession poll. Internal lookups (pill
+swipe, fork, list taps) never touch the resolver; daemon-minted names
+stay exact. Five unit tests pin the contract incl. the ambiguity
+rule; e2e launches with the internal fixture name case-mangled and
+lands in the terminal.
 
 ## 48. Landscape chrome: summonable, not banished
 PROBLEM: `if chromeShown, !landscapePhone` — the chrome bar can NEVER

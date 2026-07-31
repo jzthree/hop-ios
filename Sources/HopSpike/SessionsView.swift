@@ -685,14 +685,20 @@ struct SessionsView: View {
                         }
                     }
                 }
+                // resolveSessionName: outside doors (Handoff, Shortcuts,
+                // Spotlight, hop://) can carry a display name or a case
+                // variant the daemon would accept (hop2 e4bdd86) but an
+                // exact lookup would dead-end at "Session not found". The
+                // raw fallback keeps truly-unknown names landing on that
+                // screen instead of silently doing nothing.
                 .onChange(of: model.requestedSession) { _, want in
                     guard let want else { return }
-                    path = [want]                    // replaces the pushed terminal
-                    model.requestedSession = nil
+                    path = [resolveSessionName(want, in: model.sessions) ?? want]
+                    model.requestedSession = nil     // replaces the pushed terminal
                 }
                 .onChange(of: notifier.pendingOpen) { _, want in
                     guard let want else { return }   // tapped a bell notification
-                    path = [want]
+                    path = [resolveSessionName(want, in: model.sessions) ?? want]
                     notifier.pendingOpen = nil
                 }
                 // The route changed, so the request in flight is already lost.
@@ -815,10 +821,9 @@ struct SessionsView: View {
                 ?? ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
         var target: String?
         for _ in 0..<25 {
-            if let hit = model.sessions.first(where: {
-                $0.internalName == want || $0.name == want
-            }) {
-                target = hit.internalName
+            // Same folding contract as the warm doors (hop2 e4bdd86).
+            if let hit = resolveSessionName(want, in: model.sessions) {
+                target = hit
                 break
             }
             try? await Task.sleep(for: .milliseconds(300))

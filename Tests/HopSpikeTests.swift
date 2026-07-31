@@ -1309,6 +1309,48 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
     }
 
+    // MARK: - resolveSessionName (hop2 e4bdd86 mirror)
+
+    private func fleet(_ pairs: [(display: String, internal_: String)]) -> [HopSession] {
+        pairs.map {
+            HopSession(json: ["displayName": $0.display, "internalName": $0.internal_],
+                       seenBellSeq: [:])!
+        }
+    }
+
+    func testResolveExactInternalWinsOverEverything() {
+        // A session whose DISPLAY name equals another's internal name must
+        // not steal the address: internal-exact ranks first.
+        let s = fleet([("Meridian", "orion"), ("orion", "nebula")])
+        XCTAssertEqual(resolveSessionName("orion", in: s), "orion")
+    }
+
+    func testResolveExactDisplayResolvesToItsInternal() {
+        let s = fleet([("Meridian", "room-7")])
+        XCTAssertEqual(resolveSessionName("Meridian", in: s), "room-7")
+    }
+
+    func testResolveUniqueCaseFoldMatches() {
+        let s = fleet([("Meridian", "Orion"), ("Umbra", "Nebula")])
+        XCTAssertEqual(resolveSessionName("oRiOn", in: s), "Orion",
+                       "unique internal fold should resolve")
+        XCTAssertEqual(resolveSessionName("meridian", in: s), "Orion",
+                       "unique display fold should resolve to the internal name")
+    }
+
+    func testResolveAmbiguousFoldResolvesToNothing() {
+        // The daemon's rule: an ambiguous fold is a MISS, never a guess.
+        let s = fleet([("A", "Titan"), ("B", "titan")])
+        XCTAssertNil(resolveSessionName("TITAN", in: s))
+        // Exact still works even while the fold is ambiguous.
+        XCTAssertEqual(resolveSessionName("titan", in: s), "titan")
+    }
+
+    func testResolveUnknownNameMisses() {
+        let s = fleet([("Meridian", "Orion")])
+        XCTAssertNil(resolveSessionName("Vega", in: s))
+    }
+
     func testTileTypeDropsTrailingBlanksBeforeHistory() {
         // A 44-row grid holding 6 rows of content: the blank tail is not
         // "recent activity", it is empty screen — trim it first so the window

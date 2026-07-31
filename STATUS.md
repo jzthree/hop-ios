@@ -240,6 +240,25 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Names fold at the door (iteration 227, PLAN 47)
+
+The daemon started folding case wherever a name addresses a session
+(hop2 e4bdd86); the app now mirrors it at its boundaries. One pure
+resolver — internal-exact, display-exact, then unique case-fold with
+the daemon's rule that an AMBIGUOUS fold is a miss, never a guess —
+sits at the three choke points every outside door funnels through
+(warm requestedSession/pendingOpen, cold openPendingSession). The
+warm paths turned out to be worse than the sketch assumed: they
+pushed the raw string with NO resolution, so even an exactly-spelled
+display name from a Handoff URL dead-ended warm. Internal flows
+(pill swipe, fork, list taps) bypass the resolver entirely —
+daemon-minted names stay exact, so nothing can alias.
+
+Five unit tests pin the contract (precedence, unique folds both
+ways, ambiguity, unknown); a new e2e launches the app with the
+internal fixture name case-mangled ("mERIDIAN") and must land in the
+terminal.
+
 ## Planning round: three evidenced candidates (iteration 226)
 
 Nothing actionable in PLAN (everything open is awaiting Jian's traces

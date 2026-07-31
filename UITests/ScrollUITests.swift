@@ -185,6 +185,29 @@ final class ScrollUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
     }
 
+    /// hop2 e4bdd86 mirror: a name the daemon would accept in any case must
+    /// open in the app too. Launches with the INTERNAL fixture name (stable
+    /// across display renames) deliberately case-mangled; reaching the
+    /// terminal proves the outside-name resolver folded it to canonical.
+    func testCaseMangledOpenLandsInTheSession() throws {
+        let canonical = ProcessInfo.processInfo
+            .environment["HOP_E2E_FIXTURE_INTERNAL"] ?? "Meridian"
+        let mangled = String(canonical.map {
+            $0.isUppercase ? Character($0.lowercased()) : Character($0.uppercased())
+        })
+        XCTAssertNotEqual(mangled, canonical,
+                          "mangling was a no-op — letterless fixture name?")
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_OPEN"] = mangled
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25),
+                      "case-mangled open never reached the terminal")
+    }
+
     /// The second door to the session verbs: long-press the NAME in the pill.
     /// Same @ViewBuilder as the ⋯ menu's Session section, so this asserts the
     /// door exists, not the verbs' behaviour (the menu test owns that).

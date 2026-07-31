@@ -346,6 +346,24 @@ func recentProjects(_ sessions: [HopSession], cap: Int = 6) -> [(label: String, 
     return out
 }
 
+/// A session name that arrived from OUTSIDE the app — a Handoff /s/ URL, a
+/// Shortcuts phrase, hop://session/, Spotlight, HOP_DEV_OPEN — resolved to
+/// the fleet's canonical internalName. Mirrors the daemon's addressing
+/// contract (hop2 e4bdd86): exact match first, unique case-folded match
+/// second, and an AMBIGUOUS fold resolves to nothing rather than guessing.
+/// Internal lookups (pill swipe, fork, list taps) never come through here —
+/// daemon-minted names round-trip verbatim and stay exact.
+func resolveSessionName(_ raw: String, in sessions: [HopSession]) -> String? {
+    if sessions.contains(where: { $0.internalName == raw }) { return raw }
+    if let hit = sessions.first(where: { $0.name == raw }) { return hit.internalName }
+    let lower = raw.lowercased()
+    let internalFolds = sessions.filter { $0.internalName.lowercased() == lower }
+    if internalFolds.count == 1 { return internalFolds[0].internalName }
+    if internalFolds.count > 1 { return nil }
+    let displayFolds = sessions.filter { $0.name.lowercased() == lower }
+    return displayFolds.count == 1 ? displayFolds[0].internalName : nil
+}
+
 /// The pill-swipe ring: the neighbouring live session in switcher order,
 /// wrapping at the ends — Safari's address-bar swipe, for terminals. Nil
 /// when there is nowhere to go (lone session, or the current one has
