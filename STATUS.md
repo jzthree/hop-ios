@@ -21,10 +21,11 @@ Solstice: read-only for you; leave notes for me in hop2 commits or tell Jian.
 it still discussed the TestFlight ISSUER key that has since failed AUTH, and
 a device checklist whose size-election items were closed by builds 229-237.)*
 
-**Build 249 is on the phone**; every gate is green (88 unit, 24 UI, strict
-zero-tolerance at zero, TSan clean) and the loop's queue is entirely
-verdict-bound — nothing left is self-serviceable. Fork sessions (hop2
-f6e6852, today) is queued as PLAN 30 and needs no decision.
+**Build 271 is on the phone** (270 shipped mid-round; 271 carries the
+suite-caught menu fix); gates green at last full run (93 unit, 30 UI
+executed, strict zero) and the loop's queue is entirely verdict-bound —
+nothing left is self-serviceable. Jian's standing word: deploy to the
+phone IMMEDIATELY every round.
 
 ## Waiting on you — one batch, ten minutes with the phone
 
@@ -239,7 +240,51 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
-## Every input door gets a bell (iteration 224)
+## The pill answers back (iteration 225)
+
+Jian: "the back button and back menu design — can you still improve
+it?" Three native-idiom upgrades, none touching the settled shape
+(two views, one button, no title switcher):
+
+1. **The fleet swipe shows its hand.** The pill follows the finger
+   (rubber-banded past the 50pt commit), and past the threshold the
+   title swaps to the DESTINATION session's name with a direction
+   arrow and a light haptic tick. Inside the threshold it springs
+   back and nothing fires. The gesture used to be invisible until it
+   had already switched — undiscoverable and blind.
+2. **Text size is a keep-open stepper.** ControlGroup +
+   menuActionDismissBehavior(.disabled): ± taps keep the menu up
+   while the terminal re-fits live behind it. One visit, not
+   open-tap-reopen per point.
+3. **Long-press the session name for the session verbs** — the
+   native press-the-object idiom. Rename/tagline/move/origin/park/
+   kill, one shared @ViewBuilder with the ⋯ menu's Session section
+   so the doors can't drift.
+
+The round's catch outgrew its first diagnosis. testReconnectKeeps-
+TheSessionUsable failed: Reconnect gone from the AX tree. First
+theory (the stepper's label row added height) survived one fix
+attempt and died on the rerun — identical tree without the label. An
+in-test screenshot told the truth: with the keyboard up the menu
+gets ~11 rows of height, the flat 18-row list SCROLLED, the fold has
+no affordance, and iOS truncates the AX snapshot's tail — the last
+items weren't just hidden, they were untestable and undiscoverable.
+So the fix is the design: Sharing and Session folded into submenus
+(the title long-press is the flat door), the View header dropped,
+and every top-level item now fits on screen at once. The menu test
+writes /tmp/hop-menu-current.png every run — the AX tree hid this
+failure; the pixels did not.
+
+Act three: the green run was a LIE for Reconnect specifically — the
+row was in the AX tree but still clipped below the menu's fold, and
+the coordinate tap false-passed. The row that would not fit turned
+out to be the row that should not exist: Reconnect is now
+STATE-CONDITIONAL — absent while the socket is verified-live (the
+wake-ping machinery keeps status honest), the menu's FIRST row
+during an outage, when it is what you came for. The reconnect test
+grew teeth: asserts absence while live, then rides a sustained
+drop-hook outage, taps Reconnect mid-storm, and requires recovery.
+Two new tests pin the keep-open stepper and the title long-press.
 
 PLAN 45(a): flowboard's insertion path is invisible until it runs
 against the real app, so this round shipped forensics, not guesses.

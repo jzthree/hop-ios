@@ -155,14 +155,49 @@ final class ScrollUITests: XCTestCase {
         let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].tap()
+        // The text-size stepper keeps the menu OPEN (menuActionDismissBehavior
+        // .disabled) — a tap on Smaller must not dismiss. Tap Bigger after to
+        // leave the persisted size where it started.
+        XCTAssertTrue(app.buttons["Smaller text"].waitForExistence(timeout: 5),
+                      "text-size stepper missing from the terminal menu")
+        // Standing visual artifact: the open menu, refreshed every run. The
+        // AX tree hid the last failure (a fold nothing hints at); the pixels
+        // did not.
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-menu-current.png"))
+        app.buttons["Smaller text"].tap()
+        XCTAssertTrue(app.buttons["Session"].waitForExistence(timeout: 3),
+                      "size stepper dismissed the menu")
+        app.buttons["Bigger text"].tap()
+        // The session verbs live one level down (the flat 18-row menu
+        // scrolled past the keyboard-up fold and iOS truncated its AX tail —
+        // Reconnect vanished from the tree). The flat door is the title
+        // long-press, covered by its own test.
+        app.buttons["Session"].tap()
         XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 5),
-                      "Rename missing from the terminal menu")
+                      "Rename missing from the Session submenu")
         XCTAssertTrue(app.buttons["Edit tagline"].exists)
         XCTAssertTrue(app.buttons["Park"].exists)
         XCTAssertTrue(app.buttons["Kill"].exists)
         XCTAssertTrue(app.buttons["Move to Agents"].exists || app.buttons["Move to You"].exists,
                       "origin move missing")
         // Dismiss without touching anything destructive.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+    }
+
+    /// The second door to the session verbs: long-press the NAME in the pill.
+    /// Same @ViewBuilder as the ⋯ menu's Session section, so this asserts the
+    /// door exists, not the verbs' behaviour (the menu test owns that).
+    func testTitleLongPressShowsSessionVerbs() throws {
+        let app = launchIntoSession(Self.fixture)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let title = app.staticTexts[Self.fixture].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "pill title missing")
+        title.press(forDuration: 0.8)
+        XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 5),
+                      "long-press on the title did not open the session verbs")
+        XCTAssertTrue(app.buttons["Park"].exists)
+        // Dismiss the context menu harmlessly.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
     }
 
@@ -812,12 +847,37 @@ final class ScrollUITests: XCTestCase {
     /// (`snapshot N KB`, measured 3 → 2), so what this asserts is the part
     /// XCUITest can see — that the session stays usable across it, which the
     /// second teardown was quietly disrupting.
+    /// Reconnect is STATE-CONDITIONAL: absent while verified-live (it was
+    /// the row that pushed the menu past the keyboard-up fold, and the tap
+    /// on its clipped coordinates false-passed for a run), the menu's FIRST
+    /// row during an outage. Both halves asserted here; the drop hook
+    /// sustains the outage long enough to tap it mid-storm.
     func testReconnectKeepsTheSessionUsable() throws {
-        let app = launchIntoSession(Self.fixture)
+        // dropAfter 8: the drop clock starts at first CONNECT, and the
+        // live-half menu check below needs ~4s of verified-live runway first.
+        let app = launchIntoSessionWithDrop(Self.fixture, dropAfter: 8, count: 5)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        // Live half: the menu carries no Reconnect while the socket is good.
         app.buttons["Terminal actions"].tap()
-        app.buttons["Reconnect"].tap()
-        Thread.sleep(forTimeInterval: 6)   // longer than the old 1s spurious retry
+        XCTAssertTrue(app.buttons["Smaller text"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Reconnect"].exists,
+                       "Reconnect shown while verified-live")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        // Outage half: the drop fires and keeps dropping; Reconnect must
+        // surface. Tapping it forces an immediate attempt (skipping the
+        // backoff); the remaining drops absorb it and recovery follows.
+        let banner = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'Connection lost' OR label CONTAINS 'Reconnecting'")
+        ).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 15), "no outage banner")
+        app.buttons["Terminal actions"].tap()
+        let reconnect = app.buttons["Reconnect"]
+        XCTAssertTrue(reconnect.waitForExistence(timeout: 5),
+                      "Reconnect missing from the menu during an outage")
+        reconnect.tap()
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: banner, handler: nil)
+        waitForExpectations(timeout: 40)
         XCTAssertTrue(app.buttons["escape"].exists, "key bar gone after reconnect")
         XCTAssertTrue(app.buttons["down arrow"].exists, "key bar gone after reconnect")
     }

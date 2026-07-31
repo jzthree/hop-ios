@@ -66,6 +66,11 @@ struct TerminalHostView: View {
     @State private var taglineShown = false
     @State private var taglineText = ""
     @State private var killConfirmShown = false
+    /// The pill's live travel during a fleet-switch swipe. The web switcher
+    /// has no equivalent of this: the pill follows the finger and names the
+    /// session you would land on, so the swipe is never blind.
+    @State private var pillDragX: CGFloat = 0
+    @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
@@ -532,7 +537,22 @@ struct TerminalHostView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Back to sessions")
-            titleLabel
+            // Mid-swipe the title becomes the DESTINATION: past the commit
+            // threshold you read the name you will land on, not the one you
+            // are leaving. Release inside the threshold and nothing happens.
+            if let peek = pillPeek {
+                HStack(spacing: 7) {
+                    Image(systemName: pillDragX < 0 ? "arrow.right" : "arrow.left")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.hopGlow)
+                    Text(peek.name)
+                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                        .lineLimit(1)
+                }
+                .transition(.opacity)
+            } else {
+                titleLabel
+            }
             Spacer(minLength: 4)
             actionsMenu
         }
@@ -551,14 +571,40 @@ struct TerminalHostView: View {
         // Safari's address-bar swipe, for terminals: drag the pill sideways
         // to step through the fleet in switcher order. Horizontal-dominant
         // and 50pt of travel, so bar taps and menu touches never misfire.
-        .gesture(DragGesture(minimumDistance: 25).onEnded { v in
-            let dx = v.translation.width
-            guard abs(dx) > 50, abs(dx) > abs(v.translation.height) * 2,
-                  let next = neighborSession(model.sessions,
-                                             of: session.internalName,
-                                             step: dx < 0 ? 1 : -1) else { return }
-            model.requestedSession = next.internalName
-        })
+        // The pill FOLLOWS the finger (rubber-banded past the threshold) and
+        // ticks once when the switch arms — the gesture used to be invisible
+        // until it had already fired, which made it both undiscoverable and
+        // blind about where it was going.
+        .offset(x: pillDragX)
+        .gesture(DragGesture(minimumDistance: 25)
+            .onChanged { v in
+                let dx = v.translation.width
+                guard abs(dx) > abs(v.translation.height) * 2 else { return }
+                let mag = abs(dx)
+                let travel = mag <= 50 ? mag : 50 + (mag - 50) * 0.25
+                pillDragX = (dx < 0 ? -1 : 1) * min(travel, 68)
+                let target = mag > 50
+                    ? neighborSession(model.sessions, of: session.internalName,
+                                      step: dx < 0 ? 1 : -1)
+                    : nil
+                if target?.internalName != pillPeek?.internalName {
+                    withAnimation(.easeOut(duration: 0.12)) { pillPeek = target }
+                    if target != nil {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+            }
+            .onEnded { v in
+                withAnimation(.spring(duration: 0.3)) { pillDragX = 0 }
+                let landing = pillPeek
+                withAnimation(.easeOut(duration: 0.12)) { pillPeek = nil }
+                let dx = v.translation.width
+                guard abs(dx) > 50, abs(dx) > abs(v.translation.height) * 2,
+                      let next = landing ?? neighborSession(model.sessions,
+                                                            of: session.internalName,
+                                                            step: dx < 0 ? 1 : -1) else { return }
+                model.requestedSession = next.internalName
+            })
         .padding(.horizontal, 5)
         .padding(.top, windowTopInset() + 1)
     }
@@ -598,6 +644,54 @@ struct TerminalHostView: View {
                     .foregroundStyle(Color.hopGlow)
             }
         }
+        // Long-press the NAME to act on the session — the native idiom is
+        // pressing the object itself, and the name is the session's identity
+        // in the pill. Same verbs as the ⋯ menu's Session group; two doors,
+        // one @ViewBuilder.
+        .contentShape(Rectangle())
+        .contextMenu { sessionVerbs }
+    }
+
+    /// The session-identity verbs (the web sheet's), shared verbatim between
+    /// the ⋯ menu's Session section and the title's context menu.
+    @ViewBuilder private var sessionVerbs: some View {
+        Button { renameText = session.name; renameShown = true } label: {
+            Label("Rename", systemImage: "pencil")
+        }
+        Button { taglineText = session.tagline; taglineShown = true } label: {
+            Label("Edit tagline", systemImage: "text.quote")
+        }
+        Menu {
+            ForEach(model.folders) { f in
+                Button {
+                    Task { _ = await model.moveSession(session.internalName, toFolder: f.id) }
+                } label: {
+                    if session.folderId == f.id {
+                        Label(f.name, systemImage: "checkmark")
+                    } else { Text(f.name) }
+                }
+            }
+            if session.folderId != nil {
+                Button {
+                    Task { _ = await model.moveSession(session.internalName, toFolder: nil) }
+                } label: { Label("Unfiled", systemImage: "tray") }
+            }
+        } label: { Label("Move to", systemImage: "folder") }
+        Button {
+            Task { _ = await model.setOrigin(session.internalName,
+                                             createdBy: session.createdBy == "agent" ? "user" : "agent") }
+        } label: {
+            Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
+                  systemImage: "arrow.left.arrow.right")
+        }
+        Button {
+            Task {
+                if await model.setParked(session, parked: true) { dismiss() }
+            }
+        } label: { Label("Park", systemImage: "moon.zzz") }
+        Button(role: .destructive) { killConfirmShown = true } label: {
+            Label("Kill", systemImage: "xmark.circle")
+        }
     }
 
     /// The old menu was twelve items in arrival order — copy next to collab
@@ -607,6 +701,19 @@ struct TerminalHostView: View {
     /// the connection.
     private var actionsMenu: some View {
         Menu {
+            // State-conditional, and FIRST: while the socket is verified
+            // live a Reconnect row is dead weight — and it was the one row
+            // that pushed the menu past the keyboard-up fold (the pixels
+            // caught it clipped even after the submenu consolidation; the
+            // AX-coordinate tap had quietly false-passed). During an outage
+            // it leads the menu, because then it IS what you came for.
+            if status != .live {
+                Section {
+                    Button { reconnectToken += 1 } label: {
+                        Label("Reconnect", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
             Section {
                 Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
                 Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
@@ -631,7 +738,10 @@ struct TerminalHostView: View {
                     Label("Fork session", systemImage: "arrow.triangle.branch")
                 }
             }
-            Section("View") {
+            // Unnamed on purpose: fit/size/theme explain themselves, and the
+            // header row was the difference between the menu fitting the
+            // keyboard-up height and scrolling.
+            Section {
                 // Observer mode: see the peer's whole grid width at once
                 // instead of panning — and claim nothing while watching.
                 Button { fitWidth.toggle(); fitTick += 1 } label: {
@@ -640,8 +750,20 @@ struct TerminalHostView: View {
                             ? "arrow.up.left.and.arrow.down.right"
                             : "arrow.down.right.and.arrow.up.left")
                 }
-                Button { setFont(fontSize + 1) } label: { Label("Bigger text", systemImage: "textformat.size.larger") }
-                Button { setFont(fontSize - 1) } label: { Label("Smaller text", systemImage: "textformat.size.smaller") }
+                // A stepper, not two one-shot rows: the menu stays up while
+                // you tap and the terminal re-fits live behind it, so finding
+                // a size is one visit instead of open-tap-reopen per point.
+                // Unlabeled: every row here is paid for out of the keyboard-up
+                // height budget (see the submenu comment below).
+                ControlGroup {
+                    Button { setFont(fontSize - 1) } label: {
+                        Label("Smaller text", systemImage: "textformat.size.smaller")
+                    }
+                    Button { setFont(fontSize + 1) } label: {
+                        Label("Bigger text", systemImage: "textformat.size.larger")
+                    }
+                }
+                .menuActionDismissBehavior(.disabled)
                 Button {
                     lightTheme.toggle()
                     UserDefaults.standard.set(lightTheme, forKey: "termLight")
@@ -650,73 +772,44 @@ struct TerminalHostView: View {
                           systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
                 }
             }
-            // Who else is here + who may type (hay collab model). ForEach of
-            // an empty viewers list renders nothing, so the section header is
-            // the only cost when you're alone.
-            Section("Sharing") {
-                ForEach(viewers) { v in
-                    Label(v.typing ? "\(v.name) — typing" : v.name,
-                          systemImage: "person.fill")
-                }
-                Button {
-                    controlAction = collabEveryone ? .lock : .unlock
-                } label: {
-                    Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
-                          systemImage: collabEveryone ? "lock" : "lock.open")
-                }
-                if !collabEveryone {
-                    Button {
-                        controlAction = iHoldControl ? .release : .take
-                    } label: {
-                        Label(iHoldControl ? "Release control" : "Take control",
-                              systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
-                    }
-                }
-            }
-            // The web sheet's session verbs, reachable WITHOUT leaving the
-            // terminal (Jian: "missing rename — review the main hop web
-            // version"). Same daemon calls the wall menus make.
-            Section("Session") {
-                Button { renameText = session.name; renameShown = true } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
-                Button { taglineText = session.tagline; taglineShown = true } label: {
-                    Label("Edit tagline", systemImage: "text.quote")
-                }
+            // Sharing and Session fold into SUBMENUS. Not for tidiness: with
+            // the keyboard up the menu's visible height is ~11 rows, and the
+            // flat 18-row list scrolled — the probe screenshot showed the
+            // Session verbs and Reconnect below a fold nothing hints at, and
+            // iOS's AX snapshot truncated the tail outright (the suite lost
+            // Reconnect). A menu you must scroll blind is a menu you can't
+            // glance; every top-level item is now on screen at once. The
+            // session verbs keep a flat fast path: long-press the title.
+            Section {
                 Menu {
-                    ForEach(model.folders) { f in
+                    ForEach(viewers) { v in
+                        Label(v.typing ? "\(v.name) — typing" : v.name,
+                              systemImage: "person.fill")
+                    }
+                    Button {
+                        controlAction = collabEveryone ? .lock : .unlock
+                    } label: {
+                        Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
+                              systemImage: collabEveryone ? "lock" : "lock.open")
+                    }
+                    if !collabEveryone {
                         Button {
-                            Task { _ = await model.moveSession(session.internalName, toFolder: f.id) }
+                            controlAction = iHoldControl ? .release : .take
                         } label: {
-                            if session.folderId == f.id {
-                                Label(f.name, systemImage: "checkmark")
-                            } else { Text(f.name) }
+                            Label(iHoldControl ? "Release control" : "Take control",
+                                  systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
                         }
                     }
-                    if session.folderId != nil {
-                        Button {
-                            Task { _ = await model.moveSession(session.internalName, toFolder: nil) }
-                        } label: { Label("Unfiled", systemImage: "tray") }
-                    }
-                } label: { Label("Move to", systemImage: "folder") }
-                Button {
-                    Task { _ = await model.setOrigin(session.internalName,
-                                                     createdBy: session.createdBy == "agent" ? "user" : "agent") }
                 } label: {
-                    Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
-                          systemImage: "arrow.left.arrow.right")
+                    Label(viewers.count > 1 ? "Sharing — \(viewers.count) here" : "Sharing",
+                          systemImage: "person.2")
                 }
-                Button {
-                    Task {
-                        if await model.setParked(session, parked: true) { dismiss() }
-                    }
-                } label: { Label("Park", systemImage: "moon.zzz") }
-                Button(role: .destructive) { killConfirmShown = true } label: {
-                    Label("Kill", systemImage: "xmark.circle")
+                // The web sheet's session verbs, reachable WITHOUT leaving
+                // the terminal (Jian: "missing rename — review the main hop
+                // web version"). Same daemon calls the wall menus make.
+                Menu { sessionVerbs } label: {
+                    Label("Session", systemImage: "slider.horizontal.3")
                 }
-            }
-            Section {
-                Button { reconnectToken += 1 } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
             }
         } label: {
             // Part of the pill, not a floating button: a hairline seam and a
