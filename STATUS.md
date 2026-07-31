@@ -240,6 +240,31 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Planning round: three evidenced candidates (iteration 226)
+
+Nothing actionable in PLAN (everything open is awaiting Jian's traces
+or verdicts; hopboard still private, Xcode account list still empty),
+so this round planned. Studied: hop2 drift since the last window and
+the app's own seams. Appended PLAN 47-49, each with evidence and a
+round sketch:
+
+- **47 — case-folded name resolution.** hop2 e4bdd86 made every
+  name-addressing daemon surface case-insensitive (exact-first,
+  folded-fallback, ambiguity resolves to nothing). The app still
+  `==`-compares names arriving from OUTSIDE (Handoff /s/ URLs,
+  intents, HOP_DEV_OPEN) — a URL the daemon serves can dead-end at
+  "Session not found" in the app.
+- **48 — landscape chrome, summonable not banished.** The chrome bar
+  can never appear in landscape; menu, verbs, find, copy, pill swipe
+  and the new state-conditional Reconnect are all portrait-only. The
+  top-strip summon already proves the fix's shape.
+- **49 — omnisearch parity from the local corpus.** Web searches
+  session content (f6e6852); the phone filter stops at
+  name/cwd/app/tagline while FleetCache already holds every screen —
+  content search with zero daemon calls, offline-capable.
+
+Docs only; the phone stays on 271.
+
 ## The pill answers back (iteration 225)
 
 Jian: "the back button and back menu design — can you still improve

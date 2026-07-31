@@ -544,3 +544,57 @@ Half (b), the transcript-preview one-tap-insert UI: not in this
 repo's history — likely flowboard's surface. Jian to confirm
 ownership before anything is built here.
 ## 46. (space for Jian's next reports)
+
+## 47. Case-folded name resolution at the client's addressing boundaries
+PROBLEM: hop2 e4bdd86 (2026-07-30) made every daemon surface that
+addresses a session BY NAME case-insensitive — /s/<name> URLs, hop
+attach, rename/tagline targets — with an exact-match-first, folded-
+fallback, ambiguous-folds-resolve-to-nothing contract. hop-ios still
+compares with `==` wherever it resolves a name it did not mint: the
+Handoff /s/ path, HOP_DEV_OPEN, Shortcuts/QuickReply intent targets,
+and the navigationDestination lookup. A URL the daemon happily serves
+("titan" for "Titan") dead-ends in the app at "Session not found".
+EVIDENCE: e4bdd86's diff (foldedAmbiguous machinery); TerminalScreen's
+navigationDestination does `first(where: { $0.internalName == name })`.
+ROUND SKETCH: one folding helper mirroring the daemon's contract
+(exact first, unique-fold fallback, ambiguity = miss), applied ONLY at
+boundaries where the name enters from outside (URL, env, intent) —
+internal lookups stay exact so daemon-minted names never alias. Unit
+tests for the ambiguity rule; e2e: open a case-mangled /s/ URL against
+the real daemon, land in the session.
+
+## 48. Landscape chrome: summonable, not banished
+PROBLEM: `if chromeShown, !landscapePhone` — the chrome bar can NEVER
+appear in landscape. Back works (edge swipe), the banner works, but
+the ⋯ menu, session verbs, find, copy, the pill swipe, the readiness
+dot and the state-conditional Reconnect row are all unreachable
+without rotating to portrait. The new Reconnect placement sharpens
+it: during a landscape outage the menu row that exists FOR that
+moment cannot be reached.
+EVIDENCE: TerminalScreen.swift:451 (the suppression), :378 (rotation
+force-hides); Jian's rule ("landscape gives every point to the
+terminal") shaped the suppression — but the rule is about DEFAULT
+state, and the top-strip tap that summons chrome in portrait already
+proves summoned-chrome is compatible with it.
+ROUND SKETCH: let the existing top-strip tap summon the SAME pill in
+landscape (slimmer padding), auto-hide after 3s as in portrait, keep
+rotation's force-hide. No new UI — one condition and a padding
+variant. Probe: landscape screenshot with chrome up; UI test rotates,
+taps the strip, asserts Terminal actions exists, rotates back.
+
+## 49. Omnisearch parity: the filter should reach what's ON the screens
+PROBLEM: the wall filter matches name/cwd/runningApp/tagline only
+(SessionFilter.swift:110-113). The web's omnisearch (hop2 f6e6852,
+44ad888) reaches session CONTENT — on the phone, "which session
+mentioned the failing test?" has no answer short of opening each one.
+EVIDENCE: filterSessions source; FleetCache already persists
+screensRaw for every session — the content corpus is sitting on
+device, so this needs NO new daemon calls and works offline from the
+cache.
+ROUND SKETCH: extend filterSessions to also match the screens store
+(strip ANSI via the existing parser output, lowercase contains), show
+a "found on screen" affordance in the row (the web's "Found in
+output" equivalent — e.g., the matching line as the preview snippet),
+unit tests over fixture screens, probe screenshot of a content-hit
+row. Guard: never fetch previews server-side for this — local corpus
+only (the wall-filter content-search incident is the cautionary tale).
