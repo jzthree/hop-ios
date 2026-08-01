@@ -111,3 +111,58 @@ should check hopSessionExists), that's the remaining daemon half.
 Also useful to know: /api/sessions/preview serves REMEMBERED content for
 killed sessions (list stays clean — no resurrection) and 404s only for
 never-existed names.
+
+## 2026-07-31 — Wall previews crop the BOTTOM, and the CSS says so by accident
+
+**Jian's report (desktop):** "the preview terminal is sometimes cut off from
+the bottom so I cannot see the bottom few lines." Diagnosed read-only from
+this side because it pairs with the phone's wake-size work — see the
+relationship note at the end; the fix itself is a hop2 one-liner.
+
+**Where:** `hay/apps/web/src/styles.css`, the pair landed by b7b8aaa
+(2026-07-27, "preview → terminal is now a swap in place").
+
+```css
+.switcher-preview-scalebox {
+  /* Bottom-anchored: the newest terminal lines are the ones worth seeing, so
+     content that overflows the tile is cropped from the TOP. Paired with
+     transform-origin: bottom left in the tile's rescale. */
+  display: flex;
+  align-items: flex-end;      /* <- has NO effect on the child below */
+  overflow: hidden;
+}
+.switcher-preview-screen {
+  position: absolute;
+  top: 0;                     /* <- pins the OLDEST line to the top */
+  transform-origin: top left; /* <- the comment above says bottom left */
+}
+```
+
+An absolutely-positioned child is out of the flex flow, so `align-items:
+flex-end` never applies to it. The screen is pinned at `top: 0`, and the
+box's `overflow: hidden` therefore crops the **bottom** — the exact opposite
+of the block's own documented intent, and the comment's "transform-origin:
+bottom left" doesn't match the rule underneath it either. The drift looks
+like a rebase artifact of b7b8aaa rather than a decision.
+
+**Why "sometimes":** `ScaledScreen` derives the preview font from box WIDTH
+only (`tileFontFor(box.clientWidth)`) and pads rows out to `frame.rows`. A
+24-row grid fits the tile's height at that font; a TALL grid does not, and
+the overflow — the newest lines — is what gets cut. So the symptom tracks
+row count, not content.
+
+**Fix, one of:**
+1. `top: 0` → `bottom: 0` and `transform-origin: top left` → `bottom left`
+   (this is what the comment already describes), or
+2. drop `position: absolute` so the existing `align-items: flex-end` does
+   the anchoring it was written for.
+Either way the crop moves to the top, where scrollback belongs.
+
+**The relationship to the phone (why this surfaced now):** one PTY, one
+size. When a phone claims the grid it elects something tall and narrow —
+~49-51 rows against the desk's ~24 — and every wall preview of that session
+then overflows its tile and loses its newest lines at the desk. So the
+CSS bug is latent until a phone attaches, which is why it reads as "sometimes".
+The iOS side is not backing off that claim (a phone that can't fit its own
+screen is the worse failure, and hop's election is explicitly deliberate-wins),
+but it's worth knowing the desk sees tall grids routinely now.

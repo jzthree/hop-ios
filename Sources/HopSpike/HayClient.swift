@@ -1,5 +1,8 @@
 import Foundation
 import os
+#if DEBUG
+import UIKit          // the resize witness reads applicationState
+#endif
 
 // Minimal client for the hay room protocol (see hop2/hay/README.md):
 // connect wss://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
@@ -170,6 +173,22 @@ final class HayClient: NSObject {
         var msg: [String: Any] = ["type": "resize", "cols": cols, "rows": rows]
         if let claim { msg["claim"] = claim }
         if user { msg["user"] = true }
+        #if DEBUG
+        // The wire-level witness for the "never resize while nobody is
+        // looking" rule. Appends state at send time; the runner cannot watch
+        // the socket, and asserting on the app's own intent would test the
+        // guard against itself.
+        if let marker = ProcessInfo.processInfo.environment["HOP_RESIZE_MARKER"] {
+            let state = UIApplication.shared.applicationState
+            let tag = state == .active ? "active" : (state == .inactive ? "inactive" : "background")
+            let line = "\(cols)x\(rows) \(tag)\n"
+            if let fh = FileHandle(forWritingAtPath: marker) {
+                fh.seekToEndOfFile(); fh.write(Data(line.utf8)); try? fh.close()
+            } else {
+                try? line.write(toFile: marker, atomically: true, encoding: .utf8)
+            }
+        }
+        #endif
         sendJSON(msg)
     }
 

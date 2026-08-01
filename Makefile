@@ -146,6 +146,12 @@ strict:
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
 	  -derivedDataPath build-strict CODE_SIGNING_ALLOWED=NO \
 	  SWIFT_STRICT_CONCURRENCY=complete build > build-strict.log 2>&1; \
+	  status=$$?; \
+	  if [ $$status -ne 0 ]; then \
+	    echo "strict gate RED — BUILD FAILED (exit $$status)"; \
+	    grep -E "error:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u | head -10; \
+	    exit $$status; \
+	  fi; \
 	  count=$$(grep -cE 'Sources/HopSpike/.*warning:' build-strict.log); \
 	  echo "warnings in our sources: $$count"; \
 	  grep -E "Sources/HopSpike/.*warning:" build-strict.log | sed 's/.*Sources/Sources/' | sort -u; \

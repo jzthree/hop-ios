@@ -4,7 +4,20 @@ The loop reads this file, refines the top item into a concrete round,
 implements it with the repo's conventions (probe-verify, gated suites,
 deploy, STATUS), then updates this file. Jian reorders freely.
 
-## 1. Re-entry size inconsistency (STUDIED; chip SHIPPED; wake-path next)
+## 1. [SOLVED 2026-07-31 at the root] Re-entry size inconsistency
+
+RESOLVED (iteration 228). The hole was the third wake state: socket
+SURVIVED the idle -> we pinged for liveness and checked nothing else,
+while a backgrounded phone silently adopts whatever grid the desk
+elects (the deferred-adopt grace requires .active). Reopening worked
+only because a fresh attach claims DELIBERATELY. Now one invariant --
+enforceFit() -- holds at every edge: foreground + on screen + not
+observing => the grid DRAWN equals the grid that FITS, re-asserted on
+wake (immediately and again at 1.2s) and on keyboard settle. Its twin
+rule, from Jian the same day: NOTHING resizes while nobody is looking
+(userIsLooking gates every outbound resize; wire-witness proved the old
+code sent two resizes from a backgrounded phone). Regression tests:
+testWakeReclaimsTheSizeAfterAForeignResize, testBackgroundingSendsNoResize.
 
 REFINED by Jian: the trigger is RETURN FROM IDLE — phone backgrounds,
 comes back, the open terminal is wrong. The size chip (below) now makes
@@ -55,7 +68,14 @@ at that cell (terminal-testified: cat -v echoed ^[[<0;26;15M/m). Plain
 shells never see clicks; the coast-brake and chrome strip keep their
 taps.
 
-## 6. [VERDICT 2026-07-29: STILL BROKEN — item 11 now actionable] Keyboard-switch size nondeterminism
+## 6. [RE-ARMED 2026-07-31 — needs a fresh device verdict] Keyboard-switch size nondeterminism
+UPDATE (iteration 228): the settle verifier described below was WEAKER
+than anyone noticed — it sent a POLITE resize a typing peer could
+refuse, and it skipped the peer-held case entirely, which is precisely
+the case a keyboard switch lands you in. It now routes through
+enforceFit(), so a settle mismatch claims deliberately like every other
+edge. Jian's verdict on 273+ decides whether this closes.
+
 Jian: switching keyboards sometimes leaves the grid too small for the
 space left. A settle verifier now runs 700ms after each keyboard-frame
 burst: if the drawn grid disagrees with the current fit (and we hold

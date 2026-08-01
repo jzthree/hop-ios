@@ -240,6 +240,106 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The strict gate was not gating (iteration 228, caught in flight)
+
+`make strict` never checked xcodebuild's exit code — it counted warning
+LINES and nothing else. A build that fails emits no warnings, so the gate
+printed "warnings in our sources: 0" and exited 0. Broken code passed it
+this round and was caught only by the UI suite refusing to build. Every
+"strict zero" before today was still true (those builds succeeded, and the
+suites ran after), but the check could not have told us otherwise. It now
+captures the status, prints the first errors, and fails. This is the
+repo's own trap — "a metric that improves without a cause is a check that
+stopped running" — collected by the harness it was written for.
+
+## The size invariant, enforced at every edge (iteration 228)
+
+Jian, again and specifically: "wrong size when idle and back — I have to
+go back and reopen the terminal," with the ask to solve it at the ROOT so
+it never comes back. It's solved, and the root turned out to be a hole
+nobody had looked in.
+
+**The hole.** Three wake states exist and only two were handled. Socket
+DIED during idle → reconnect → fresh attach → deliberate claim → correct.
+Socket still CONNECTING → the attach claim covers it. Socket SURVIVED the
+idle → we pinged it for liveness and *checked nothing else*. Meanwhile a
+backgrounded phone adopts whatever grid the desk elects — the
+deferred-adopt grace explicitly requires `.active`, so an inactive phone
+takes the foreign size silently. Wake, and you are looking at the desk's
+grid with no code path that will ever reconsider. Reopening "fixed" it for
+exactly one reason: a fresh attach claims DELIBERATELY (`user: true`),
+and the daemon lets an explicit human claim win outright.
+
+**The fix, as an invariant instead of a fifth patch.** While this phone is
+foreground, on screen, and not deliberately observing, the grid it DRAWS
+must equal the grid that FITS. `enforceFit(reason:)` is now the single
+enforcement point: force a layout pass (so the fit describes the CURRENT
+bounds, not the pre-lock keyboard), compare drawn grid to fit, and if they
+disagree claim deliberately. Silence when they agree, so a healthy session
+sends nothing and never touches the daemon's typist recency. Wake runs it
+immediately and again at 1.2s (wake is not one moment — keyboard and safe
+areas are still landing). The keyboard-settle path was rewired to the same
+call, which also upgrades it: it used to send a POLITE resize a typing peer
+could refuse, and skipped the peer-held case entirely — precisely the case
+a keyboard switch lands you in (PLAN 6/11's long-standing complaint).
+
+**Proof.** A new DEBUG hook (HOP_DEV_FOREIGN_SIZE) makes the first
+backgrounding adopt a foreign grid exactly as the daemon's broadcast does
+to an inactive phone. The regression test backgrounds the app, wakes it,
+and asserts the phone reclaims its own fit UNTOUCHED — no tap, no
+keystroke, no chip — and that the peer-size chip does not survive.
+
+**And the reverse rule, from Jian mid-round:** "the app keeps resizing the
+terminal even when it is inactive — do it only when the user is actively
+looking." He was right, and the wire says so. One PTY serves every client,
+so a resize this app sends reshapes whatever screen someone else is
+working in; two paths sent them with no idea whether anyone was looking.
+`sizeChanged` forwarded every refit, and iOS re-lays this view out on the
+way to the background (the app-switcher snapshot). The attach claim sent
+on a pocket reconnect too, merely dropping the deliberate flag — still
+enough to reshape a desk when nobody had typed recently. Both now go
+through one gate, `userIsLooking` (`.active` — the app-switcher, Control
+Center and call banners are all correctly NOT looking). Fits while away
+are RECORDED, never sent; the wake check re-establishes them on return,
+which is what makes skipping safe.
+
+Measured, not assumed: a wire-level witness records every resize with the
+app state at send time. Old code, backgrounded: `51x36 background`,
+`51x52 background` — two resizes to a live PTY from a phone in a pocket.
+New code: nothing until `active`. The first version of that test PASSED
+against the bug (a simulator home-press changes no bounds, so nothing
+refit) — it took a hook that reproduces the real layout squeeze to make
+the test able to fail at all.
+
+**Third report, same root, and Jian named the rule himself:** "the
+terminal can spontaneously resize to about half its height and show
+broken rendering with the last few lines messed up — maybe a race with
+the desktop app which keeps trying at tile size… active phone screen
+takes priority over preview and terminal with no keystroke… user
+interaction triggers fit, we do not trigger in the background, with the
+exception that an active iPhone screen counts as user interaction."
+
+He is describing the wall's LIVE TILES, and they explain the whole
+symptom: a desk merely SHOWING this session on the wall attaches a real
+terminal at TILE geometry and broadcasts that small grid — no human
+behind it. The phone adopted it unconditionally, and a ~24-row grid drawn
+into a view that fits ~49 puts the content across half the screen. So
+adoption is now conditional: while the phone is being looked at, a
+foreign size is REFUSED and ours re-asserted deliberately, bounded to
+three refusals before we adopt and raise the chip (a contested session
+must not ping-pong forever; past that the human decides). The
+"messed-up last few lines" gets its own fix — every reflow now marks the
+whole buffer dirty (`updateFullScreen`) before redrawing, because
+SwiftTerm's changed-rows bookkeeping is exactly what a resize
+invalidates.
+
+Also this round, from the same message: **company is visible now.** A
+grey "2" beside a grey glyph was decoration; the pill carries a filled
+badge that NAMES whoever else is attached and turns amber with
+"<name> typing…" the moment they type — the one fact that changes what
+you should do next, since their keystrokes reflow the grid you are
+reading.
+
 ## Names fold at the door (iteration 227, PLAN 47)
 
 The daemon started folding case wherever a name addresses a session

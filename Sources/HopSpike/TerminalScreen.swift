@@ -75,6 +75,8 @@ struct TerminalHostView: View {
     @State private var controlAction: ControlAction?
     @State private var toast: String?
     @State private var viewers: [HayClient.Viewer] = []
+    /// Presence minus this phone — what the company badge shows.
+    @State private var otherViewers: [HayClient.Viewer] = []
     @State private var collabEveryone = true
     @State private var iHoldControl = false
     @State private var lockedByOther = false
@@ -143,6 +145,9 @@ struct TerminalHostView: View {
                        onRenamed: { renamedTitle = $0 },
                        onGone: { goneReason = $0 },
                        onPresence: { viewers = $0 },
+                       onOthers: { list in
+                           withAnimation(.easeOut(duration: 0.2)) { otherViewers = list }
+                       },
                        onCollab: { everyone, mine, other in
                            collabEveryone = everyone; iHoldControl = mine; lockedByOther = other
                        },
@@ -467,8 +472,11 @@ struct TerminalHostView: View {
                 // screen paints, keystrokes vanish. Ping it on every wake;
                 // a corpse feeds the normal reconnect machinery before the
                 // user's first keystroke finds it (Jian: "the terminal
-                // shows, but it doesn't take any user input").
-                if phase == .active, status == .live { controlAction = .verifyLiveness }
+                // shows, but it doesn't take any user input"). The same
+                // wake also RE-ESTABLISHES THE SIZE INVARIANT — a socket
+                // that survived the idle used to get no size check at all,
+                // which is the whole of "wrong size when I come back".
+                if phase == .active, status == .live { controlAction = .wakeCheck }
             }
             // The route changed under us — wifi to 5G, or a dead path coming
             // back. Every open socket is already dead; waiting out a backoff
@@ -632,9 +640,32 @@ struct TerminalHostView: View {
             } else if !collabEveryone && iHoldControl {
                 Image(systemName: "hand.raised.fill").font(.caption2).foregroundStyle(Color.hopGlow)
             }
-            if viewers.count > 1 {
-                Label("\(viewers.count)", systemImage: "person.2.fill")
-                    .font(.caption2).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+            // Company, said out loud (Jian: "not showing the other user in
+            // any obvious way"). A grey 2 next to a grey glyph read as
+            // decoration; this is a filled badge that NAMES whoever else is
+            // here, and turns amber the moment they type — the one fact that
+            // changes what you should do next, since their keystrokes reflow
+            // the grid you are reading.
+            if !otherViewers.isEmpty {
+                let others = otherViewers
+                let typing = others.filter(\.typing)
+                let label = others.count == 1
+                    ? others[0].name
+                    : "\(others.count) others"
+                Label(typing.isEmpty ? label : "\(typing[0].name) typing…",
+                      systemImage: typing.isEmpty ? "person.fill" : "keyboard.fill")
+                    .font(.caption2.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(typing.isEmpty ? Color.hopGlow.opacity(0.20)
+                                               : Color.hopAttention.opacity(0.28),
+                                in: Capsule())
+                    .foregroundStyle(typing.isEmpty ? Color.hopGlow : Color.hopAttention)
+                    .transition(.opacity)
+                    .accessibilityLabel(typing.isEmpty
+                        ? "Also here: \(others.map(\.name).joined(separator: ", "))"
+                        : "\(typing.map(\.name).joined(separator: ", ")) typing")
             }
             if !session.runningApp.isEmpty {
                 Text(session.runningApp)
@@ -837,7 +868,7 @@ struct FindRequest: Equatable {
     let direction: Int
 }
 
-enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled, verifyLiveness }
+enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled, wakeCheck }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -865,6 +896,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onRenamed: (String) -> Void = { _ in }
     var onGone: (String) -> Void = { _ in }
     var onPresence: ([HayClient.Viewer]) -> Void = { _ in }
+    var onOthers: ([HayClient.Viewer]) -> Void = { _ in }
     var onCollab: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     @Binding var control: ControlAction?
     var onScroll: (Bool) -> Void = { _ in }
@@ -885,6 +917,7 @@ struct TerminalScreen: UIViewRepresentable {
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll,
                     onSizeState: onSizeState) { status = $0 }
         c.onRetryState = onRetryState
+        c.onOthers = onOthers
         return c
     }
 
@@ -1032,6 +1065,27 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
+        /// Consecutive foreign sizes refused while the user was looking. The
+        /// circuit breaker on the refuse-and-re-assert rule: three, then we
+        /// adopt and let the chip hand the decision to the human.
+        private var foreignFights = 0
+
+        /// THE gate on every outbound resize: is a human actually looking at
+        /// this terminal right now? One PTY serves every client, so a resize
+        /// this app sends reshapes whatever screen someone else is working
+        /// in — that is a thing to do only on a live human's behalf, never
+        /// because iOS re-laid-out a view in the background (the app-switcher
+        /// snapshot is the loud one) or because a socket reconnected in a
+        /// pocket. `.active` means foreground AND receiving events: during
+        /// the app-switcher, Control Center, or a call banner it is
+        /// `.inactive`, which is correctly NOT looking.
+        var userIsLooking: Bool {
+            UIApplication.shared.applicationState == .active
+        }
+        #if DEBUG
+        /// One-shot latch for the wake-invariant probe hook.
+        fileprivate var foreignSimDone = false
+        #endif
         /// Local echo (the web's optimisticEcho, ported). Eligible only as
         /// the sole controller outside collab — multiple typists make echo
         /// reconciliation ambiguous, so the web never echoes there either.
@@ -1046,7 +1100,7 @@ struct TerminalScreen: UIViewRepresentable {
         /// the focusing tap, the click tap, and every delivered keystroke;
         /// throttled here so the callers don't need to care.
         func reclaimOnUserIntent() {
-            guard isLive, peerHoldsSize, !observeOnly,
+            guard isLive, peerHoldsSize, !observeOnly, userIsLooking,
                   fittedCols > 1, fittedRows > 1,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
             lastReclaimAt = Date()
@@ -1155,6 +1209,9 @@ struct TerminalScreen: UIViewRepresentable {
         private let onPresence: ([HayClient.Viewer]) -> Void
         private let onCollab: (Bool, Bool, Bool) -> Void
         private let onScroll: (Bool) -> Void
+        /// Presence minus ourselves — set after construction, like
+        /// onRetryState, to keep the init signature from growing again.
+        var onOthers: ([HayClient.Viewer]) -> Void = { _ in }
         private var ctrlArmed = false
         private var altArmed = false
         private var lastReconnectToken = 0
@@ -1302,6 +1359,10 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.feed(text: data)
                 case .presence(let list):
                     self.onPresence(list)
+                    // Who is here BESIDES us. The badge needs this separately
+                    // from the raw list, because the Sharing menu deliberately
+                    // shows everyone including this phone.
+                    self.onOthers(list.filter { $0.id != self.client.clientId })
                 case .collab(let everyone, let controllerId):
                     let mine = controllerId != nil && controllerId == self.client.clientId
                     self.controlLocked = !everyone && !mine && controllerId != nil
@@ -1345,6 +1406,7 @@ struct TerminalScreen: UIViewRepresentable {
                         self.peerHoldsSize = false      // our size won; normal rules
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
+                        self.foreignFights = 0          // the contest is over
                     } else if mine.cols != cols || mine.rows != rows {
                         // The wake-flash fix, half two (PLAN 17, marker-
                         // proven): on a foreground attach our deliberate
@@ -1352,7 +1414,7 @@ struct TerminalScreen: UIViewRepresentable {
                         // foreign size in the meantime IS the flash. Hold
                         // the adopt; the claim's confirm cancels it. A lost
                         // race still adopts, 1.2s late.
-                        if UIApplication.shared.applicationState == .active,
+                        if self.userIsLooking,
                            !self.observeOnly,
                            Date().timeIntervalSince(self.connectStartedAt) < 3.0,
                            self.deferredAdopt == nil {
@@ -1364,6 +1426,31 @@ struct TerminalScreen: UIViewRepresentable {
                                 self.deferredAdopt = nil
                                 self.adoptForeign(cols: p.cols, rows: p.rows)
                             }
+                        } else if self.userIsLooking, !self.observeOnly,
+                                  self.fittedCols > 1, self.fittedRows > 1,
+                                  self.foreignFights < 3 {
+                            // Jian's rule, and the fix for "the terminal
+                            // spontaneously resizes to about half its height":
+                            // an ACTIVE phone screen outranks a desk that is
+                            // merely SHOWING this session. The wall's live
+                            // tiles attach at TILE geometry, so a desk with
+                            // this session on the wall broadcasts a small grid
+                            // with no human behind it — and adopting a 24-row
+                            // grid into a view that fits ~49 draws content
+                            // across half the screen, mid-session, for no
+                            // reason the user can see.
+                            //
+                            // So while he is looking: refuse, and re-assert.
+                            // Bounded, because a genuinely contested session
+                            // must not ping-pong forever — after three refusals
+                            // we adopt and raise the chip, which hands the
+                            // decision to the human instead of to a loop.
+                            self.foreignFights += 1
+                            self.deferredAdopt = nil
+                            self.wakeMark("active_size \(cols)x\(rows) REFUSED (looking) fight=\(self.foreignFights)")
+                            self.client.sendResize(cols: self.fittedCols,
+                                                   rows: self.fittedRows,
+                                                   claim: "attach", user: true)
                         } else {
                             self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
                             self.deferredAdopt = nil
@@ -1422,6 +1509,48 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopCopyAll, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
                                                    name: .hopJumpToLive, object: nil)
+            #if DEBUG
+            // Wake-invariant probe: HOP_DEV_FOREIGN_SIZE=100x30 makes the
+            // first BACKGROUNDING adopt that grid — exactly what the daemon's
+            // active_size broadcast does to a phone that isn't active (the
+            // deferred-adopt grace requires .active). Simulating the desk
+            // resizing the PTY while the phone sleeps is the only way to test
+            // the wake path hermetically; the alternative is choreographing a
+            // second WS client mid-test.
+            // The app-switcher snapshot, simulated: iOS re-lays-out this view
+            // on the way to the background, at a size that is not the user's.
+            // HOP_DEV_BG_REFIT=1 reproduces that squeeze so the "never resize
+            // while nobody is looking" rule has something real to be tested
+            // against — a plain simctl home-press changes no bounds at all,
+            // and a test that cannot fail proves nothing.
+            if ProcessInfo.processInfo.environment["HOP_DEV_BG_REFIT"] == "1" {
+                NotificationCenter.default.addObserver(
+                    forName: UIApplication.didEnterBackgroundNotification,
+                    object: nil, queue: .main) { [weak view] _ in
+                        MainActor.assumeIsolated {
+                            guard let v = view else { return }
+                            var f = v.frame
+                            f.size.height *= 0.7
+                            v.frame = f
+                            v.setNeedsLayout()
+                            v.layoutIfNeeded()
+                        }
+                    }
+            }
+            if let spec = ProcessInfo.processInfo.environment["HOP_DEV_FOREIGN_SIZE"] {
+                NotificationCenter.default.addObserver(
+                    forName: UIApplication.didEnterBackgroundNotification,
+                    object: nil, queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated {
+                            guard let self, !self.foreignSimDone else { return }
+                            let parts = spec.split(separator: "x").compactMap { Int($0) }
+                            guard parts.count == 2 else { return }
+                            self.foreignSimDone = true
+                            self.adoptForeign(cols: parts[0], rows: parts[1])
+                        }
+                    }
+            }
+            #endif
             view.startFrameGapMonitor()
             snapshotLanded = false
             claimed = false
@@ -1490,8 +1619,8 @@ struct TerminalScreen: UIViewRepresentable {
             case .links: onLinks(visibleLinks())
             case .keyboardSettled:
                 scheduleKeyboardSettleCheck()
-            case .verifyLiveness:
-                verifyAliveOnWake()
+            case .wakeCheck:
+                runWakeCheck()
             case .claimSize:
                 // The chip's tap: ask for our fitted size. The election may
                 // refuse (someone typed recently) — the refusal rebroadcast
@@ -1659,6 +1788,69 @@ struct TerminalScreen: UIViewRepresentable {
             guard isLive, !sessionEnded else { return }
             wakeMark("liveness ping")
             client.verifyLiveness()
+        }
+
+        /// THE INVARIANT: while this phone is foreground, on screen, and not
+        /// deliberately observing someone else's grid, the terminal it DRAWS
+        /// must be the terminal that FITS its screen. Any violation is the
+        /// "wrong size when I come back" bug.
+        ///
+        /// Four healers used to patch violations after the fact — the attach
+        /// claim, the keyboard settle, the touch reclaim, the 5s polite retry
+        /// — and every one of them missed the same edge: waking to a socket
+        /// that SURVIVED the idle. Nothing re-checked anything, so a PTY the
+        /// desk resized while the phone slept (the backgrounded phone adopts
+        /// it silently — the deferred-adopt grace only applies while active)
+        /// stayed wrong until the session was closed and reopened. Reopening
+        /// "fixed" it for exactly one reason: a fresh attach claims the size
+        /// DELIBERATELY, and the daemon lets an explicit human claim win
+        /// outright (hop2 rooms.ts, `user: true`).
+        ///
+        /// So: waking with this terminal in your hand IS that same deliberate
+        /// act. This is the one enforcement point; call it from every edge
+        /// where the world may have moved under us.
+        @discardableResult
+        func enforceFit(reason: String) -> Bool {
+            guard isLive, !sessionEnded, !observeOnly, userIsLooking,
+                  let v = view else { return false }
+            // Re-fit to the CURRENT bounds before reading anything: after a
+            // wake the cached fit can still describe the pre-lock layout
+            // (keyboard up, different safe area), and claiming stale dims is
+            // how a deliberate claim wins the election at the WRONG size.
+            v.setNeedsLayout()
+            v.layoutIfNeeded()
+            let t = v.getTerminal()
+            let cols = fittedCols, rows = fittedRows
+            guard cols > 1, rows > 1 else { return false }
+            guard t.cols != cols || t.rows != rows else {
+                wakeMark("\(reason) ok \(cols)x\(rows)")
+                return false
+            }
+            guard Date().timeIntervalSince(lastReclaimAt) > 1 else { return false }
+            lastReclaimAt = Date()
+            wakeMark("\(reason) MISMATCH grid=\(t.cols)x\(t.rows) fit=\(cols)x\(rows) — claiming")
+            client.sendResize(cols: cols, rows: rows, claim: "attach", user: true)
+            #if DEBUG
+            if let marker = ProcessInfo.processInfo.environment["HOP_CLAIM_MARKER"] {
+                try? "\(cols)x\(rows)\n".write(toFile: marker, atomically: true, encoding: .utf8)
+            }
+            #endif
+            return true
+        }
+
+        /// Wake is not one moment: the keyboard, the safe areas and SwiftUI's
+        /// own layout can still be landing when scenePhase flips. Enforce now
+        /// for the common case, then once more after the dust settles — the
+        /// mismatch gate makes the second call free when the first one worked.
+        func runWakeCheck() {
+            verifyAliveOnWake()
+            enforceFit(reason: "wake")
+            settleTask?.cancel()
+            settleTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(1200))
+                guard let self, !Task.isCancelled else { return }
+                self.enforceFit(reason: "wake+settle")
+            }
         }
 
         func reconnectIfNeeded(token: Int, view: HopTermView) {
@@ -1855,6 +2047,13 @@ struct TerminalScreen: UIViewRepresentable {
             onSizeState("\(cols)×\(rows)")
             startReclaimRetry()
             tv.getTerminal().resize(cols: cols, rows: rows)
+            // Repaint EVERY cell after a reflow. SwiftTerm redraws the rows it
+            // knows changed, and a resize invalidates that bookkeeping — which
+            // is how a grid change leaves "the last few lines messed up"
+            // (Jian). updateFullScreen marks the whole buffer dirty; the
+            // display pass then has nothing stale to preserve.
+            tv.getTerminal().updateFullScreen()
+            tv.setNeedsDisplay(tv.bounds)
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -1910,22 +2109,12 @@ struct TerminalScreen: UIViewRepresentable {
             settleTask?.cancel()
             settleTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(700))
-                guard let self, !Task.isCancelled, self.claimed,
-                      !self.peerHoldsSize, !self.observeOnly,
-                      self.fittedCols > 1, self.fittedRows > 1,
-                      let t = self.view?.getTerminal() else { return }
-                let vh = self.view.map { Int($0.bounds.height) } ?? -1
-                if t.cols != self.fittedCols || t.rows != self.fittedRows {
-                    KBLog.record("settle MISMATCH grid=\(t.cols)x\(t.rows) fit=\(self.fittedCols)x\(self.fittedRows) viewH=\(vh) — re-asserting")
-                    Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
-                        .info("keyboard settle: grid \(t.cols)x\(t.rows) vs fit \(self.fittedCols)x\(self.fittedRows) — re-asserting")
-                    self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
-                } else {
-                    KBLog.record("settle ok grid=\(t.cols)x\(t.rows) viewH=\(vh)")
-                }
-                // And if SwiftTerm's own fit is stale (bounds moved without a
-                // sizeChanged), a layout pass recomputes it.
-                self.view?.setNeedsLayout()
+                guard let self, !Task.isCancelled, self.claimed else { return }
+                // Same invariant, same enforcement — this used to send a
+                // POLITE resize that a typing peer could refuse, and it
+                // skipped the peer-held case entirely, which is precisely
+                // the case a keyboard switch lands you in.
+                self.enforceFit(reason: "settle")
             }
         }
 
@@ -1936,7 +2125,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // the scheduling assumption ever breaks.
                 MainActor.assumeIsolated {
                     guard let self, self.peerHoldsSize, !self.observeOnly,
-                          UIApplication.shared.applicationState == .active,
+                          self.userIsLooking,
                           self.fittedCols > 1, self.fittedRows > 1 else { return }
                     self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
                 }
@@ -1979,11 +2168,19 @@ struct TerminalScreen: UIViewRepresentable {
             let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
             let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
             guard cols > 0, rows > 0 else { return }
-            // Deliberate only when the user is LOOKING at it: a pocket
-            // reconnect must not steal the size from a desk that's typing.
-            let deliberate = UIApplication.shared.applicationState == .active
-            wakeMark("claim \(cols)x\(rows) deliberate=\(deliberate)")
-            client.sendResize(cols: cols, rows: rows, claim: "attach", user: deliberate)
+            // A pocket reconnect claims NOTHING. This used to send the claim
+            // regardless and merely drop the deliberate flag — so a socket
+            // that re-established itself while the phone was face-down still
+            // reshaped a PTY someone was typing in, whenever nobody had typed
+            // inside the idle window. Skipping is safe now that the wake
+            // check exists: returning to the app re-establishes the size
+            // invariant immediately, which is exactly when it should happen.
+            guard userIsLooking else {
+                wakeMark("claim \(cols)x\(rows) SKIPPED (inactive) — wake will claim")
+                return
+            }
+            wakeMark("claim \(cols)x\(rows) deliberate=true")
+            client.sendResize(cols: cols, rows: rows, claim: "attach", user: true)
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
             // One PTY means one size, so opening a session here reflows it
@@ -2025,6 +2222,17 @@ struct TerminalScreen: UIViewRepresentable {
             // observer mode both suppress the send: one borrows the geometry
             // until typing reclaims it, the other borrows it on purpose.
             guard claimed, !peerHoldsSize, !observeOnly else { return }
+            // And never while nobody is looking (Jian: "the app keeps
+            // resizing the terminal even when it is inactive"). iOS re-lays
+            // this view out for reasons that have nothing to do with the
+            // user — the app-switcher snapshot on the way to the background
+            // is the loud one — and every such refit used to reshape a PTY
+            // someone else was working in. The fit is still RECORDED; the
+            // wake check re-establishes it the moment he is back.
+            guard userIsLooking else {
+                wakeMark("fit \(newCols)x\(newRows) recorded, not sent (inactive)")
+                return
+            }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)

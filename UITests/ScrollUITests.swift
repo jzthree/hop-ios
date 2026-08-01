@@ -185,6 +185,93 @@ final class ScrollUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
     }
 
+    /// THE wake-size regression, Jian's longest-running complaint ("wrong
+    /// size when idle and back — I have to go back and reopen the terminal").
+    /// Root cause: a socket that SURVIVED the idle got no size check at all,
+    /// while a backgrounded phone silently adopts whatever grid the desk
+    /// elects. Reopening worked only because a fresh attach claims
+    /// DELIBERATELY. This drives the real sequence: adopt a foreign grid at
+    /// background (the daemon's own inactive path, via the probe hook), then
+    /// wake — the phone must take its size back WITHOUT being touched.
+    func testWakeReclaimsTheSizeAfterAForeignResize() throws {
+        let marker = "/tmp/hop-wake-claim.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_OPEN"] = Self.fixture
+        app.launchEnvironment["HOP_CLAIM_MARKER"] = marker
+        // A grid no phone would ever fit: the mismatch must be unambiguous.
+        app.launchEnvironment["HOP_DEV_FOREIGN_SIZE"] = "100x30"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        // Let the attach claim settle so the marker below can only come from
+        // the WAKE path (the attach claim writes no marker).
+        sleep(3)
+        try? FileManager.default.removeItem(atPath: marker)
+        XCUIDevice.shared.press(.home)      // background: the hook adopts 100x30
+        sleep(2)
+        app.activate()                      // wake
+        // The phone must re-assert its own fit unprompted. No touch, no
+        // keystroke, no chip tap — that is the whole point.
+        var claimed = ""
+        for _ in 0..<30 {
+            if let s = try? String(contentsOfFile: marker, encoding: .utf8), !s.isEmpty {
+                claimed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+            usleep(300_000)
+        }
+        XCTAssertFalse(claimed.isEmpty,
+                       "wake sent no size claim — the terminal stayed at the foreign grid")
+        XCTAssertNotEqual(claimed, "100x30",
+                          "wake claimed the FOREIGN grid, not the phone's fit")
+        // And the user-visible outcome: the peer-size chip must not be left
+        // sitting there asking the user to fix it by hand.
+        let chip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS '100×30'")).firstMatch
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: chip, handler: nil)
+        waitForExpectations(timeout: 20)
+    }
+
+    /// The other half of the size story (Jian: "the app keeps resizing the
+    /// terminal even when it is inactive — do it only when the user is
+    /// actively looking"). One PTY serves every client, so a resize this app
+    /// sends reshapes whatever screen someone else is working in. Backgrounding
+    /// makes iOS re-lay-out this view (the app-switcher snapshot), which used
+    /// to reach the daemon as a real resize. Nothing may go out while away.
+    func testBackgroundingSendsNoResize() throws {
+        let marker = "/tmp/hop-bg-resize.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_OPEN"] = Self.fixture
+        // Witnesses every resize that actually reaches the wire, with the
+        // app state at send time — the runner cannot watch the socket.
+        app.launchEnvironment["HOP_RESIZE_MARKER"] = marker
+        // Reproduces the layout squeeze iOS applies on the way out. Without
+        // it a simulator home-press changes no bounds, nothing refits, and
+        // this test passes against the very bug it exists to catch
+        // (measured: it did — 2026-07-31).
+        app.launchEnvironment["HOP_DEV_BG_REFIT"] = "1"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        sleep(3)                                   // let the attach claim land
+        try? FileManager.default.removeItem(atPath: marker)
+        XCUIDevice.shared.press(.home)             // snapshot + layout churn
+        sleep(4)
+        let sentWhileAway = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        app.activate()
+        XCTAssertTrue(sentWhileAway.isEmpty,
+                      "resize(s) sent while the app was inactive: \(sentWhileAway)")
+    }
+
     /// hop2 e4bdd86 mirror: a name the daemon would accept in any case must
     /// open in the app too. Launches with the INTERNAL fixture name (stable
     /// across display renames) deliberately case-mangled; reaching the
