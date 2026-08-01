@@ -134,7 +134,7 @@ struct TerminalHostView: View {
     private var screen: some View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
-                       fitWidth: fitWidth, fitTick: fitTick,
+                       fitWidth: fitWidth, autoScale: peerSize != nil, fitTick: fitTick,
                        find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
                        onLinks: { found in
@@ -886,6 +886,9 @@ struct TerminalScreen: UIViewRepresentable {
     /// and stop claiming the PTY size while doing it — a fit-width client that
     /// claimed its inflated row count would reflow the desk it is watching.
     var fitWidth = false
+    /// A peer holds the grid, so we render THEIR shape scaled to fit rather
+    /// than drawing it at our font and letting it underfill or overflow.
+    var autoScale = false
     /// Bumped when the room's elected size changes, so the fit font recomputes.
     var fitTick = 0
     var find: FindRequest?
@@ -958,10 +961,14 @@ struct TerminalScreen: UIViewRepresentable {
 
     func updateUIView(_ uiView: HopTermView, context: Context) {
         _ = fitTick     // dependency: elected-size changes re-run this update
+        // observeOnly stays the USER's explicit choice: it suppresses claims,
+        // and a keystroke must still be able to claim while we are merely
+        // auto-scaled. autoScale only changes how we DRAW.
         context.coordinator.observeOnly = fitWidth
-        if !fitWidth { context.coordinator.fitNudges = 0 }
+        context.coordinator.autoScaling = autoScale
+        if !fitWidth && !autoScale { context.coordinator.fitNudges = 0 }
         var size = CGFloat(fontSize)
-        if fitWidth {
+        if fitWidth || autoScale {
             let cols = uiView.getTerminal().cols
             let width = uiView.bounds.width
             let advance = { (pt: CGFloat) -> CGFloat in
@@ -1047,6 +1054,9 @@ struct TerminalScreen: UIViewRepresentable {
         /// keystrokes go into THEIR layout, which is what answering a prompt
         /// on the desk's screen means.
         var observeOnly = false
+        /// Drawing the peer's grid scaled to fit. Unlike observeOnly this does
+        /// NOT suppress a keystroke's claim — it only changes how we draw.
+        var autoScaling = false
         var onGridChange: () -> Void = {}
         /// The size the room elected, and how many times fit-width has nudged
         /// the font smaller to reach it. Font metrics differ between our
@@ -1068,7 +1078,6 @@ struct TerminalScreen: UIViewRepresentable {
         /// Consecutive foreign sizes refused while the user was looking. The
         /// circuit breaker on the refuse-and-re-assert rule: three, then we
         /// adopt and let the chip hand the decision to the human.
-        private var foreignFights = 0
 
         /// THE gate on every outbound resize: is a human actually looking at
         /// this terminal right now? One PTY serves every client, so a resize
@@ -1249,7 +1258,10 @@ struct TerminalScreen: UIViewRepresentable {
 
         func attach(view: HopTermView) {
             self.view = view
-            view.onUserIntent = { [weak self] in self?.reclaimOnUserIntent() }
+            // Taps do NOT claim any more (Jian, revising his own rule:
+            // "still only keystroke should"). A tap focuses and scrolls; it
+            // is not a statement about whose screen this session belongs to.
+            view.onUserIntent = { }
             client.onEvent = { [weak self] event in
                 guard let self, let tv = self.view else { return }
                 switch event {
@@ -1406,7 +1418,6 @@ struct TerminalScreen: UIViewRepresentable {
                         self.peerHoldsSize = false      // our size won; normal rules
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
-                        self.foreignFights = 0          // the contest is over
                     } else if mine.cols != cols || mine.rows != rows {
                         // The wake-flash fix, half two (PLAN 17, marker-
                         // proven): on a foreground attach our deliberate
@@ -1426,31 +1437,6 @@ struct TerminalScreen: UIViewRepresentable {
                                 self.deferredAdopt = nil
                                 self.adoptForeign(cols: p.cols, rows: p.rows)
                             }
-                        } else if self.userIsLooking, !self.observeOnly,
-                                  self.fittedCols > 1, self.fittedRows > 1,
-                                  self.foreignFights < 3 {
-                            // Jian's rule, and the fix for "the terminal
-                            // spontaneously resizes to about half its height":
-                            // an ACTIVE phone screen outranks a desk that is
-                            // merely SHOWING this session. The wall's live
-                            // tiles attach at TILE geometry, so a desk with
-                            // this session on the wall broadcasts a small grid
-                            // with no human behind it — and adopting a 24-row
-                            // grid into a view that fits ~49 draws content
-                            // across half the screen, mid-session, for no
-                            // reason the user can see.
-                            //
-                            // So while he is looking: refuse, and re-assert.
-                            // Bounded, because a genuinely contested session
-                            // must not ping-pong forever — after three refusals
-                            // we adopt and raise the chip, which hands the
-                            // decision to the human instead of to a loop.
-                            self.foreignFights += 1
-                            self.deferredAdopt = nil
-                            self.wakeMark("active_size \(cols)x\(rows) REFUSED (looking) fight=\(self.foreignFights)")
-                            self.client.sendResize(cols: self.fittedCols,
-                                                   rows: self.fittedRows,
-                                                   claim: "attach", user: true)
                         } else {
                             self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
                             self.deferredAdopt = nil
@@ -1810,9 +1796,12 @@ struct TerminalScreen: UIViewRepresentable {
         /// act. This is the one enforcement point; call it from every edge
         /// where the world may have moved under us.
         @discardableResult
-        func enforceFit(reason: String) -> Bool {
+        func maintainOwnFit(reason: String) -> Bool {
+            // Only ever maintains a size we ALREADY own. It never contests a
+            // peer's grid — a claim against another window comes from one
+            // place now, and that place is a keystroke.
             guard isLive, !sessionEnded, !observeOnly, userIsLooking,
-                  let v = view else { return false }
+                  !peerHoldsSize, let v = view else { return false }
             // Re-fit to the CURRENT bounds before reading anything: after a
             // wake the cached fit can still describe the pre-lock layout
             // (keyboard up, different safe area), and claiming stale dims is
@@ -1828,8 +1817,10 @@ struct TerminalScreen: UIViewRepresentable {
             }
             guard Date().timeIntervalSince(lastReclaimAt) > 1 else { return false }
             lastReclaimAt = Date()
-            wakeMark("\(reason) MISMATCH grid=\(t.cols)x\(t.rows) fit=\(cols)x\(rows) — claiming")
-            client.sendResize(cols: cols, rows: rows, claim: "attach", user: true)
+            wakeMark("\(reason) MISMATCH grid=\(t.cols)x\(t.rows) fit=\(cols)x\(rows) — re-asserting")
+            // POLITE. Maintaining our own grid must never outrank a human
+            // typing somewhere else.
+            client.sendResize(cols: cols, rows: rows)
             #if DEBUG
             if let marker = ProcessInfo.processInfo.environment["HOP_CLAIM_MARKER"] {
                 try? "\(cols)x\(rows)\n".write(toFile: marker, atomically: true, encoding: .utf8)
@@ -1843,14 +1834,12 @@ struct TerminalScreen: UIViewRepresentable {
         /// for the common case, then once more after the dust settles — the
         /// mismatch gate makes the second call free when the first one worked.
         func runWakeCheck() {
+            // Liveness ONLY. Waking used to re-claim the size, on the theory
+            // that a screen in your hand is a deliberate act; Jian took that
+            // back ("still only keystroke should"), and he is right that it
+            // was a race: two clients each treating their own presence as
+            // intent is exactly how a grid ends up matching neither.
             verifyAliveOnWake()
-            enforceFit(reason: "wake")
-            settleTask?.cancel()
-            settleTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(1200))
-                guard let self, !Task.isCancelled else { return }
-                self.enforceFit(reason: "wake+settle")
-            }
         }
 
         func reconnectIfNeeded(token: Int, view: HopTermView) {
@@ -2114,22 +2103,18 @@ struct TerminalScreen: UIViewRepresentable {
                 // POLITE resize that a typing peer could refuse, and it
                 // skipped the peer-held case entirely, which is precisely
                 // the case a keyboard switch lands you in.
-                self.enforceFit(reason: "settle")
+                self.maintainOwnFit(reason: "settle")
             }
         }
 
         private func startReclaimRetry() {
             reclaimTimer?.invalidate()
-            reclaimTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-                // Main-actor by assertion, the #112c pattern: traps loudly if
-                // the scheduling assumption ever breaks.
-                MainActor.assumeIsolated {
-                    guard let self, self.peerHoldsSize, !self.observeOnly,
-                          self.userIsLooking,
-                          self.fittedCols > 1, self.fittedRows > 1 else { return }
-                    self.client.sendResize(cols: self.fittedCols, rows: self.fittedRows)
-                }
-            }
+            // Deliberately EMPTY since 2026-07-31. This used to re-assert the
+            // attach intent every 5s while a peer held the grid — a claim with
+            // no keystroke behind it, which is precisely the design Jian asked
+            // to eliminate ("we do not trigger in the background if no user
+            // interaction observed"). The chip and the next keystroke are the
+            // two honest ways back.
         }
 
         private func stopReclaimRetry() {
@@ -2179,8 +2164,12 @@ struct TerminalScreen: UIViewRepresentable {
                 wakeMark("claim \(cols)x\(rows) SKIPPED (inactive) — wake will claim")
                 return
             }
-            wakeMark("claim \(cols)x\(rows) deliberate=true")
-            client.sendResize(cols: cols, rows: rows, claim: "attach", user: true)
+            // POLITE attach. Opening a session is not a bid to take the grid
+            // away from whoever is typing in it: the daemon grants this when
+            // nobody has typed recently and refuses otherwise, and a refusal
+            // just means we render their grid scaled until you type.
+            wakeMark("claim \(cols)x\(rows) polite")
+            client.sendResize(cols: cols, rows: rows, claim: "attach")
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
             // One PTY means one size, so opening a session here reflows it
@@ -2204,7 +2193,7 @@ struct TerminalScreen: UIViewRepresentable {
             // adopted grid has been silently defeated. Nudge the font smaller
             // (bounded) until SwiftTerm itself reports enough columns, then
             // snap the grid back to the exact elected size.
-            if observeOnly, electedCols > 1 {
+            if observeOnly || autoScaling, electedCols > 1 {
                 if newCols < electedCols, fitNudges < 8 {
                     fitNudges += 1
                     DispatchQueue.main.async { self.onGridChange() }

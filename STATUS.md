@@ -240,6 +240,100 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## A probe poisoned the suite, and the bisect lied twice (iteration 231b)
+
+Wall tests started failing in a DIFFERENT combination every run. Two
+traps, both now in tools/README:
+
+1. **The tile screenshot probe left `switcherTiles = true`** in the shared
+   app container. Tiles have no list rows, so row swipe actions do not
+   exist — and every later wall test read as a feature regression. The
+   list/tiles mode is now pinnable per launch (`HOP_DEV_TILES`), and the
+   wall tests pin it instead of inheriting whatever ran last.
+2. **`git stash push -- <file>` on a file with no uncommitted changes
+   creates no stash**, so a "revert and re-run" discriminator re-tested
+   identical code and "proved" a change innocent that had never been
+   reverted. Check `git status` before trusting a revert, or run the
+   suspect test against committed HEAD directly.
+
+Honest residual: `testSwipeToReplyOpensAndCancels` still fails. It fails
+identically on committed HEAD with the tile mode pinned and the row
+proven present, hittable and in list mode (tree-dumped), so it is not
+this round's work and not the taller rows — the same test was green this
+morning against the same code. Cause not isolated; it is the next round's
+first job rather than something to paper over with a skip.
+
+## Only a keystroke owns the grid (iteration 231)
+
+Jian revised his own rule, twice in one message: "I take it back that just
+active screen on iOS should trigger fit and take priority — still only
+keystroke should," and "handle priority gracefully, eliminating any design
+that can lead to race conditions." He is right, and the second sentence is
+the important one: arbitration WAS the race.
+
+The old model had six ways to claim a size (attach, wake, keyboard settle,
+tap, keystroke, a 5s timer) plus a refuse-and-re-assert contest with a
+circuit breaker. Every one of those was a client deciding on its own that
+it deserved the shared PTY. Two clients doing that is exactly how a grid
+ends up matching neither.
+
+The new model has ONE deliberate claim, and it is a keystroke.
+
+- **Keystroke** — claims with `user: true`. Typing into a terminal is the
+  one unambiguous statement that this session is yours right now.
+- **Attach** — POLITE (no user flag). Opening a session is not a bid to
+  take the grid from whoever is typing in it; the daemon grants it when
+  nobody has typed recently and refuses otherwise.
+- **Own-fit maintenance** (keyboard settle, rotation) — polite, and only
+  while we already hold the grid. It can no longer contest a peer.
+- **Wake, tap, background, timers** — claim NOTHING. Presence is not
+  intent. The 5s reclaim timer is gone; the refuse/fight branch and its
+  circuit breaker are gone; taps focus and scroll and say nothing about
+  size.
+
+And the graceful half, so losing costs nothing: when a peer holds the
+grid we now DRAW their shape scaled to fit instead of rendering it at our
+font. That is what turns "spontaneously resized to half its height" into
+"the whole screen, slightly smaller type" — the content is all there and
+legible, and the moment you type, it is your size again. No contest, no
+ping-pong, no explanation needed.
+
+The regression test inverted with the rule: waking after a foreign resize
+must claim NOTHING, then one keystroke must claim our own fit.
+
+## A thumbnail was winning the size election (iteration 230)
+
+Jian: "sometimes both hop and hop ios are showing terminal size matching
+none of the windows when both attached." Read the code on both sides; the
+mechanism is exact, and the root is in hop2, so this round diagnoses and
+hands off rather than patching around it.
+
+Every LiveTile on the desk wall claims the shared PTY at TILE geometry
+with `user: true` — and in rooms.ts that flag short-circuits the entire
+recency election (`const isActive = userClaim || …`), so it wins
+outright. The intent is defensible (opening the wall IS a deliberate
+act), but the claim is re-sent by an AUTOFIT pass with no human behind
+it. So a thumbnail nobody is reading repeatedly outranks a window someone
+IS reading — and when the tile wins, its ~85-column grid is neither the
+desk's window nor the phone's screen. The desk's focused client gets
+snapped to it by the lost-election branch and the phone adopts it too:
+everyone renders a grid that belongs to a postage stamp. That is
+precisely "matching none of the windows."
+
+Both clients are damping symptoms: the web tile has a 1.5s dedupe and a
+15% tolerance, iOS refuses foreign sizes while the user is looking and
+re-asserts, bounded to three. Two clients both believing they are
+deliberate is the actual bug. HOP2-NOTES carries the suggested fix:
+reserve `user: true` for a real human act (wall opened, layout dragged)
+and send autofit re-claims as ordinary resizes — the recency election
+then does the right thing by itself. The stronger version is a
+never-claims observer attach, which the daemon has no concept of today.
+
+Client-side this round: giving up now says why. Once per contest, the
+adopt path toasts "Another window keeps resizing this session" and leaves
+the chip up, so a half-height terminal reads as a known contest with a
+one-tap fix instead of a glitch.
+
 ## Room to read (iteration 229)
 
 Two sizing verdicts from Jian, both about the same thing — the wall was

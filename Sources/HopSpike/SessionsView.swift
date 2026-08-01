@@ -49,6 +49,16 @@ struct SessionsView: View {
     /// space-efficient wall of live screens; the list keeps taglines, swipe
     /// actions and grouping. Neither is objectively right — so a toggle.
     @AppStorage("switcherTiles") private var switcherTiles = false
+    /// The list/tiles choice is UserDefaults-STICKY and the suite shares one
+    /// app container, so a probe that ends in tiles silently rewrites what
+    /// every later wall test is looking at — tiles have no list rows, so row
+    /// swipe actions simply do not exist and the failures read as feature
+    /// regressions (this cost a long bisect on 2026-07-31). Tests pin the
+    /// mode explicitly instead of inheriting whatever ran last.
+    private var showTiles: Bool {
+        if let v = ProcessInfo.processInfo.environment["HOP_DEV_TILES"] { return v == "1" }
+        return switcherTiles
+    }
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var contentMatches: [ContentMatch] = []
     /// Rows currently on screen. Previews cost the daemon a render each, so the
@@ -358,7 +368,7 @@ struct SessionsView: View {
                 // space") — nothing left here but the wall itself.
                 EmptyView()
             }
-            if switcherTiles {
+            if showTiles {
                 // The wall honours project grouping the same way the list
                 // does — `sections` is one unlabelled bucket when grouping is
                 // off, so the ungrouped render is unchanged.

@@ -166,3 +166,72 @@ CSS bug is latent until a phone attaches, which is why it reads as "sometimes".
 The iOS side is not backing off that claim (a phone that can't fit its own
 screen is the worse failure, and hop's election is explicitly deliberate-wins),
 but it's worth knowing the desk sees tall grids routinely now.
+
+## 2026-07-31 — A thumbnail is claiming the PTY size with `user: true`
+
+**Jian's report:** "sometimes both hop and hop ios are showing terminal size
+matching none of the windows when both attached." Diagnosed from the code;
+the mechanism is exact and the fix is one flag.
+
+**The claim.** `SessionSwitcher.tsx`, `claimTileSize()`:
+
+```js
+sock.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows,
+                           claim: "attach", user: true }));
+```
+
+Every LiveTile on the wall claims the shared PTY at TILE geometry, and it
+carries `user: true`. In `rooms.ts` that flag is decisive:
+
+```js
+const isActive = userClaim || client.lastInputAt >= maxInputAt || …;
+```
+
+`userClaim` short-circuits the whole recency election — it "wins outright."
+The comment above the claim explains the intent ("opening the wall is a
+deliberate act"), and for a wall the user just opened that is fair. The
+problem is that the claim is re-sent by an AUTOFIT pass — a ResizeObserver /
+repaint path that runs with no human behind it — so a thumbnail nobody is
+reading repeatedly outranks a window someone IS reading.
+
+**Why it reads as "matching none of the windows":** the winner is often the
+TILE. Its geometry (~85 cols, few rows) is neither the desk's focused window
+nor the phone's screen, and it is not a window at all — it is a postage stamp
+on the wall. The desk's focused client then gets snapped to it by the
+lost-election branch, and the phone adopts it too. Everyone renders a grid
+that belongs to a thumbnail.
+
+**Two clients both believing they are deliberate** is the whole of it. iOS now
+refuses a foreign size while the user is actively looking and re-asserts
+(bounded to three, then it adopts and raises the "take mine" chip so a
+contested session cannot ping-pong forever). The web tile has its own damping
+(1.5s dedupe, 15% tolerance). Both are treating a symptom.
+
+**Suggested fix (hop2, small):** reserve `user: true` for an actual human act
+— the wall being opened, or its layout being dragged — and send the autofit
+re-claims as ordinary resizes. The daemon's recency election already does the
+right thing from there: whoever is actually typing keeps the size, and a tile
+that merely repainted does not. If the tile genuinely should never resize a
+session someone else is using, the stronger version is to let previews attach
+as observers that never claim at all (the daemon has no such concept today —
+every socket is a full participant in the election).
+
+Cross-reference: the wall-preview bottom-crop note above has the same origin.
+A phone's tall grid overflows the preview box; a tile's short grid starves the
+phone. Both are the one-PTY-one-size model meeting screens of different shape.
+
+### Addendum (same day): the client rule changed underneath this
+
+Jian revised the principle: only a KEYSTROKE claims the size; presence,
+taps, wakes and timers claim nothing. iOS now has exactly one deliberate
+claim (`user: true` on a keystroke); attach and own-fit maintenance are
+polite, and when a peer holds the grid the phone renders their shape
+scaled to fit rather than contesting it. The refuse/re-assert arbitration
+described above is GONE from the client — it was itself a race.
+
+That makes the tile's `user: true` the last unilateral claim in the system.
+With the phone no longer contesting, a wall thumbnail now wins essentially
+every election it enters, including against a desk window someone is
+reading. The suggested fix stands and is now the only thing between here
+and a race-free size model: send autofit re-claims as ordinary resizes and
+keep `user: true` for a real human act.

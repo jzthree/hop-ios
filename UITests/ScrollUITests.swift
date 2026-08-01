@@ -185,15 +185,13 @@ final class ScrollUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
     }
 
-    /// THE wake-size regression, Jian's longest-running complaint ("wrong
-    /// size when idle and back — I have to go back and reopen the terminal").
-    /// Root cause: a socket that SURVIVED the idle got no size check at all,
-    /// while a backgrounded phone silently adopts whatever grid the desk
-    /// elects. Reopening worked only because a fresh attach claims
-    /// DELIBERATELY. This drives the real sequence: adopt a foreign grid at
-    /// background (the daemon's own inactive path, via the probe hook), then
-    /// wake — the phone must take its size back WITHOUT being touched.
-    func testWakeReclaimsTheSizeAfterAForeignResize() throws {
+    /// THE size contract, after Jian revised it himself: "only keystroke
+    /// should" claim, and "eliminate any design that can lead to race
+    /// conditions." Waking with the session on screen must claim NOTHING —
+    /// two clients each treating their own presence as intent is exactly how
+    /// a grid ends up matching neither window. A keystroke, and only a
+    /// keystroke, takes the size.
+    func testWakeClaimsNothingButAKeystrokeDoes() throws {
         let marker = "/tmp/hop-wake-claim.txt"
         try? FileManager.default.removeItem(atPath: marker)
         let app = XCUIApplication()
@@ -202,20 +200,25 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchEnvironment["HOP_DEV_OPEN"] = Self.fixture
         app.launchEnvironment["HOP_CLAIM_MARKER"] = marker
-        // A grid no phone would ever fit: the mismatch must be unambiguous.
+        // A grid no phone would ever fit, adopted at background exactly as the
+        // daemon's broadcast does to an inactive phone.
         app.launchEnvironment["HOP_DEV_FOREIGN_SIZE"] = "100x30"
         app.launchArguments += ["-hop-ui-testing"]
         app.launch()
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
-        // Let the attach claim settle so the marker below can only come from
-        // the WAKE path (the attach claim writes no marker).
         sleep(3)
         try? FileManager.default.removeItem(atPath: marker)
         XCUIDevice.shared.press(.home)      // background: the hook adopts 100x30
         sleep(2)
         app.activate()                      // wake
-        // The phone must re-assert its own fit unprompted. No touch, no
-        // keystroke, no chip tap — that is the whole point.
+        sleep(4)
+        // Half one: presence claims nothing.
+        let afterWake = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        XCTAssertTrue(afterWake.isEmpty,
+                      "waking claimed the size with no keystroke: \(afterWake)")
+        // Half two: a keystroke does. (typeText reaches the send path — the
+        // half-open test proves the daemon receives it.)
+        app.typeText(" ")
         var claimed = ""
         for _ in 0..<30 {
             if let s = try? String(contentsOfFile: marker, encoding: .utf8), !s.isEmpty {
@@ -224,17 +227,8 @@ final class ScrollUITests: XCTestCase {
             }
             usleep(300_000)
         }
-        XCTAssertFalse(claimed.isEmpty,
-                       "wake sent no size claim — the terminal stayed at the foreign grid")
-        XCTAssertNotEqual(claimed, "100x30",
-                          "wake claimed the FOREIGN grid, not the phone's fit")
-        // And the user-visible outcome: the peer-size chip must not be left
-        // sitting there asking the user to fix it by hand.
-        let chip = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS '100×30'")).firstMatch
-        let gone = NSPredicate(format: "exists == false")
-        expectation(for: gone, evaluatedWith: chip, handler: nil)
-        waitForExpectations(timeout: 20)
+        XCTAssertFalse(claimed.isEmpty, "a keystroke claimed nothing")
+        XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
     }
 
     /// The other half of the size story (Jian: "the app keeps resizing the
@@ -348,6 +342,12 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchEnvironment["HOP_COPY_MARKER"] = marker
         app.launchArguments += ["-hop-ui-testing"]
+        // Narrow to the fixture with the app's own filter instead of
+        // swipe-hunting for it: the row's position depends on fleet order,
+        // which churns, and a present-but-not-hittable row reads as a
+        // feature regression (suite-caught: "Not hittable: StaticText").
+        app.launchEnvironment["HOP_DEV_FILTER"] = Self.fixture
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25),
                       "never reached the wall")
@@ -427,6 +427,12 @@ final class ScrollUITests: XCTestCase {
             ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchArguments += ["-hop-ui-testing"]
+        // Narrow to the fixture with the app's own filter instead of
+        // swipe-hunting for it: the row's position depends on fleet order,
+        // which churns, and a present-but-not-hittable row reads as a
+        // feature regression (suite-caught: "Not hittable: StaticText").
+        app.launchEnvironment["HOP_DEV_FILTER"] = Self.fixture
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25),
                       "never reached the wall")
@@ -533,6 +539,7 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         let cell = app.staticTexts[Self.fixture].firstMatch
         var found = cell.waitForExistence(timeout: 25)
@@ -638,6 +645,7 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         let row = app.staticTexts[scratch].firstMatch
         var found = row.waitForExistence(timeout: 25)
@@ -701,6 +709,7 @@ final class ScrollUITests: XCTestCase {
         app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 25))
         app.buttons["Settings"].tap()
@@ -1001,6 +1010,11 @@ final class ScrollUITests: XCTestCase {
             ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
         app.launchArguments += ["-hop-ui-testing"]
+        // Narrow to the fixture with the app's own filter instead of
+        // swipe-hunting for it: the row's position depends on fleet order,
+        // which churns, and a present-but-not-hittable row reads as a
+        // feature regression (suite-caught: "Not hittable: StaticText").
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"   // shared container: pin the mode
         app.launch()
         // The CELL containing the label, not the label: swipe actions belong
         // to the row, and swiping a text element inside it does nothing.
