@@ -70,6 +70,12 @@ struct SessionsView: View {
     /// so the one person who'd benefit had to already know it existed.
     @AppStorage("askedAboutNotifications") private var askedAboutNotifications = false
     @State private var offerNotifications = false
+    /// Same reasoning as the notification offer, same shape: the biometric
+    /// lock shipped OFF and three taps deep in Server & account, so the one
+    /// person who wanted it reported the app "still does not have biometric
+    /// login" — it had had it for weeks. Offer it once, in context.
+    @AppStorage("askedAboutBioLock") private var askedAboutBioLock = false
+    @State private var offerBioLock = false
 
     // MARK: data
 
@@ -631,6 +637,12 @@ struct SessionsView: View {
                 .sensoryFeedback(.selection, trigger: scope)
                 .sensoryFeedback(.selection, trigger: path)
                 .refreshable { await model.refreshSessions() }
+                .alert("Lock hop with \(BioLock.biometryName)?", isPresented: $offerBioLock) {
+                    Button("Turn on") { BioLock.shared.enabled = true }
+                    Button("Not now", role: .cancel) {}
+                } message: {
+                    Text("These are real terminals on your machine — anyone holding the phone can type into them. hop will ask on launch and whenever it leaves the screen.")
+                }
                 .alert("Get told when a session wants you?", isPresented: $offerNotifications) {
                     Button("Turn on") { Task { await notifier.setEnabled(true) } }
                     Button("Not now", role: .cancel) {}
@@ -726,13 +738,23 @@ struct SessionsView: View {
                     // Once the list is up, not at launch: asking before there's
                     // anything on screen is asking about nothing. Waits for
                     // real sessions so the offer lands in context.
-                    guard !askedAboutNotifications, !notifier.enabled else { return }
+                    let wantNotifications = !askedAboutNotifications && !notifier.enabled
+                    let wantBioLock = !askedAboutBioLock && !BioLock.shared.enabled
+                        && BioLock.available
+                    guard wantNotifications || wantBioLock else { return }
                     for _ in 0..<20 where model.sessions.isEmpty {
                         try? await Task.sleep(for: .milliseconds(400))
                     }
                     guard !model.sessions.isEmpty else { return }
-                    askedAboutNotifications = true
-                    offerNotifications = true
+                    // ONE ask per launch — two alerts cannot stack, and the
+                    // second would be dismissed unread by the first's tap.
+                    if wantNotifications {
+                        askedAboutNotifications = true
+                        offerNotifications = true
+                        return
+                    }
+                    askedAboutBioLock = true
+                    offerBioLock = true
                 }
                 .task(id: filter) { await searchContent() }
         }

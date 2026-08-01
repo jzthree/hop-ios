@@ -240,6 +240,29 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The lock nobody could find (iteration 232)
+
+Jian: "the iOS app still does not have biometric login." It has had it for
+weeks — BioLock, Face ID / Touch ID / Optic ID with passcode fallback,
+locked from the first frame on cold launch, a privacy shield so the
+app-switcher snapshot cannot leak the fleet, and a toggle in Server &
+account → Security. It shipped OFF and three taps deep behind the ⋯ menu,
+so the one person who wanted it never saw it.
+
+This is the SAME failure this repo already diagnosed for notifications
+("shipped OFF and three taps deep in a menu — so the one person who'd
+benefit had to already know it existed"), so it gets the same cure: a
+one-time offer, once the fleet is on screen, worded for what is actually
+at stake — "These are real terminals on your machine; anyone holding the
+phone can type into them." Offered only where a gate can actually engage
+(`BioLock.available`), and strictly ONE ask per launch, because two
+alerts cannot stack and the second would be dismissed unread by the
+first's tap. Probe-shot before shipping.
+
+A permanent test now guards the door (the toggle exists in Server &
+account); the offer guards the discovery. Feature discoverability is the
+recurring bug here, not the features.
+
 ## A probe poisoned the suite, and the bisect lied twice (iteration 231b)
 
 Wall tests started failing in a DIFFERENT combination every run. Two

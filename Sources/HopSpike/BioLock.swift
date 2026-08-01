@@ -28,6 +28,12 @@ final class BioLock: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "bioLock") }
     }
 
+    /// Is there any gate at all on this device — biometry OR a passcode?
+    /// Offering a lock that cannot engage would be a dead switch.
+    static var available: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    }
+
     /// What the toggle and button should call the gate on THIS device.
     static var biometryName: String {
         let ctx = LAContext()

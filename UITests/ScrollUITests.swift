@@ -231,6 +231,26 @@ final class ScrollUITests: XCTestCase {
         XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
     }
 
+    /// The biometric lock exists and is REACHABLE. It shipped off and three
+    /// taps deep, and Jian reported the app "still does not have biometric
+    /// login" weeks after it landed — so this guards the door, and the
+    /// one-time offer (SessionsView) guards the discovery.
+    func testAccountCarriesTheBiometricLock() throws {
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_SHEET"] = "account"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        // Face ID on a device, Passcode on a bare simulator — the label names
+        // whatever gate this hardware actually has.
+        let lock = app.switches.matching(NSPredicate(format:
+            "label CONTAINS 'Require'")).firstMatch
+        XCTAssertTrue(lock.waitForExistence(timeout: 25),
+                      "no biometric lock toggle in Server & account")
+    }
+
     /// The other half of the size story (Jian: "the app keeps resizing the
     /// terminal even when it is inactive — do it only when the user is
     /// actively looking"). One PTY serves every client, so a resize this app
