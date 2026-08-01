@@ -235,3 +235,29 @@ every election it enters, including against a desk window someone is
 reading. The suggested fix stands and is now the only thing between here
 and a race-free size model: send autofit re-claims as ordinary resizes and
 keep `user: true` for a real human act.
+
+## 2026-08-01 — For native passkeys: serve the AASA file, unauthenticated
+
+hop-ios now signs in with the passkey already enrolled in hop web, but the
+ceremony runs in a WKWebView because the NATIVE API needs the Associated
+Domains entitlement, which needs this file. Measured just now:
+
+    GET https://hop.zhoulab.io/.well-known/apple-app-site-association
+    → 200, but content-type text/html — it returns the "Verify Identity"
+      login page. The auth wall intercepts the path.
+
+Apple fetches AASA with NO cookies and requires `application/json`, so the
+path must bypass authentication entirely (it is public metadata by design —
+it names an app, nothing more). Needed:
+
+```
+GET /.well-known/apple-app-site-association    (no auth, application/json)
+{
+  "webcredentials": { "apps": ["5AD7QB9795.io.zhoulab.hop.spike"] }
+}
+```
+
+`applinks` can be added later if hop ever wants URL handoff into the app;
+`webcredentials` alone is what passkeys need. Team 5AD7QB9795, bundle
+io.zhoulab.hop.spike. Pairs with the Xcode-account gate on Jian's side —
+BOTH are required before the native sheet can replace the web view.
