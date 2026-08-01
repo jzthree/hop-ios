@@ -240,6 +240,32 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Room to read (iteration 229)
+
+Two sizing verdicts from Jian, both about the same thing — the wall was
+spending its space on the wrong rows.
+
+**Tiles: two lines for the tagline.** The agent writes a sentence and one
+caption2 line truncated most of them mid-thought. `lineLimit(2,
+reservesSpace: true)` keeps every tile in a row the same height whether
+the tagline wraps or is missing, and the tile's fixed aspect ratio pays
+for the second line out of the terminal window above — the trade he
+asked for ("it can take a bit of the terminal space"). The clock is
+top-aligned so it stays on the first line instead of floating in the
+middle of a two-line block. Probe-shot: taglines now read "Furniture
+retailer data / integration" instead of stopping at "data".
+
+**List: five lines of terminal, up from two.** Two showed the tail of a
+command and none of its answer. Five is enough to tell what a session is
+doing without opening it, and the shot confirms ~6 sessions still fit a
+screen.
+
+Probe trap collected: in a SwiftUI Menu a Toggle is a BUTTON, not a
+switch — `app.switches["Tile view"]` matched nothing, and the probe
+silently shot the list while claiming to shoot tiles. The preference is
+also sticky across runs, so a tile probe must assert what it toggled
+INTO rather than trusting the tap.
+
 ## The strict gate was not gating (iteration 228, caught in flight)
 
 `make strict` never checked xcodebuild's exit code — it counted warning

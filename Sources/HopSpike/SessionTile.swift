@@ -135,11 +135,21 @@ struct SessionTile: View {
     /// and missed in the first tile build. Always present so tiles in a row
     /// stay the same height; the cwd stands in when a session has no tagline.
     private var footer: some View {
-        HStack(spacing: 6) {
+        // TWO lines for the tagline, at Jian's word — the agent writes a
+        // sentence, and one caption2 line truncated most of them mid-thought.
+        // reservesSpace keeps every tile in a row the same height whether the
+        // tagline wraps or is missing; the tile's fixed aspect ratio means the
+        // second line is paid for out of the terminal window above, which is
+        // the trade he asked for ("it can take a bit of the terminal space").
+        // Top-aligned so the clock sits on the first line rather than
+        // floating in the middle of a two-line block.
+        HStack(alignment: .top, spacing: 6) {
             Text(session.tagline.isEmpty ? session.shortCwd : session.tagline)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2, reservesSpace: true)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
             // How stale is this screen — the same clock the rows show.
             Text(session.relativeTime)

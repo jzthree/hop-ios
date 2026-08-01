@@ -1018,7 +1018,11 @@ struct SessionRow: View {
                     // Coloured when the session has a colour report — the
                     // same ink the tiles use — with the plain text as the
                     // fallback, not a second code path.
-                    Text(screen.flatMap { TileInk.snippet($0, lines: 2) }
+                    // FIVE lines, at Jian's word. Two showed the tail of a
+                    // command and none of its answer; five is enough to see
+                    // what a session is actually doing without opening it,
+                    // and the rows still fit several sessions per screen.
+                    Text(screen.flatMap { TileInk.snippet($0, lines: 5) }
                          ?? AttributedString(preview))
                         .font(.system(size: 9, design: .monospaced))
                         // The preview is a glance aid, not body text. Letting
@@ -1028,7 +1032,7 @@ struct SessionRow: View {
                         // scale all the way.
                         .dynamicTypeSize(...DynamicTypeSize.large)
                         .foregroundStyle(.secondary.opacity(0.85))
-                        .lineLimit(2)
+                        .lineLimit(5)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 5).padding(.vertical, 4)
