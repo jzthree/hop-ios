@@ -563,7 +563,26 @@ their silence) name the door.
 Half (b), the transcript-preview one-tap-insert UI: not in this
 repo's history — likely flowboard's surface. Jian to confirm
 ownership before anything is built here.
-## 46. (space for Jian's next reports)
+## 46. NATIVE passkeys (upgrade path) — GATED twice
+Shipped today: "Sign in with Face ID" on the sign-in screen, which runs
+the WebAuthn ceremony in a WKWebView against the daemon's existing
+/api/passkeys/login and adopts the tunnel_session cookie it sets. That
+works TODAY with no entitlement and no hop2 change, and it uses the same
+passkey already enrolled in hop web (same rpID).
+
+The NATIVE version (ASAuthorizationPlatformPublicKeyCredentialProvider —
+the system Face ID sheet, no web view at all) needs two things neither of
+which is Orion's to grant:
+1. **Associated Domains entitlement** `webcredentials:hop.zhoulab.io`,
+   which needs a provisioning profile carrying that capability — i.e. the
+   Apple Developer account gate that also blocks the widget and
+   TestFlight (DVTDeveloperAccountManagerAppleIDLists still empty).
+2. **hop must serve** `/.well-known/apple-app-site-association` with
+   `{"webcredentials":{"apps":["5AD7QB9795.io.zhoulab.hop.spike"]}}` —
+   a hop2 change (Solstice). The daemon serves no AASA today (verified).
+When both land, the UI stays and PasskeyLogin.swift's middle is replaced.
+
+## 46b. (space for Jian's next reports)
 
 ## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries
 hop2 e4bdd86 made every daemon surface that addresses a session BY

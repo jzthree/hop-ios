@@ -156,6 +156,7 @@ struct LoginView: View {
     @State private var totp = ""
     @State private var busy = false
     @State private var remember = true
+    @State private var passkeyShown = false
     @FocusState private var focus: Field?
     enum Field { case password, totp }
 
@@ -204,6 +205,30 @@ struct LoginView: View {
                     Text("terminals for humans + agents")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                // The way in you actually want: the passkey already enrolled
+                // in hop web. Face ID instead of a password AND a 6-digit
+                // code — the daemon's /api/passkeys/login issues the same
+                // session cookie, so nothing downstream knows the difference.
+                // Above the fields on purpose: the password path is the
+                // fallback now, not the headline.
+                Button {
+                    passkeyShown = true
+                } label: {
+                    Label("Sign in with \(BioLock.biometryName)",
+                          systemImage: "person.badge.key.fill")
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color.hopPurple, in: RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(.white)
+                }
+                .accessibilityLabel("Sign in with a passkey")
+                HStack(spacing: 8) {
+                    Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
+                    Text("or password").font(.caption2).foregroundStyle(.tertiary)
+                    Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
                 }
 
                 VStack(spacing: 12) {
@@ -289,6 +314,15 @@ struct LoginView: View {
                 // leave the previous server's password sitting in the field.
                 password = ""
                 loadSavedPassword()
+            }
+            .sheet(isPresented: $passkeyShown) {
+                PasskeyLoginSheet(serverURL: model.normalizedServerURL) {
+                    // The cookie is in shared storage; from here the app is in
+                    // exactly the state a password login leaves it in.
+                    model.authenticated = true
+                    model.sessionExpired = false
+                    Task { await model.refreshSessions(silent: true) }
+                }
             }
         }
     }

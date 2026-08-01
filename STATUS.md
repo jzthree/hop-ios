@@ -240,6 +240,38 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## Face ID as the way IN, not just the lock (iteration 233)
+
+Jian corrected the motivation: the point of Face ID isn't locking the app,
+it's replacing the password to LOG IN — "that was how we used it in the
+WebHOP interface already, right?" He's right, and the daemon was already
+most of the way there: hop2 ships a full WebAuthn implementation
+(/api/passkeys/{register,login,list,delete} on @simplewebauthn/server),
+and — verified by reading the handler — a successful passkey login sets
+the SAME `tunnel_session` cookie a password+TOTP login does. So a passkey
+assertion authenticates the app completely: no password, and no 6-digit
+code either.
+
+Shipped: "Sign in with Face ID" leads the sign-in screen; the password
+fields are demoted below an "or password" rule. It runs the ceremony in a
+WKWebView against the server's own login page (which already offers "Sign
+in with Touch ID / passkey"), then copies the session cookie into
+HTTPCookieStorage.shared — the exact state a password login leaves
+behind. Same rpID, so it uses the passkey ALREADY enrolled in hop web;
+nothing new to register. No credential is stored by this app or passes
+through it.
+
+Why a web view when iOS has a native passkey API: ASAuthorization needs
+the Associated Domains entitlement, which needs a provisioning profile
+with that capability — the same Apple account gate that blocks the widget
+and TestFlight — AND the host must serve an apple-app-site-association
+file naming this app, which hop does not (verified). Both recorded as
+PLAN 46; when they land, the UI stays and only the middle changes.
+
+Note the ordering this makes possible: the biometric LOCK (iteration 232)
+and biometric LOGIN are now different features with different jobs, and
+Jian wanted the second one.
+
 ## The lock nobody could find (iteration 232)
 
 Jian: "the iOS app still does not have biometric login." It has had it for

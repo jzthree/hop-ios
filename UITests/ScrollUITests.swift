@@ -231,6 +231,24 @@ final class ScrollUITests: XCTestCase {
         XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
     }
 
+    /// The passkey door exists on the sign-in screen. Skips honestly when the
+    /// app is already authenticated — the suite shares a container and a
+    /// cookie from any earlier test signs it in, so asserting unconditionally
+    /// would make this test order-dependent.
+    func testSignInOffersThePasskeyDoor() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-hop-ui-testing"]   // deliberately NO dev cookie
+        app.launch()
+        let passkey = app.buttons["Sign in with a passkey"]
+        let signedIn = app.buttons["New session"]
+        for _ in 0..<50 where !passkey.exists && !signedIn.exists {
+            usleep(300_000)
+        }
+        try XCTSkipIf(signedIn.exists,
+                      "already authenticated — shared container, not a regression")
+        XCTAssertTrue(passkey.exists, "sign-in screen has no passkey option")
+    }
+
     /// The biometric lock exists and is REACHABLE. It shipped off and three
     /// taps deep, and Jian reported the app "still does not have biometric
     /// login" weeks after it landed — so this guards the door, and the
