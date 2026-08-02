@@ -135,6 +135,29 @@ func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> 
     return max(1, viewHeight / CGFloat(max(1, rows)))
 }
 
+/// How far down to nudge a grid that cannot fill the viewport, so the unused
+/// space is split evenly instead of all landing under the content.
+///
+/// `capacityRows` is what the view FITS at the current font (SwiftTerm's own
+/// sizeChanged); `gridRows` is what the PTY actually is. They differ only
+/// while we are honouring someone else's grid — a desk's 80x24 auto-scaled
+/// onto a tall phone fits its width and covers about half its height. Zero
+/// when they agree, so the normal case pays nothing, and zero for slack small
+/// enough to be rounding rather than letterboxing.
+func letterboxOffset(viewHeight: CGFloat, gridRows: Int, capacityRows: Int,
+                     minimum: CGFloat = 8) -> CGFloat {
+    guard viewHeight > 1, gridRows > 0, capacityRows > 0,
+          gridRows < capacityRows else { return 0 }
+    let content = viewHeight * CGFloat(gridRows) / CGFloat(capacityRows)
+    let slack = viewHeight - content
+    // PROPORTIONAL, not a flat floor: one row short of a fifty-row fit is
+    // 16pt on an 800pt screen, and nudging the terminal 8pt for that would
+    // jitter on every refit. Letterboxing is for a grid of a genuinely
+    // different shape, which is tens of percent, never one row.
+    guard slack > max(minimum, viewHeight * 0.08) else { return 0 }
+    return (slack / 2).rounded(.down)
+}
+
 /// The font size that makes `gridCols` columns fit in `viewWidth` points.
 ///
 /// Observer mode's core: when a peer holds a 90-column grid, the phone can

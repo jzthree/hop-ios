@@ -582,6 +582,51 @@ which is Orion's to grant:
    a hop2 change (Solstice). The daemon serves no AASA today (verified).
 When both land, the UI stays and PasskeyLogin.swift's middle is replaced.
 
+## 47b. THE DIGEST — "what should I pay attention to" (Jian, 2026-08-02)
+Jian's ask, verbatim in shape: a ONE-PAGE digest when he comes back to
+the hub, priority-ordered, each item TAPPABLE to open the session it
+refers to. Runs ~4x/day, one landing ~07:00 so it is ready before he
+wakes (~8-9). Cost must be negligible against his $200 subscription.
+Model: prefers Claude (GPT-5 xhigh "sometimes very very slow"), but
+wants TWO digests at first to compare, then keep the winner.
+
+WHERE IT RUNS: not on the phone. The daemon host already has the
+screens, the bell history, and a Claude subscription — a scheduled job
+there writes the digest; the phone only RENDERS it. That keeps the
+phone cheap, works while it is asleep, and means the 07:00 run does not
+depend on the phone being awake. Delivery: a new daemon endpoint
+(hop2 change — Solstice) or, to stay inside this repo's boundary, a
+file the host writes that the app fetches.
+
+INPUT (cheap by construction): per session, the LAST screen we already
+cache (FleetCache/screensRaw), the tagline, bellSeq/attention, parked
+state, and last activity. That is ~24 short screens — a few thousand
+tokens, four times a day. Do NOT send scrollback.
+
+OUTPUT CONTRACT (strict, so the UI can render it and cost stays flat):
+JSON, max ~8 items, each {internalName, headline (<=70 chars), why
+(<=140 chars), urgency: needs-you|blocked|finished|fyi}. One page means
+the model must RANK and DROP, not summarise everything.
+
+"WHAT HAVE I ALREADY SEEN": approximate with what the app already
+tracks — markSeen()/seenBellSeq per session, plus lastActivityAt. An
+item whose bellSeq has not moved since he last opened that session is
+demoted. Jian: "it might be hard to gauge what i have looked at but do
+your best" — so this is a heuristic, stated as one in the UI copy.
+
+UI: a card at the top of the wall, collapsed to the top 3 with a
+"more" disclosure; each row taps straight into its session (the
+requestedSession path already exists). Dismiss marks it read; the next
+digest replaces it.
+
+TWO-MODEL COMPARE (first week only): generate with Claude and with the
+other model, tag each digest with its author, and show them as two
+tabs so Jian can pick. Then delete the loser.
+
+DECISIONS FOR JIAN: (a) is a hop2 endpoint acceptable, or should the
+host write a file the app polls; (b) confirm 4x/day + 07:00 anchor;
+(c) confirm the one-page cap is ~8 items.
+
 ## 46b. (space for Jian's next reports)
 
 ## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries

@@ -240,6 +240,43 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The half-height screen, one layer deeper (iteration 234)
+
+Jian on 278: "still shows half height time to time, recovers more
+gracefully — sometimes without typing, sometimes after typing… one line
+of text at the bottom was messed up after a full screen update. Mostly a
+good improvement but not solved from the root."
+
+Three findings, all probe-caught, all shipped:
+
+1. **The auto-scale was scaling to the wrong number.** It fit the font to
+   `terminal.cols` — but SwiftTerm re-fits the terminal to the VIEW on
+   every layout pass, so by the time we read it the peer's 100-column
+   grid had already snapped back to the phone's ~47. Scaling "to fit 47"
+   is a no-op, so the daemon's 100-column output kept wrapping into a
+   grid that could not hold it. That mismatch is the half-height screen
+   and the mangled lines. It now scales to the ELECTED columns.
+2. **adoptForeign told SwiftUI before it resized**, so the re-render
+   computed against the old grid. Resize first, then notify.
+3. **Letterboxing.** A desk grid is ~3.3:1 and a phone ~0.5:1; a foreign
+   grid genuinely cannot fill the screen, and hung from the top the slack
+   reads as "the bottom half is broken". `letterboxOffset` (pure,
+   4 unit tests) splits it evenly — a proportional threshold, because
+   one row short of a fifty-row fit is rounding and nudging for it would
+   jitter on every refit. Applied by transform, NOT by resizing the view:
+   bounds stay the true viewport so the size we would claim on your next
+   keystroke is still yours, not the letterbox's.
+
+Plus a full repaint on every font change — SwiftTerm redraws only rows it
+believes changed, and a rescale invalidates exactly that bookkeeping.
+
+HONEST: the probe shows the terminal now using the full width and
+readable, where before it drew at full size and cropped. But the local
+grid still does not equal the elected 100 columns, so the underlying
+mismatch is reduced, not eliminated. Jian's "not solved from the root"
+still stands, and the next round starts from this evidence rather than
+from a theory. 102 unit green, strict zero.
+
 ## Face ID as the way IN, not just the lock (iteration 233)
 
 Jian corrected the motivation: the point of Face ID isn't locking the app,

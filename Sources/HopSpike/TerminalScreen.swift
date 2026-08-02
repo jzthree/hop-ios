@@ -969,7 +969,16 @@ struct TerminalScreen: UIViewRepresentable {
         if !fitWidth && !autoScale { context.coordinator.fitNudges = 0 }
         var size = CGFloat(fontSize)
         if fitWidth || autoScale {
-            let cols = uiView.getTerminal().cols
+            // The ELECTED columns, not the local terminal's. SwiftTerm re-fits
+            // the terminal to the view on every layout pass, so by the time we
+            // read it the peer's 100-column grid has already snapped back to
+            // the phone's own ~47 — and scaling "to fit 47 columns" is a no-op
+            // that leaves the daemon's 100-column output wrapping into a grid
+            // that cannot hold it. That mismatch IS the half-height screen and
+            // the mangled lines (probe-caught twice: identical rendering
+            // before and after two other fixes).
+            let elected = context.coordinator.electedCols
+            let cols = (autoScale && elected > 1) ? elected : uiView.getTerminal().cols
             let width = uiView.bounds.width
             let advance = { (pt: CGFloat) -> CGFloat in
                 ("0" as NSString).size(withAttributes:
@@ -995,6 +1004,13 @@ struct TerminalScreen: UIViewRepresentable {
         // is a layout loop waiting for a trigger.
         if abs(uiView.font.pointSize - size) > 0.1 {
             uiView.font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            // A font change re-lays every cell, and SwiftTerm redraws only the
+            // rows it believes changed — which is how a rescale left "one line
+            // of text at the bottom messed up" (Jian). Mark the whole buffer
+            // dirty so nothing stale can survive the pass.
+            uiView.getTerminal().updateFullScreen()
+            uiView.setNeedsDisplay(uiView.bounds)
+            uiView.applyLetterbox()
         }
         uiView.applyTheme(light: lightTheme)
         context.coordinator.themeIsLight = lightTheme
@@ -2033,9 +2049,15 @@ struct TerminalScreen: UIViewRepresentable {
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("room elected \(cols)x\(rows), we draw \(tv.drawnCols)x\(tv.drawnRows) — adopting; drags pan")
             peerHoldsSize = true
+            // RESIZE FIRST, then tell SwiftUI. The other order re-rendered the
+            // representable while the terminal still held the OLD grid, so the
+            // auto-scale computed a font for a width that was no longer there
+            // and left the peer's wide grid drawn at full size and CROPPED —
+            // probe-caught: a 100x24 grid filling the top-left quarter of the
+            // screen with the "take mine" chip already up.
+            tv.getTerminal().resize(cols: cols, rows: rows)
             onSizeState("\(cols)×\(rows)")
             startReclaimRetry()
-            tv.getTerminal().resize(cols: cols, rows: rows)
             // Repaint EVERY cell after a reflow. SwiftTerm redraws the rows it
             // knows changed, and a resize invalidates that bookkeeping — which
             // is how a grid change leaves "the last few lines messed up"
@@ -2043,6 +2065,7 @@ struct TerminalScreen: UIViewRepresentable {
             // display pass then has nothing stale to preserve.
             tv.getTerminal().updateFullScreen()
             tv.setNeedsDisplay(tv.bounds)
+            tv.applyLetterbox()
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -2188,6 +2211,7 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
+            view?.applyLetterbox()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
             // adopted grid has been silently defeated. Nudge the font smaller
@@ -2651,6 +2675,31 @@ final class HopTermView: TerminalView {
     /// What the view actually draws, which is not always what the terminal
     /// says — see drawnCellHeight. Pushed in from SwiftTerm's sizeChanged.
     var drawnRows = 0
+
+    /// Centre a grid that cannot fill this screen.
+    ///
+    /// A desk grid is wide and short (80x24 is about 3.3:1); a phone is tall
+    /// and narrow (about 0.5:1). Shrinking the font until 80 columns fit the
+    /// width leaves 24 tiny rows covering roughly HALF the height — that is
+    /// geometry, not a bug, and no claim policy can dissolve it while we are
+    /// honouring someone else's grid. What we can fix is where the slack
+    /// goes: hung from the top it reads as "the bottom half is broken"
+    /// (Jian: "still shows half height"); split evenly it reads as a screen
+    /// of a different shape, deliberately letterboxed.
+    ///
+    /// A TRANSFORM, not a frame change: bounds stay the full screen, so
+    /// SwiftTerm keeps fitting to the real viewport and the size we would
+    /// claim on your next keystroke is still YOUR size, not the letterbox's.
+    /// Getting that wrong would make typing claim the peer's grid forever.
+    func applyLetterbox() {
+        let rows = getTerminal().rows
+        let capacity = drawnRows > 0 ? drawnRows : rows
+        guard capacity > 0, rows > 0, bounds.height > 1 else { return }
+        let dy = letterboxOffset(viewHeight: bounds.height,
+                                 gridRows: rows, capacityRows: capacity)
+        let wanted = dy > 0 ? CGAffineTransform(translationX: 0, y: dy) : .identity
+        if transform != wanted { transform = wanted }
+    }
     var drawnCols = 0
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins
