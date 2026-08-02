@@ -2428,6 +2428,7 @@ final class HopTermView: TerminalView {
     /// keyboard".
     var onChromeTap: (() -> Void)?
     private weak var chromeTap: UITapGestureRecognizer?
+    private weak var chromeTapTwoFinger: UITapGestureRecognizer?
     private weak var clickTap: UITapGestureRecognizer?
     /// Big enough for a thumb, small enough not to steal taps meant for the
     /// first line of output. The grid extends under the status bar now, so
@@ -2437,6 +2438,37 @@ final class HopTermView: TerminalView {
     static var chromeStrip: CGFloat { windowTopInset() + 46 }
 
     @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
+
+    /// Records the geometry behind "the session moved up and took half the
+    /// screen": whether this view still starts where the screen does. Cheap,
+    /// and it turns the next occurrence into a measurement instead of a
+    /// theory. Only logs when the top is actually off screen.
+    private func logIfShiftedOffScreen() {
+        guard let window else { return }
+        let inWindow = convert(bounds, to: window)
+        guard inWindow.minY < -1 else { return }
+        KBLog.record("terminal shifted: topInWindow=\(Int(inWindow.minY)) "
+            + "h=\(Int(inWindow.height)) window=\(Int(window.bounds.height)) "
+            + "visible=\(Int(inWindow.intersection(window.bounds).height))")
+    }
+
+    /// Is this tap in the band that summons the chrome?
+    ///
+    /// Measured against the top of what is ON SCREEN, not the top of this
+    /// view. When something shifts the terminal upward — keyboard avoidance
+    /// is the usual cause — the view's own top leaves the screen and takes
+    /// the strip with it, so tapping the topmost visible row did nothing and
+    /// the session had no reachable way back (Jian: "no way to trigger the
+    /// back menu"). The view-relative test is kept as the fast path; the
+    /// window test only ever ADDS reachable area.
+    private func inChromeStrip(_ g: UIGestureRecognizer) -> Bool {
+        logIfShiftedOffScreen()
+        if g.location(in: self).y - bounds.origin.y < Self.chromeStrip { return true }
+        guard let window else { return false }
+        let onScreen = convert(bounds, to: window).intersection(window.bounds)
+        guard !onScreen.isNull else { return false }
+        return g.location(in: window).y - onScreen.minY < Self.chromeStrip
+    }
 
     @objc private func handleClickTap(_ g: UITapGestureRecognizer) {
         let t = getTerminal()
@@ -2518,6 +2550,15 @@ final class HopTermView: TerminalView {
         tap.delegate = self
         addGestureRecognizer(tap)
         chromeTap = tap
+        // The escape hatch that no layout can take away: two fingers anywhere
+        // summon the chrome. The strip is a position, and positions can end
+        // up off screen; this one is reachable wherever the terminal happens
+        // to sit, and two fingers is never a request to type.
+        let twoFinger = UITapGestureRecognizer(target: self, action: #selector(handleChromeTap))
+        twoFinger.numberOfTouchesRequired = 2
+        twoFinger.delegate = self
+        addGestureRecognizer(twoFinger)
+        chromeTapTwoFinger = twoFinger
         // Taps become CLICKS for apps that asked for the mouse. #55 removed
         // phantom taps because accidental activation was the pain; the pill
         // case is the opposite — claude DRAWS click targets, and a phone
@@ -3454,7 +3495,9 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // SwiftTerm's view is a SCROLL view, so location(in:) carries the
             // scrollback offset — a tap at the top of the screen reported y=461.
             // The strip means "the top of what you can SEE": bounds.origin.
-            let inStrip = tap.location(in: self).y - bounds.origin.y < Self.chromeStrip
+            // Two fingers: always, wherever the terminal is.
+            if tap === chromeTapTwoFinger { return true }
+            let inStrip = inChromeStrip(tap)
             if tap === chromeTap { return inStrip }
             if tap === clickTap {
                 return !inStrip && remoteTakesMouse && momentumLink == nil && !brakeTouch
@@ -3479,8 +3522,7 @@ extension HopTermView: UIGestureRecognizerDelegate {
         // Press-and-hold selects — but not in the chrome strip (reaching for
         // controls), and never while a coast is being braked (below).
         if g === selectHold {
-            let inStrip = g.location(in: self).y - bounds.origin.y < Self.chromeStrip
-            if inStrip { return false }
+            if inChromeStrip(g) { return false }
         }
         // An APPROVED single tap on the terminal body is the user engaging —
         // "a single touch should trigger autofit". This is the one place
