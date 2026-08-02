@@ -596,6 +596,19 @@ struct SessionsView: View {
                 Toggle(isOn: $switcherTiles) {
                     Label("Tile view", systemImage: "square.grid.2x2")
                 }
+                // Dismissing a briefing used to be one-way — there was no
+                // route back to it, which is a bad trade for a card that
+                // holds the one thing you most needed to know. Shown
+                // whenever a briefing exists, so it is also how you find one
+                // written while the app was closed.
+                if model.digest != nil {
+                    Button {
+                        digestDismissed = ""
+                        Task { await model.refreshDigest() }
+                    } label: {
+                        Label("Show briefing", systemImage: "sparkles")
+                    }
+                }
                 Divider()
                 Button { showAccount = true } label: {
                     Label("Server & account", systemImage: "person.crop.circle")
