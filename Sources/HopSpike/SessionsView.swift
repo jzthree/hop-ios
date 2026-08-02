@@ -76,6 +76,10 @@ struct SessionsView: View {
     /// login" — it had had it for weeks. Offer it once, in context.
     @AppStorage("askedAboutBioLock") private var askedAboutBioLock = false
     @State private var offerBioLock = false
+    /// Which briefing has been read. Keyed by its timestamp, so dismissing
+    /// hides THIS one and the next scheduled digest appears on its own.
+    @AppStorage("digestDismissed") private var digestDismissed = ""
+
 
     // MARK: data
 
@@ -373,6 +377,25 @@ struct SessionsView: View {
                 // displays a small text message and still has a lot of blank
                 // space") — nothing left here but the wall itself.
                 EmptyView()
+            }
+            // The briefing sits ABOVE the fleet, because it exists to answer
+            // "what should I look at" before you start looking. Hidden once
+            // dismissed until a newer one is written, and absent entirely
+            // until the scheduled job has run at least once.
+            if let d = model.digest, d.generatedAt != digestDismissed,
+               filter.isEmpty {
+                Section {
+                    DigestCard(digest: d) { name in
+                        path = [resolveSessionName(name, in: model.sessions) ?? name]
+                    } onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            digestDismissed = d.generatedAt
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 6, trailing: 10))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
             }
             if showTiles {
                 // The wall honours project grouping the same way the list
@@ -757,6 +780,13 @@ struct SessionsView: View {
                     offerBioLock = true
                 }
                 .task(id: filter) { await searchContent() }
+                // Cheap and idempotent: a static file behind the cookie we
+                // already send. Re-read on every foreground so a briefing
+                // written while the phone slept is there when it wakes.
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    await model.refreshDigest()
+                }
         }
     }
 

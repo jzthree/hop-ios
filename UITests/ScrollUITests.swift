@@ -249,6 +249,33 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(passkey.exists, "sign-in screen has no passkey option")
     }
 
+    /// The briefing renders from the file the host agent writes. Skips when
+    /// no digest has been generated yet — the card is absent by design until
+    /// the scheduled job has run, and that is environment, not regression.
+    func testBriefingCardRendersAndOpensASession() throws {
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_DEV_TILES"] = "0"
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launch()
+        let card = app.staticTexts["Briefing"]
+        let wall = app.buttons["New session"]
+        _ = wall.waitForExistence(timeout: 25)
+        for _ in 0..<20 where !card.exists { usleep(300_000) }
+        try XCTSkipUnless(card.exists, "no digest written yet — environment")
+        // Every item is a button that opens its session; tapping the first
+        // must land in a terminal, not merely highlight.
+        let firstItem = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Opens ")).firstMatch
+        if firstItem.exists {
+            firstItem.tap()
+            XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25),
+                          "a briefing row did not open its session")
+        }
+    }
+
     /// The biometric lock exists and is REACHABLE. It shipped off and three
     /// taps deep, and Jian reported the app "still does not have biometric
     /// login" weeks after it landed — so this guards the door, and the

@@ -34,6 +34,25 @@ final class AppModel: ObservableObject {
     /// Set by the terminal's title menu to jump straight to another session
     /// without popping back to the list.
     @Published var requestedSession: String?
+    /// The host agent's briefing, if one has been written since we last looked.
+    @Published var digest: HopDigest?
+
+    /// Fetched from the directory the daemon already serves under /assets/,
+    /// with the cookie the app already holds — so this costs no new endpoint
+    /// and nothing on the phone. Absent is the normal state, not an error:
+    /// the file only exists once the scheduled job has run.
+    func refreshDigest() async {
+        guard let url = baseURL?.appendingPathComponent("assets/digest.json") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let d = HopDigest(json: obj) else { return }
+        if digest != d { digest = d }
+    }
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).
     @Published var previews: [String: String] = [:]

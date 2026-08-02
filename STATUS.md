@@ -240,6 +240,43 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The briefing lands (iteration 235) — digest feature complete
+
+End to end: a host agent writes it, the daemon serves it, the phone shows
+it, every line opens its session.
+
+- **Generator** (tools/digest.mjs) runs on the HOST on a schedule, reads
+  the cached screen tail plus tagline/attention/idle per live session —
+  never scrollback — and asks Opus for the briefing. The prompt gives the
+  agent the JOB and only the two constraints that are real (fits one
+  screen; each item names one session because each becomes a button); how
+  many items, how to rank them and what is worth saying at all are the
+  agent's call. Framed as a co-scientist: what a finding MEANS, what it
+  puts at risk downstream, what is quietly wrong, and connections ACROSS
+  sessions — seeing the whole fleet at once is its only real advantage.
+  No user's name and no gendered pronouns: this ships to other people.
+- **Transport, with NO hop2 change.** The daemon already serves /assets/*
+  from HAY_WEB_DIR behind the same session cookie the app holds, and that
+  directory is already gitignored. Two traps found live: only /assets/*
+  is served as files (everything else falls back to index.html), and a
+  local dev build takes precedence over the packaged one — writing to
+  hay-web/assets 404s while hay/apps/web/dist exists, so the generator
+  resolves the served directory the way the daemon does. An earlier
+  .gitignore commit to hop2 turned out to be unnecessary and was reverted.
+- **Card** above the fleet, collapsed to the summary plus two items (a
+  briefing you must scroll is not a briefing), urgency-tinted, each row
+  opening its session through the same resolver the deep links use.
+  Dismissal is keyed to the digest's timestamp, so the next one appears
+  on its own.
+- **Schedule**: launchd, 06:40 / 12:00 / 17:00 / 22:00. The first is
+  timed to LAND before the phone is picked up, since a run takes minutes
+  and nobody is waiting on it.
+
+Its real output, unedited: "Europa has retracted the reproduction result
+it gave you earlier — it never ran the original recipe." It also caught
+three experiments proposed but never launched, and an agent 7h47m and
+430k tokens deep with nothing to show.
+
 ## The half-height screen, one layer deeper (iteration 234)
 
 Jian on 278: "still shows half height time to time, recovers more

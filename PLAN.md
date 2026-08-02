@@ -582,7 +582,7 @@ which is Orion's to grant:
    a hop2 change (Solstice). The daemon serves no AASA today (verified).
 When both land, the UI stays and PasskeyLogin.swift's middle is replaced.
 
-## 47b. THE DIGEST — "what should I pay attention to" (Jian, 2026-08-02)
+## 47b. [DONE 2026-08-02] THE DIGEST — "what should I pay attention to" (Jian, 2026-08-02)
 Jian's ask, verbatim in shape: a ONE-PAGE digest when he comes back to
 the hub, priority-ordered, each item TAPPABLE to open the session it
 refers to. Runs ~4x/day, one landing ~07:00 so it is ready before he
@@ -650,6 +650,14 @@ make the scaled font land EXACTLY on the elected column count and assert
 it — the fitNudges convergence loop already exists for observer mode and
 should be doing this. Verify by resizing a scratch session's PTY under a
 phone with wrapped text on screen and diffing the rendered rows.
+
+## 49b. Digest follow-ups (not blocking)
+- Two-model compare: DIGEST_MODEL=sonnet writes a second file; show both
+  as tabs for a week, keep the winner. Opus already looks clearly better.
+- "What have I already seen": demote items whose bellSeq has not moved
+  since that session was last opened (markSeen already tracks this).
+- Cost/quality watch: one Opus run over ~24 sessions takes ~6 minutes and
+  is read later, which is the whole reason Opus is affordable here.
 
 ## 46b. (space for Jian's next reports)
 
