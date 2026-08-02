@@ -24,7 +24,21 @@ const state = JSON.parse(
   fs.readFileSync(path.join(os.homedir(), ".hop2/.tunnel-state"), "utf8"));
 const BASE = `http://127.0.0.1:${state.port}`;
 const COOKIE = `tunnel_session=${state.sessionSecret}`;
-const OUT = process.argv[2] || "/tmp/hop-digest.json";
+// WHERE IT LANDS: the daemon serves files under /assets/ from whatever
+// HAY_WEB_DIR resolves to, behind the same session cookie the app already
+// holds — so the digest needs no new endpoint and no hop2 change at all.
+// Two candidates, in the daemon's own precedence order: a local dev build
+// wins over the packaged one (verified live — writing to hay-web/assets 404s
+// while the dev dist is present). Both are already gitignored.
+const servedAssets = () => {
+  const roots = [
+    path.join(os.homedir(), "Code/hop2/hay/apps/web/dist/assets"),
+    path.join(os.homedir(), "Code/hop2/hay-web/assets")
+  ];
+  return roots.find((d) => fs.existsSync(d)) || null;
+};
+const OUT = process.argv[2]
+  || (servedAssets() ? path.join(servedAssets(), "digest.json") : "/tmp/hop-digest.json");
 // Opus, at the maintainer's word: "lag is not a problem, user will not see it until
 // done." The digest is generated on a schedule and read later, so judgement
 // is the only axis that matters — nobody is waiting on the spinner.

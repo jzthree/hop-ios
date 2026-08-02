@@ -1566,7 +1566,9 @@ struct TerminalScreen: UIViewRepresentable {
             // GoneProbe back from the dead). Verify hearsay first.
             if AppModel.shared.liveListSeen {
                 let t = view.getTerminal()
-                client.connect(base: wsBase, httpBase: httpBase, room: room, cols: t.cols, rows: t.rows,
+                let announce = announceSize(t)
+                client.connect(base: wsBase, httpBase: httpBase, room: room,
+                               cols: announce.cols, rows: announce.rows,
                                token: token, using: urlSession)
             } else {
                 verifyThenConnect()
@@ -1590,8 +1592,9 @@ struct TerminalScreen: UIViewRepresentable {
                     return
                 }
                 let t = tv.getTerminal()
+                let announce = self.announceSize(t)
                 self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
-                                    cols: t.cols, rows: t.rows,
+                                    cols: announce.cols, rows: announce.rows,
                                     token: self.token_, using: self.urlSession)
             }
         }
@@ -1781,6 +1784,25 @@ struct TerminalScreen: UIViewRepresentable {
                                         token: self.token_, using: self.urlSession)
                 }
             }
+        }
+
+
+        /// The dimensions to ANNOUNCE on a WS connect.
+        ///
+        /// Every attach carries cols/rows in the URL, and the daemon records
+        /// them for the size election — so a reconnect that happens while the
+        /// phone is in a pocket (network change, brief resume) announces the
+        /// phone's shape into a session someone else is working in. That is
+        /// the last way this app could still reshape a terminal with nobody
+        /// looking at it (Jian: "should stop stealing focus (refit) while in
+        /// the background"). While inactive we announce the size we last knew
+        /// the ROOM to be, which proposes nothing new; our own fit is claimed
+        /// on the first keystroke, as everything else now is.
+        private func announceSize(_ t: Terminal) -> (cols: Int, rows: Int) {
+            if !userIsLooking, electedCols > 1, electedRows > 1 {
+                return (electedCols, electedRows)
+            }
+            return (t.cols, t.rows)
         }
 
         /// Foreground wake: a socket that LOOKS live may be half-open.
