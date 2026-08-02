@@ -6,7 +6,7 @@
 // history and the Claude subscription, so the phone stays cheap and a 07:00
 // digest does not depend on the phone being awake.
 //
-// Deliberately NOT prescriptive about the result. Jian: "i dont want to
+// Deliberately NOT prescriptive about the result, by request: "i dont want to
 // dictate 8 items or be too specific — let the agent decide and give more
 // autonomy to the agent." So the prompt states the JOB and the constraints
 // that are real (one screen, tappable, priority-ordered) and leaves how many
@@ -25,7 +25,10 @@ const state = JSON.parse(
 const BASE = `http://127.0.0.1:${state.port}`;
 const COOKIE = `tunnel_session=${state.sessionSecret}`;
 const OUT = process.argv[2] || "/tmp/hop-digest.json";
-const MODEL = process.env.DIGEST_MODEL || "sonnet";
+// Opus, at the maintainer's word: "lag is not a problem, user will not see it until
+// done." The digest is generated on a schedule and read later, so judgement
+// is the only axis that matters — nobody is waiting on the spinner.
+const MODEL = process.env.DIGEST_MODEL || "opus";
 
 const api = async (p, init = {}) => {
   const r = await fetch(BASE + p, {
@@ -74,27 +77,45 @@ const main = async () => {
     });
   }
 
-  const prompt = `You are writing a short briefing for Jian, who is about to \
-pick up his phone and open hop. He runs many terminal sessions — his own work \
-and agents working for him. Below is every live session: its name, what it is \
-for, whether it rang for attention, how long it has been idle, and the tail of \
-its screen right now.
+  const prompt = `You are the user's co-scientist, not a status board.
 
-Write the briefing he actually needs: what deserves his attention, most \
-important first. You decide how many items, how to group or rank them, and \
-what is worth saying — you are the judge of what matters, not a summariser of \
-everything. Leave out what he does not need. If nothing needs him, say so \
-plainly and briefly.
+They run a lab through these terminals: model training and evaluation,
+reproductions, data pipelines, and the software that carries them. Some
+sessions are their own work; most are agents working for them. Below is every live
+session — what it is for, whether it rang for attention, how long it has been
+idle, and the tail of its screen right now.
 
-Two real constraints. It must fit one phone screen without scrolling. And each \
-item must name exactly one session, because each becomes a button he taps to \
-open it.
+Write the briefing they actually need before they pick up their phone. Lead
+with what they would most regret not knowing.
+
+Think like a colleague who has read all of it and understands the science, not
+like a reporter listing which windows have unread output. That means:
+- A RESULT that changed, was retracted, or contradicts something they were told
+  earlier is more important than a process that is merely waiting.
+- Say what a finding MEANS and what it puts at risk downstream — if a
+  reproduction failed, what conclusions rest on it.
+- Notice what is quietly wrong: experiments that were never actually launched,
+  runs that stopped writing, compute or tokens being spent on something idle,
+  a decision two sessions are each waiting on the other for.
+- Connect across sessions when they bear on each other. Nobody else can see
+  the whole fleet at once; that is your advantage, so use it.
+- Be specific and quantitative where the screen gives you numbers. "auPRC fell
+  on the held-out split" beats "results look off".
+
+You decide how many items, how to rank or group them, and what deserves saying
+at all — you are the judge of what matters, not a summariser of everything.
+Leave out what they do not need. If nothing needs them, say so plainly and
+briefly, and say what you checked.
+
+Two real constraints. It must fit one phone screen without scrolling — so be
+informative per line, not longer. And each item must name exactly one session,
+because each becomes a button they tap to open it.
 
 Reply with ONLY a JSON object:
-{"generated_at":"<ISO8601>","summary":"<one line, or a short all-quiet line>",
+{"generated_at":"<ISO8601>","summary":"<the one thing to know, in a sentence>",
  "items":[{"session":"<internalName exactly as given>",
-           "headline":"<what happened / what is needed>",
-           "why":"<why it deserves his attention, one sentence>",
+           "headline":"<what happened, concretely>",
+           "why":"<what it means or puts at risk, one sentence>",
            "urgency":"needs-you"|"blocked"|"finished"|"fyi"}]}
 
 Sessions:

@@ -627,6 +627,30 @@ DECISIONS FOR JIAN: (a) is a hop2 endpoint acceptable, or should the
 host write a file the app polls; (b) confirm 4x/day + 07:00 anchor;
 (c) confirm the one-page cap is ~8 items.
 
+## 48b. [NEXT] The interleaved-lines corruption — a DOUBLE REFLOW
+Jian, precisely: "two lines of text show in one in a randomly
+interspersed way." That is not a paint artifact (updateFullScreen would
+have cured it) — it is a REFLOW artifact. Character-level interleaving of
+two source lines on one row is what happens when a WRAPPED line is
+re-joined at a width that is not the width it was wrapped at.
+
+MECHANISM (evidence, iteration 234): adoptForeign resizes the local
+terminal to the peer's width; SwiftTerm then re-fits the terminal to the
+VIEW on its next layout pass and resizes it back. Two reflows of the same
+buffer at two different widths — and every wrapped line in the scrollback
+is re-joined and re-split by both. The font auto-scale is supposed to make
+SwiftTerm's re-fit land on the SAME column count, which would make the
+second reflow a no-op; when it lands a column or two off, the thrash is
+visible as interleaved text.
+
+FIX DIRECTION: stop the second reflow rather than repainting after it.
+Either (a) suppress SwiftTerm's automatic re-fit while a peer holds the
+grid (the local terminal should be the PTY's size, full stop), or (b)
+make the scaled font land EXACTLY on the elected column count and assert
+it — the fitNudges convergence loop already exists for observer mode and
+should be doing this. Verify by resizing a scratch session's PTY under a
+phone with wrapped text on screen and diffing the rendered rows.
+
 ## 46b. (space for Jian's next reports)
 
 ## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries
