@@ -2523,6 +2523,51 @@ final class HopTermView: TerminalView {
     ///
     /// Drags the buffer 1:1 with the finger, alongside SwiftTerm's own
     /// recognizers so long-press selection and its menu keep working.
+    /// Accumulated travel since the last arrow we sent, so movement is
+    /// continuous rather than one arrow per gesture.
+    private var cursorPanX: CGFloat = 0
+    private var cursorPanY: CGFloat = 0
+
+    @objc private func handleCursorPan(_ g: UIPanGestureRecognizer) {
+        guard let handler = keyHandler else { return }
+        switch g.state {
+        case .began:
+            cursorPanX = 0
+            cursorPanY = 0
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        case .changed:
+            let t = g.translation(in: self)
+            g.setTranslation(.zero, in: self)
+            cursorPanX += t.x
+            cursorPanY += t.y
+            let term = getTerminal()
+            let cellW = max(6, bounds.width / CGFloat(max(1, drawnCols > 0 ? drawnCols : term.cols)))
+            let cellH = drawnCellHeight(viewHeight: bounds.height,
+                                        drawnRows: drawnRows, terminalRows: term.rows)
+            // Horizontal wins outright while it dominates: a composer line is
+            // what you are usually editing, and letting a few points of
+            // vertical drift fire ↑ would walk you out of it into history.
+            if abs(cursorPanX) >= abs(cursorPanY) {
+                while abs(cursorPanX) >= cellW {
+                    let right = cursorPanX > 0
+                    cursorPanX -= right ? cellW : -cellW
+                    handler.scrollInput(right ? "\u{1b}[C" : "\u{1b}[D")
+                }
+                cursorPanY = 0
+            } else {
+                while abs(cursorPanY) >= cellH {
+                    let down = cursorPanY > 0
+                    cursorPanY -= down ? cellH : -cellH
+                    handler.scrollInput(down ? "\u{1b}[B" : "\u{1b}[A")
+                }
+                cursorPanX = 0
+            }
+        default:
+            cursorPanX = 0
+            cursorPanY = 0
+        }
+    }
+
     func installScrollGesture() {
         // On a phone a drag scrolls. That has to be exclusive, because
         // SwiftTerm's own pans do two things we don't want during a scroll:
@@ -2543,6 +2588,20 @@ final class HopTermView: TerminalView {
         pan.delegate = self
         addGestureRecognizer(pan)
         scrollPan = pan
+        // iOS's trackpad, for a terminal. Two fingers anywhere on the screen
+        // move the CURSOR instead of the viewport — the gesture iOS gives you
+        // by holding the spacebar, which we cannot borrow because that belongs
+        // to UITextView and a terminal has no text view. So we emit what the
+        // shell understands: one arrow per cell of travel, continuously, while
+        // the fingers move. Two touches exactly, so single-finger scrolling
+        // and selection are untouched, and it works with the system keyboard
+        // up, the hop keyboard, or none at all.
+        let cursorPan = UIPanGestureRecognizer(target: self,
+                                               action: #selector(handleCursorPan))
+        cursorPan.minimumNumberOfTouches = 2
+        cursorPan.maximumNumberOfTouches = 2
+        cursorPan.delegate = self
+        addGestureRecognizer(cursorPan)
         // The top strip belongs to the chrome: it is where anyone reaches for
         // controls, and it is the one place a tap is not meant as "give me the
         // keyboard".
