@@ -1013,6 +1013,9 @@ struct TerminalScreen: UIViewRepresentable {
             uiView.applyLetterbox()
         }
         uiView.applyTheme(light: lightTheme)
+        uiView.runningAppName = model.sessions
+            .first(where: { $0.internalName == room })?.runningApp ?? ""
+
         context.coordinator.themeIsLight = lightTheme
         // Only on a new request. Re-running whenever anything else updated
         // meant the list's background refresh yanked the view back to the
@@ -1999,6 +2002,8 @@ struct TerminalScreen: UIViewRepresentable {
                 _ = view?.resignFirstResponder()
             case .board:
                 view?.toggleHopBoard()
+            case .shiftEnter:
+                view.map { deliver($0.shiftEnterSequence()) }
             case .paste:
                 // Through SwiftTerm, not straight down the socket: when the
                 // app has bracketed paste on, it wraps the text in
@@ -2330,7 +2335,7 @@ struct TerminalScreen: UIViewRepresentable {
 // ── Accessory key bar ──
 enum AccessoryKey: Equatable {
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
-    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace
+    case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace, shiftEnter
     /// Toggles the hop keyboard (HopBoardView as inputView) — a view
     /// concern, handled by HopTermView itself, so sequence is nil.
     case board
@@ -2372,6 +2377,10 @@ enum AccessoryKey: Equatable {
         case .left: return "\u{1b}[D"
         case .right: return "\u{1b}[C"
         case .board: return nil
+        // Not static: CSI 13;2u for an app that understands it, plain enter
+        // for a shell that would print it as junk. The tap handler asks the
+        // view, which tracks the protocol from output.
+        case .shiftEnter: return nil
         // paste is not a static sequence: it goes through the view so the
         // app's bracketed-paste mode is honoured. See the handler.
         case .paste, .ctrl, .alt, .dismiss: return nil
@@ -2383,6 +2392,7 @@ enum AccessoryKey: Equatable {
         case .shiftTab: return "shift tab"
         case .ctrlCombo(let ch): return "control \(ch)"
         case .backspace: return "backspace"
+        case .shiftEnter: return "shift return"
         case .pageUp: return "page up"
         case .pageDown: return "page down"
         default: return "\(self)"
@@ -2942,6 +2952,23 @@ final class HopTermView: TerminalView {
 
     func noteRemoteModes(in chunk: String) { remote.note(chunk) }
 
+    /// Set from the session list on every update — the same signal the wall's
+    /// app chips render. The FALLBACK gate for shift+enter, mirroring hop
+    /// web's foregroundIsClaude(): claude parses CSI-u unconditionally but
+    /// (since ~July 2026 builds) no longer advertises the protocol at boot,
+    /// so waiting for the enable would never fire.
+    var runningAppName = ""
+
+    /// What ⇧⏎ puts on the wire RIGHT NOW. Encoded when the app negotiated
+    /// enhanced keys or is claude; a plain enter otherwise, because raw CSI-u
+    /// in a shell renders as junk text — same gate, same reasons, as the web.
+    func shiftEnterSequence() -> String {
+        if remote.kbdEnhanced || runningAppName.localizedCaseInsensitiveContains("claude") {
+            return "\u{1b}[13;2u"
+        }
+        return "\r"
+    }
+
     private var momentum = ScrollMomentum()
     /// The pan's two axes decay on the same curve the scroll uses; `panActive`
     /// is which mode the shared display link is serving.
@@ -3430,6 +3457,10 @@ final class HopTermView: TerminalView {
             // Past the fold: a TAP is redundant with the system delete, but a
             // HOLD is not — this is the only backspace that repeats.
             ("⌫", .backspace, 38, "backspace", nil),
+            // Newline WITHOUT submitting — claude's shift+enter, which no iOS
+            // keyboard can produce. Encoded (CSI 13;2u) for apps that speak
+            // the protocol or for claude, plain enter otherwise.
+            ("⇧⏎", .shiftEnter, 44, "shift return", nil),
             ("⇞", .pageUp, 38, "page up", nil),
             ("⇟", .pageDown, 38, "page down", nil),
             ("paste", .paste, 50, "paste", nil),

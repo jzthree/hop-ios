@@ -56,17 +56,17 @@ struct HopDigest: Equatable {
     }
 }
 
-/// The card. Collapsed to the summary plus the first two items — a briefing
-/// you must scroll is not a briefing — and every row opens its session.
+/// The front page: the summary is the headline, every story shows in full
+/// under its DATELINE, and every row opens its session. Brevity is the
+/// GENERATOR's job — it writes a handful of stories sized to one screen.
 struct DigestCard: View {
     let digest: HopDigest
+    /// internalName → display name, for the DATELINE. The agent writes the
+    /// story; the app prints whose story it is — "hard to register which is
+    /// which" (the maintainer) was the card showing prose with no anchor.
+    var nameFor: (String) -> String
     var onOpen: (String) -> Void
     var onDismiss: () -> Void
-    @State private var expanded = false
-
-    private var shown: [DigestItem] {
-        expanded ? digest.items : Array(digest.items.prefix(2))
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -92,7 +92,10 @@ struct DigestCard: View {
                 .font(.subheadline.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
 
-            ForEach(shown) { item in
+            // The WHOLE page, always. A briefing that hides its back half
+            // behind "5 more" is a feed, not a front page — the fold is the
+            // generator's job now (it writes fewer, meatier stories).
+            ForEach(digest.items) { item in
                 Button {
                     onOpen(item.session)
                 } label: {
@@ -102,6 +105,10 @@ struct DigestCard: View {
                             .foregroundStyle(item.tint)
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 2) {
+                            Text(nameFor(item.session))
+                                .font(.caption2.weight(.bold).monospaced())
+                                .foregroundStyle(item.tint)
+                                .textCase(.uppercase)
                             Text(item.headline)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.primary)
@@ -126,17 +133,6 @@ struct DigestCard: View {
                 .accessibilityHint("Opens \(item.session)")
             }
 
-            if digest.items.count > 2 {
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() }
-                } label: {
-                    Text(expanded
-                         ? "Show less"
-                         : "\(digest.items.count - 2) more")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.hopPurple)
-                }
-            }
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 14))

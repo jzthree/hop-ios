@@ -16,6 +16,12 @@ struct RemoteModes {
     private(set) var altScreen = false
     private(set) var mouseReporting = false
     private(set) var mouseSgr = false
+    /// Enhanced keyboard reporting (kitty push/pop or xterm modifyOtherKeys),
+    /// tracked from output exactly as hop web's scanKeyboardProtocol does —
+    /// NET state per chunk, so a re-render that pops and re-pushes inside one
+    /// chunk stays on. Decides whether shift+enter can be ENCODED (CSI 13;2u)
+    /// or would land in a plain shell as junk text.
+    private(set) var kbdEnhanced = false
     private var tail = ""
 
     /// Both halves matter. Mouse tracking alone means the app wants mouse
@@ -35,7 +41,11 @@ struct RemoteModes {
     /// From live output, so the modes follow the app: claude starting inside a
     /// shell session, or exiting and handing the screen back.
     mutating func note(_ chunk: String) {
-        guard chunk.contains("[?") || !tail.isEmpty else { return }
+        // The prefilter must admit the keyboard-protocol shapes too: kitty
+        // push/pop is CSI > / CSI < / CSI = with no "?" anywhere in it.
+        guard chunk.contains("[?") || chunk.contains("[>")
+            || chunk.contains("[<") || chunk.contains("[=")
+            || !tail.isEmpty else { return }
         let text = tail + chunk
         for match in Self.modePattern.matches(
             in: text, range: NSRange(text.startIndex..., in: text)) {
@@ -48,6 +58,17 @@ struct RemoteModes {
                 case "1000", "1002", "1003": mouseReporting = on
                 case "1006": mouseSgr = on
                 default: break
+                }
+            }
+        }
+        for match in Self.kbdProtoPattern.matches(
+            in: text, range: NSRange(text.startIndex..., in: text)) {
+            if let kitty = Range(match.range(at: 1), in: text) {
+                kbdEnhanced = text[kitty] != "<"   // kitty: pop disables
+            } else if let level = Range(match.range(at: 2), in: text) {
+                let parts = text[level].split(separator: ";", omittingEmptySubsequences: false)
+                if parts.first == "4" {
+                    kbdEnhanced = (parts.count > 1 ? parts[1] : "0") != "0"
                 }
             }
         }
@@ -65,6 +86,11 @@ struct RemoteModes {
     }
 
     private static let maxPartial = 24
+    /// kitty keyboard push/pop (CSI > flags u / CSI < u) and xterm
+    /// modifyOtherKeys (CSI > 4 ; level m) — the same pair hop web scans.
+    private static let kbdProtoPattern = try! NSRegularExpression(
+        pattern: "\\x1b\\[([<>=])[0-9;:]*u|\\x1b\\[>([0-9;]*)m")
+
     private static let modePattern = try! NSRegularExpression(
         pattern: "\u{1b}\\[\\?([0-9;]+)([hl])")
 }

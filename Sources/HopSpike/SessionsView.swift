@@ -385,7 +385,10 @@ struct SessionsView: View {
             if let d = model.digest, d.generatedAt != digestDismissed,
                filter.isEmpty {
                 Section {
-                    DigestCard(digest: d) { name in
+                    DigestCard(digest: d, nameFor: { internalName in
+                        model.sessions.first(where: { $0.internalName == internalName })?.name
+                            ?? internalName
+                    }) { name in
                         path = [resolveSessionName(name, in: model.sessions) ?? name]
                     } onDismiss: {
                         withAnimation(.easeOut(duration: 0.2)) {

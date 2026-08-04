@@ -47,11 +47,24 @@ final class AppModel: ObservableObject {
         req.timeoutInterval = 8
         req.cachePolicy = .reloadIgnoringLocalCacheData
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        guard let (data, resp) = try? await urlSession.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let d = HopDigest(json: obj) else { return }
-        if digest != d { digest = d }
+        if let (data, resp) = try? await urlSession.data(for: req),
+           (resp as? HTTPURLResponse)?.statusCode == 200,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let d = HopDigest(json: obj) {
+            if digest != d { digest = d }
+            UserDefaults.standard.set(data, forKey: "lastDigest")
+            return
+        }
+        // The served file is a casualty of every web rebuild (the dist is
+        // wiped and rebuilt; the 17:06 briefing was simply GONE by evening).
+        // The generator now writes to both roots, and this keeps the last
+        // fetched copy so a wiped file can never blank the morning page.
+        if digest == nil,
+           let data = UserDefaults.standard.data(forKey: "lastDigest"),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let d = HopDigest(json: obj) {
+            digest = d
+        }
     }
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).

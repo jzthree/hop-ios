@@ -37,8 +37,18 @@ const servedAssets = () => {
   ];
   return roots.find((d) => fs.existsSync(d)) || null;
 };
-const OUT = process.argv[2]
-  || (servedAssets() ? path.join(servedAssets(), "digest.json") : "/tmp/hop-digest.json");
+// Write to EVERY existing candidate root, not the first: the daemon rebuilds
+// the dev dist on web changes and the rebuild DELETES whatever was in it —
+// the 17:06 digest was simply gone by evening (log said written, file absent).
+// Writing to both means a rebuild costs at most one slot, not the day.
+const OUTS = process.argv[2] ? [process.argv[2]] : (() => {
+  const roots = [
+    path.join(os.homedir(), "Code/hop2/hay/apps/web/dist/assets"),
+    path.join(os.homedir(), "Code/hop2/hay-web/assets")
+  ].filter((d) => fs.existsSync(d));
+  return roots.length ? roots.map((d) => path.join(d, "digest.json"))
+                      : ["/tmp/hop-digest.json"];
+})();
 // Opus, at the maintainer's word: "lag is not a problem, user will not see it until
 // done." The digest is generated on a schedule and read later, so judgement
 // is the only axis that matters — nobody is waiting on the spinner.
@@ -121,9 +131,17 @@ at all — you are the judge of what matters, not a summariser of everything.
 Leave out what they do not need. If nothing needs them, say so plainly and
 briefly, and say what you checked.
 
-Two real constraints. It must fit one phone screen without scrolling — so be
-informative per line, not longer. And each item must name exactly one session,
-because each becomes a button they tap to open it.
+Write it like the front page of a newspaper. The summary is the headline.
+Each item is a short STORY, not a status line: the app prints the session's
+name as its dateline, so open with what happened and read as prose under that
+dateline. A front page carries a handful of stories chosen well — prefer a few
+with substance over coverage of everything; fold related minor updates into a
+sentence inside a bigger story when they share a project.
+
+Two real constraints. The whole page shows at once — no fold, no "more" — so
+it must fit one phone screen END TO END: with an item count around four or
+five, headline plus why per story is the budget. And each item must name
+exactly one session, because each becomes a button they tap to open it.
 
 Reply with ONLY a JSON object:
 {"generated_at":"<ISO8601>","summary":"<the one thing to know, in a sentence>",
@@ -140,8 +158,9 @@ ${JSON.stringify(seen, null, 1)}`;
   const digest = JSON.parse(json);
   digest.model = MODEL;
   digest.generated_at = digest.generated_at || new Date().toISOString();
-  fs.writeFileSync(OUT, JSON.stringify(digest, null, 1));
-  console.log(`${OUT}: ${digest.items?.length ?? 0} items (${MODEL})`);
+  const body = JSON.stringify(digest, null, 1);
+  for (const out of OUTS) fs.writeFileSync(out, body);
+  console.log(`${OUTS.join(", ")}: ${digest.items?.length ?? 0} items (${MODEL})`);
 };
 
 main().catch((e) => { console.error(String(e)); process.exit(1); });

@@ -1309,7 +1309,40 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
     }
 
-    // MARK: - letterboxOffset
+    // MARK: - keyboard protocol tracking (shift+enter gate)
+
+    func testKittyPushEnablesAndPopDisables() {
+        var m = RemoteModes()
+        m.note("\u{1b}[>1u")
+        XCTAssertTrue(m.kbdEnhanced, "kitty push should enable")
+        m.note("\u{1b}[<u")
+        XCTAssertFalse(m.kbdEnhanced, "kitty pop should disable")
+    }
+
+    func testModifyOtherKeysEnablesAndZeroDisables() {
+        var m = RemoteModes()
+        m.note("\u{1b}[>4;2m")
+        XCTAssertTrue(m.kbdEnhanced, "modifyOtherKeys level 2 should enable")
+        m.note("\u{1b}[>4;0m")
+        XCTAssertFalse(m.kbdEnhanced, "level 0 should disable")
+    }
+
+    func testPopThenPushInsideOneChunkStaysOn() {
+        // The web's NET-state rule: a re-render that pops and re-pushes
+        // inside one chunk must not flicker the gate off.
+        var m = RemoteModes()
+        m.note("\u{1b}[<u\u{1b}[>1u")
+        XCTAssertTrue(m.kbdEnhanced)
+    }
+
+    func testMouseModeChunksDoNotTouchTheKeyboardGate() {
+        var m = RemoteModes()
+        m.note("\u{1b}[?1049h\u{1b}[?1000h")
+        XCTAssertFalse(m.kbdEnhanced)
+        XCTAssertTrue(m.altScreen)
+    }
+
+        // MARK: - letterboxOffset
 
     func testLetterboxIsZeroWhenTheGridFillsTheView() {
         // The normal case: we own the grid, so capacity == rows.
