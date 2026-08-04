@@ -668,6 +668,19 @@ it — the fitNudges convergence loop already exists for observer mode and
 should be doing this. Verify by resizing a scratch session's PTY under a
 phone with wrapped text on screen and diffing the rendered rows.
 
+## 50b. Digest everywhere (Jian: "too good to miss")
+- [DONE 2026-08-04] DESKTOP: DigestCard.tsx on the hop web wall (hop2
+  c7a88d2, authored by Orion at Jian's explicit ask — own file, one
+  2-line insertion into the switcher). Same digest.json, same reading
+  contract: datelines, unread dots, per-edition dismiss; story clicks
+  route through handleTap so dead sessions start in place.
+- NEXT: terminal version. Cheapest honest shape: `hop digest` reading
+  the same served file (or the assets path directly on the host) and
+  printing summary + datelines with urgency colours; zero new state.
+  hop CLI is Solstice's surface — hand off or ask Jian which.
+- Read/unread on iOS shipped (build 290): glow dot per story, opening
+  clears it, ledger keyed to the edition, unread count in the ⋯ menu.
+
 ## 49b. Digest follow-ups (not blocking)
 - Two-model compare: DIGEST_MODEL=sonnet writes a second file; show both
   as tabs for a week, keep the winner. Opus already looks clearly better.

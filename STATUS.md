@@ -240,6 +240,28 @@ hop.zhoulab.io appears as the default server (auth-gated). If any of
 that should retreat, say so — a prune + history rewrite is a
 mechanical round.
 
+## The briefing goes multi-surface (iteration 236b)
+
+Read/unread (Jian's ask, build 290): unread is the default state of news
+— a glow dot per story, opening clears it and the story recedes to
+secondary ink, Mail's contract so it needs no explanation. Ledger keyed
+to the edition's timestamp so a new briefing arrives all-unread; the ⋯
+menu's "Show briefing" carries the unread count.
+
+Desktop (Jian: "too good to miss" — his explicit ask makes the hop2
+commit in-bounds): DigestCard.tsx above the hop web wall, same
+digest.json, same contract — datelines, unread dots (localStorage),
+per-edition dismiss, story clicks through the switcher's own handleTap.
+Own file so it stays out of Solstice's active surfaces; tsc baseline
+unchanged (37 pre-existing errors, none mine); vite build clean. NOT yet
+verified rendered in a signed-in browser — the automation browser had no
+session and signing in requires Jian's credentials, which are his, not
+mine. His signed-in browser shows it on next reload; his eyes are the
+verification.
+
+Terminal version recorded as the next step (PLAN 50b) — `hop digest` is
+Solstice's surface, hand-off or Jian's call.
+
 ## The briefing lands (iteration 235) — digest feature complete
 
 End to end: a host agent writes it, the daemon serves it, the phone shows
