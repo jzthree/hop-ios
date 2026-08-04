@@ -61,6 +61,11 @@ struct HopDigest: Equatable {
 /// GENERATOR's job — it writes a handful of stories sized to one screen.
 struct DigestCard: View {
     let digest: HopDigest
+    /// Sessions whose story has been opened FROM this briefing. Unread is
+    /// the default state of news: a story you have not tapped carries the
+    /// dot, and opening it clears it — the same contract as Mail, so it
+    /// needs no explanation.
+    var readSessions: Set<String>
     /// internalName → display name, for the DATELINE. The agent writes the
     /// story; the app prints whose story it is — "hard to register which is
     /// which" (the maintainer) was the card showing prose with no anchor.
@@ -105,13 +110,21 @@ struct DigestCard: View {
                             .foregroundStyle(item.tint)
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(nameFor(item.session))
-                                .font(.caption2.weight(.bold).monospaced())
-                                .foregroundStyle(item.tint)
-                                .textCase(.uppercase)
+                            HStack(spacing: 5) {
+                                if !readSessions.contains(item.session) {
+                                    Circle().fill(Color.hopGlow)
+                                        .frame(width: 6, height: 6)
+                                        .accessibilityLabel("Unread")
+                                }
+                                Text(nameFor(item.session))
+                                    .font(.caption2.weight(.bold).monospaced())
+                                    .foregroundStyle(item.tint)
+                                    .textCase(.uppercase)
+                            }
                             Text(item.headline)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(readSessions.contains(item.session)
+                                                 ? Color.secondary : Color.primary)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(horizontal: false, vertical: true)
                             if !item.why.isEmpty {

@@ -79,6 +79,23 @@ struct SessionsView: View {
     /// Which briefing has been read. Keyed by its timestamp, so dismissing
     /// hides THIS one and the next scheduled digest appears on its own.
     @AppStorage("digestDismissed") private var digestDismissed = ""
+    /// Read state, per briefing: which stories have been opened, keyed to the
+    /// briefing they belong to so a new edition arrives all-unread. Stored as
+    /// generatedAt + the opened session names, comma-joined — one default,
+    /// self-pruning, no migration.
+    @AppStorage("digestReadLedger") private var digestReadLedger = ""
+
+    private func digestReadSet(for stamp: String) -> Set<String> {
+        let parts = digestReadLedger.components(separatedBy: "|")
+        guard parts.first == stamp, parts.count > 1 else { return [] }
+        return Set(parts[1].components(separatedBy: ",").filter { !$0.isEmpty })
+    }
+
+    private func markDigestRead(_ session: String, stamp: String) {
+        var read = digestReadSet(for: stamp)
+        read.insert(session)
+        digestReadLedger = stamp + "|" + read.sorted().joined(separator: ",")
+    }
 
 
     // MARK: data
@@ -385,10 +402,13 @@ struct SessionsView: View {
             if let d = model.digest, d.generatedAt != digestDismissed,
                filter.isEmpty {
                 Section {
-                    DigestCard(digest: d, nameFor: { internalName in
+                    DigestCard(digest: d,
+                               readSessions: digestReadSet(for: d.generatedAt),
+                               nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
                             ?? internalName
                     }) { name in
+                        markDigestRead(name, stamp: d.generatedAt)
                         path = [resolveSessionName(name, in: model.sessions) ?? name]
                     } onDismiss: {
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -604,12 +624,16 @@ struct SessionsView: View {
                 // holds the one thing you most needed to know. Shown
                 // whenever a briefing exists, so it is also how you find one
                 // written while the app was closed.
-                if model.digest != nil {
+                if let d = model.digest {
+                    let unread = d.items.count - digestReadSet(for: d.generatedAt)
+                        .intersection(d.items.map(\.session)).count
                     Button {
                         digestDismissed = ""
                         Task { await model.refreshDigest() }
                     } label: {
-                        Label("Show briefing", systemImage: "sparkles")
+                        Label(unread > 0 ? "Show briefing · \(unread) unread"
+                                         : "Show briefing",
+                              systemImage: "sparkles")
                     }
                 }
                 Divider()
