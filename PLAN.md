@@ -627,7 +627,24 @@ DECISIONS FOR JIAN: (a) is a hop2 endpoint acceptable, or should the
 host write a file the app polls; (b) confirm 4x/day + 07:00 anchor;
 (c) confirm the one-page cap is ~8 items.
 
-## 48b. [NEXT] The interleaved-lines corruption — a DOUBLE REFLOW
+## 48b. [FIX SHIPPED 2026-08-03 — Jian's device decides] Interleaved lines — the double reflow
+SHIPPED (iteration 236): the local terminal is PINNED to the PTY's grid
+while a peer holds the size. SwiftTerm re-fits on every bounds change
+(layoutSubviews) and font change (resetFont), both internal and not
+overridable — so the pin corrects inside our layoutSubviews override, in
+the SAME layout pass, before a frame is drawn at the wrong grid. With the
+font scaled to the elected columns the wrong fit differs only in ROWS,
+and row-only resizes do not rewrap — so the rewrap churn that interleaved
+wrapped lines stops. Probe: foreign 100x30 adopted, keyboard cycled twice
+(the churn that reliably corrupted), screenshot clean end to end.
+
+Found while fixing: a keystroke's claim was computed from the SCALED
+font, so typing "claimed" the peer's own size — a keystroke that changed
+nothing. Claims now propose the NATURAL fit (the user's chosen font), and
+the confirming active_size is recognised as ours via lastUserClaim even
+though the live fitted dims still describe the scaled font at that
+moment. The chip tap claims naturally too.
+
 Jian, precisely: "two lines of text show in one in a randomly
 interspersed way." That is not a paint artifact (updateFullScreen would
 have cured it) — it is a REFLOW artifact. Character-level interleaving of

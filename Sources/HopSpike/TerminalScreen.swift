@@ -1013,6 +1013,7 @@ struct TerminalScreen: UIViewRepresentable {
             uiView.applyLetterbox()
         }
         uiView.applyTheme(light: lightTheme)
+        uiView.naturalFontPt = CGFloat(fontSize)
         uiView.runningAppName = model.sessions
             .first(where: { $0.internalName == room })?.runningApp ?? ""
 
@@ -1094,6 +1095,10 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
+        /// The last deliberate claim this client sent, so the confirming
+        /// active_size is recognised as OURS even though the live fitted dims
+        /// still describe the auto-scaled font at that moment.
+        private var lastUserClaim: (cols: Int, rows: Int)?
         /// Consecutive foreign sizes refused while the user was looking. The
         /// circuit breaker on the refuse-and-re-assert rule: three, then we
         /// adopt and let the chip hand the decision to the human.
@@ -1132,9 +1137,14 @@ struct TerminalScreen: UIViewRepresentable {
                   fittedCols > 1, fittedRows > 1,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
             lastReclaimAt = Date()
-            // A touch or a keystroke on THIS terminal is deliberate by
-            // definition — carry the flag that wins outright.
-            client.sendResize(cols: fittedCols, rows: fittedRows, user: true)
+            // A keystroke on THIS terminal is deliberate by definition —
+            // carry the flag that wins outright. Claim the NATURAL fit: the
+            // live fitted dims describe the auto-scaled font while a peer
+            // holds the grid, and claiming those would take the peer's own
+            // size — a keystroke that changes nothing.
+            let claim = view?.naturalFit() ?? (cols: fittedCols, rows: fittedRows)
+            lastUserClaim = claim
+            client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
             #if DEBUG
             // The e2e probe's witness that intent reached the wire (the
             // pasteboard-style trap: the runner cannot see the socket).
@@ -1431,10 +1441,12 @@ struct TerminalScreen: UIViewRepresentable {
                     let mine = tv.getTerminal()
                     self.electedCols = cols
                     self.electedRows = rows
-                    if cols == self.fittedCols && rows == self.fittedRows {
+                    let ourClaim = self.lastUserClaim.map { $0 == (cols, rows) } ?? false
+                    if (cols == self.fittedCols && rows == self.fittedRows) || ourClaim {
                         self.wakeMark("active_size \(cols)x\(rows) OURS")
                         self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
+                        self.view?.pinnedGrid = nil     // local fits rule again
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
                     } else if mine.cols != cols || mine.rows != rows {
@@ -1633,8 +1645,10 @@ struct TerminalScreen: UIViewRepresentable {
                 // The chip's tap: ask for our fitted size. The election may
                 // refuse (someone typed recently) — the refusal rebroadcast
                 // re-arms the chip, which is the honest answer.
-                if fittedCols > 1, fittedRows > 1 {
-                    client.sendResize(cols: fittedCols, rows: fittedRows, user: true)
+                if let claim = view?.naturalFit() ?? (fittedCols > 1 && fittedRows > 1
+                                                      ? (cols: fittedCols, rows: fittedRows) : nil) {
+                    lastUserClaim = claim
+                    client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
                 }
             }
         }
@@ -2082,6 +2096,7 @@ struct TerminalScreen: UIViewRepresentable {
             // and left the peer's wide grid drawn at full size and CROPPED —
             // probe-caught: a 100x24 grid filling the top-left quarter of the
             // screen with the "take mine" chip already up.
+            tv.pinnedGrid = (cols, rows)
             tv.getTerminal().resize(cols: cols, rows: rows)
             onSizeState("\(cols)×\(rows)")
             startReclaimRetry()
@@ -2807,6 +2822,43 @@ final class HopTermView: TerminalView {
     /// What the view actually draws, which is not always what the terminal
     /// says — see drawnCellHeight. Pushed in from SwiftTerm's sizeChanged.
     var drawnRows = 0
+    /// While a peer holds the size, the local terminal is PINNED to the PTY's
+    /// grid. SwiftTerm re-fits the terminal to the view on every bounds
+    /// change (layoutSubviews → processSizeChange, internal, not
+    /// overridable) and on every font change (resetFont) — each refit
+    /// re-wraps the buffer at the local width and the snap-back re-wraps it
+    /// again, and SwiftTerm's rewrap of styled/wrapped lines is where "two
+    /// lines of text show in one, randomly interspersed" comes from (Jian,
+    /// three reports — visible on every keyboard frame or refresh). The pin
+    /// corrects INSIDE the same layout pass, before a frame is drawn at the
+    /// wrong grid; with the font scaled to the elected columns the wrong fit
+    /// differs only in ROWS, and row-only resizes do not rewrap.
+    var pinnedGrid: (cols: Int, rows: Int)?
+    /// The font the USER chose, independent of auto-scale. What a keystroke
+    /// claims must be computed from this: while a peer's grid is drawn, the
+    /// live fittedCols/Rows describe the SCALED font, and claiming those
+    /// would "take" the peer's own size — a keystroke that changes nothing.
+    var naturalFontPt: CGFloat = 12
+    func naturalFit() -> (cols: Int, rows: Int)? {
+        guard bounds.width > 10, bounds.height > 10 else { return nil }
+        let f = UIFont.monospacedSystemFont(ofSize: naturalFontPt, weight: .regular)
+        let cw = ("0" as NSString).size(withAttributes: [.font: f]).width
+        let ch = f.lineHeight
+        guard cw > 1, ch > 1 else { return nil }
+        return (max(2, Int(bounds.width / cw)), max(2, Int(bounds.height / ch)))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let pin = pinnedGrid else { return }
+        let t = getTerminal()
+        if t.cols != pin.cols || t.rows != pin.rows {
+            t.resize(cols: pin.cols, rows: pin.rows)
+            t.updateFullScreen()
+            setNeedsDisplay(bounds)
+        }
+        applyLetterbox()
+    }
 
     /// Centre a grid that cannot fill this screen.
     ///
