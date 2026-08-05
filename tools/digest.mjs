@@ -138,6 +138,23 @@ dateline. A front page carries a handful of stories chosen well — prefer a few
 with substance over coverage of everything; fold related minor updates into a
 sentence inside a bigger story when they share a project.
 
+Write for the reader, not the wire. The screens are full of vocabulary the
+AGENTS invented — experiment IDs, issue numbers, file and branch names,
+internal labels like "exp_0036" or "issue 29" — that the reader never typed
+and cannot resolve. Translate every such handle into what it refers to ("the
+third RNA ablation that was queued Friday", "the port-cleanup bug it found in
+review") or drop it; keep an identifier only when it is one the reader
+themselves uses. The "about" line on each session is the reader's OWN words
+for what it is for — prefer its vocabulary over anything on the screen.
+Numbers that carry meaning (metrics, counts, durations) stay; labels that
+carry none go.
+
+The test for every sentence: someone who knows their own projects well but
+has not read these terminals should understand it on the FIRST pass. Plain
+sentences — what happened, what it means, what to do — beat dense clauses
+packed with references. With only a handful of stories there is room to write
+them properly; terse is not the goal, clear is.
+
 Two real constraints. The whole page shows at once — no fold, no "more" — so
 it must fit one phone screen END TO END: with an item count around four or
 five, headline plus why per story is the budget. And each item must name
