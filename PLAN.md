@@ -689,6 +689,12 @@ phone with wrapped text on screen and diffing the rendered rows.
 - Cost/quality watch: one Opus run over ~24 sessions takes ~6 minutes and
   is read later, which is the whole reason Opus is affordable here.
 
+## 51b. Artifacts panel on the desktop wall
+The iOS virtual folder (build 295) has a web sibling waiting: a panel on
+the hop wall reading the same /assets/view/manifest.json, DigestCard's
+pattern exactly (own file, one insertion, localStorage read state if
+wanted). hop2 side is done — the manifest exists and is auth-served.
+
 ## 46b. (space for Jian's next reports)
 
 ## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries
