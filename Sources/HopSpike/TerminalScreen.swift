@@ -70,6 +70,8 @@ struct TerminalHostView: View {
     /// has no equivalent of this: the pill follows the finger and names the
     /// session you would land on, so the swipe is never blind.
     @State private var pillDragX: CGFloat = 0
+    /// An artifact link (hop view) being shown in-app.
+    @State private var artifactURL: URL?
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
@@ -270,10 +272,21 @@ struct TerminalHostView: View {
                 // screen and an endless action sheet is unusable.
                 ForEach(links.prefix(8), id: \.self) { link in
                     Button(displayLink(link)) {
-                        if let url = URL(string: link) { UIApplication.shared.open(url) }
+                        guard let url = URL(string: link) else { return }
+                        // Links into the user's own hop server (hop view
+                        // artifacts) open IN-APP: Safari has no session
+                        // cookie and would render the login page.
+                        if isOwnServerLink(link, serverURL: model.normalizedServerURL) {
+                            artifactURL = url
+                        } else {
+                            UIApplication.shared.open(url)
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {}
+            }
+            .sheet(item: $artifactURL) { url in
+                ArtifactSheet(url: url)
             }
             .overlay {
                 if let goneReason {
