@@ -60,6 +60,7 @@ struct SessionsView: View {
         return switcherTiles
     }
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
+    @State private var showArtifacts = false
     @State private var contentMatches: [ContentMatch] = []
     /// Rows currently on screen. Previews cost the daemon a render each, so the
     /// budget is small and fixed — this decides WHERE it is spent.
@@ -636,6 +637,11 @@ struct SessionsView: View {
                               systemImage: "sparkles")
                     }
                 }
+                // The virtual folder: everything hop view has published,
+                // fleet-wide, grouped by session.
+                Button { showArtifacts = true } label: {
+                    Label("Artifacts", systemImage: "tray.full")
+                }
                 Divider()
                 Button { showAccount = true } label: {
                     Label("Server & account", systemImage: "person.crop.circle")
@@ -711,6 +717,14 @@ struct SessionsView: View {
                     Button("Not now", role: .cancel) {}
                 } message: {
                     Text("A bell from an agent raises a notification, a badge, and a haptic — the reason to have this on a phone rather than a tab.")
+                }
+                .sheet(isPresented: $showArtifacts) {
+                    ArtifactsBrowser(serverURL: model.normalizedServerURL,
+                                     urlSession: model.urlSession,
+                                     nameFor: { internalName in
+                        model.sessions.first(where: { $0.internalName == internalName })?.name
+                            ?? internalName
+                    })
                 }
                 .sheet(isPresented: $showAccount) {
                     // .medium clipped the last row once diagnostics arrived;
