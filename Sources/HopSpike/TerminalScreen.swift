@@ -160,6 +160,7 @@ struct TerminalHostView: View {
                        },
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
+                       onBufferHeal: { reconnectToken += 1 },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -923,6 +924,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onChromeTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
     var onOpenLink: (String) -> Void = { _ in }
+    var onBufferHeal: () -> Void = {}
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -939,6 +941,7 @@ struct TerminalScreen: UIViewRepresentable {
                     onSizeState: onSizeState) { status = $0 }
         c.onRetryState = onRetryState
         c.onOthers = onOthers
+        c.onBufferHeal = onBufferHeal
         return c
     }
 
@@ -1114,6 +1117,34 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
+        /// Buffer-heal machinery. SwiftTerm's Buffer.resize REWRAPS the
+        /// scrollback on every column change and its rewrap is where the
+        /// interleaved-lines corruption comes from — Jian's decisive clue:
+        /// the bug is iOS-only, same PTY, same bytes, web clean, so the
+        /// damage is local. There is no reflow switch to turn off
+        /// (reflowWider/Narrower are unconditional), and once the rewrap has
+        /// run the buffer itself is wrong — repainting redraws the damage.
+        /// The daemon still holds the truth, so after a column-changing
+        /// transition settles we quietly reconnect: the bounded replay
+        /// rebuilds the buffer from the daemon's grid. Once per elected
+        /// grid, so a heal can never loop.
+        private var healTask: Task<Void, Never>?
+        private var healedForGrid: (cols: Int, rows: Int)?
+        var onBufferHeal: (() -> Void)?
+
+        func scheduleBufferHeal(cols: Int, rows: Int) {
+            if let done = healedForGrid, done == (cols, rows) { return }
+            healedForGrid = (cols, rows)
+            healTask?.cancel()
+            healTask = Task { @MainActor [weak self] in
+                // After the font/pin churn settles — healing mid-transition
+                // would snapshot into a grid still changing under it.
+                try? await Task.sleep(for: .milliseconds(900))
+                guard let self, !Task.isCancelled, self.isLive else { return }
+                self.wakeMark("buffer heal: refetching snapshot for \(cols)x\(rows)")
+                self.onBufferHeal?()
+            }
+        }
         /// The last deliberate claim this client sent, so the confirming
         /// active_size is recognised as OURS even though the live fitted dims
         /// still describe the auto-scaled font at that moment.
@@ -1466,6 +1497,7 @@ struct TerminalScreen: UIViewRepresentable {
                         self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
                         self.view?.pinnedGrid = nil     // local fits rule again
+                        self.scheduleBufferHeal(cols: cols, rows: rows)
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
                     } else if mine.cols != cols || mine.rows != rows {
@@ -2117,6 +2149,7 @@ struct TerminalScreen: UIViewRepresentable {
             // screen with the "take mine" chip already up.
             tv.pinnedGrid = (cols, rows)
             tv.getTerminal().resize(cols: cols, rows: rows)
+            scheduleBufferHeal(cols: cols, rows: rows)
             onSizeState("\(cols)×\(rows)")
             startReclaimRetry()
             // Repaint EVERY cell after a reflow. SwiftTerm redraws the rows it

@@ -60,7 +60,12 @@ struct HopDigest: Equatable {
 /// under its DATELINE, and every row opens its session. Brevity is the
 /// GENERATOR's job — it writes a handful of stories sized to one screen.
 struct DigestCard: View {
-    let digest: HopDigest
+    /// Newest first. index 0 is today's paper; leafing back is read-only
+    /// history — older editions carry no unread dots and no dismiss.
+    let editions: [HopDigest]
+    @State private var editionIndex = 0
+    private var digest: HopDigest { editions[min(editionIndex, editions.count - 1)] }
+    private var isCurrent: Bool { editionIndex == 0 }
     /// Sessions whose story has been opened FROM this briefing. Unread is
     /// the default state of news: a story you have not tapped carries the
     /// dot, and opening it clears it — the same contract as Mail, so it
@@ -78,20 +83,22 @@ struct DigestCard: View {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
                     .font(.caption2).foregroundStyle(Color.hopGlow)
-                Text("Briefing")
+                Text(isCurrent ? "Briefing" : "Briefing · \(Self.editionStamp(digest))")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Color.hopGlow)
                 Spacer()
-                Button {
-                    onDismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(4)
-                        .contentShape(Rectangle())
+                if isCurrent {
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(4)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Dismiss briefing")
                 }
-                .accessibilityLabel("Dismiss briefing")
             }
             Text(digest.summary)
                 .font(.subheadline.weight(.medium))
@@ -111,7 +118,7 @@ struct DigestCard: View {
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 5) {
-                                if !readSessions.contains(item.session) {
+                                if isCurrent, !readSessions.contains(item.session) {
                                     Circle().fill(Color.hopGlow)
                                         .frame(width: 6, height: 6)
                                         .accessibilityLabel("Unread")
@@ -123,7 +130,7 @@ struct DigestCard: View {
                             }
                             Text(item.headline)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(readSessions.contains(item.session)
+                                .foregroundStyle(isCurrent && readSessions.contains(item.session)
                                                  ? Color.secondary : Color.primary)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -146,10 +153,64 @@ struct DigestCard: View {
                 .accessibilityHint("Opens \(item.session)")
             }
 
+            // Leafing back through the stack — a newspaper's back numbers,
+            // not a feed. Small on purpose: history is available, today is
+            // the point.
+            if editions.count > 1 {
+                HStack(spacing: 14) {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { editionIndex += 1 }
+                    } label: {
+                        Label("Older", systemImage: "chevron.left")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .disabled(editionIndex >= editions.count - 1)
+                    Text("\(editionIndex + 1) of \(editions.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { editionIndex -= 1 }
+                    } label: {
+                        Label("Newer", systemImage: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .labelStyle(.trailingIcon)
+                    }
+                    .disabled(isCurrent)
+                }
+                .foregroundStyle(Color.hopPurple)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14)
             .strokeBorder(Color.hopGlow.opacity(0.18), lineWidth: 0.5))
     }
+}
+
+
+extension DigestCard {
+    /// "Mon 14:40" — enough to place an edition without a date lecture.
+    static func editionStamp(_ d: HopDigest) -> String {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = iso.date(from: d.generatedAt)
+            ?? ISO8601DateFormatter().date(from: d.generatedAt)
+        guard let date else { return "" }
+        return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+}
+
+/// Label with the icon AFTER the text — SwiftUI has no built-in for it.
+struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.title
+            configuration.icon
+        }
+    }
+}
+extension LabelStyle where Self == TrailingIconLabelStyle {
+    static var trailingIcon: TrailingIconLabelStyle { TrailingIconLabelStyle() }
 }

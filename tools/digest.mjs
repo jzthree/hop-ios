@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 
 const state = JSON.parse(
   fs.readFileSync(path.join(os.homedir(), ".hop2/.tunnel-state"), "utf8"));
@@ -75,6 +76,19 @@ const run = (bin, args, input) =>
     if (input) { p.stdin.write(input); p.stdin.end(); }
   });
 
+// Change detection state: a hash per session of its last-read screen tail,
+// NORMALISED — digits and whitespace runs collapsed — so a claude timer
+// ("Sautéed for 2m 15s") or a progress counter ticking in place does not
+// count as news. The tradeoff is explicit: a line whose ONLY change is a
+// number is treated as a timer, because real results arrive as new lines
+// around the number, not as an in-place digit swap.
+const STATE_PATH = path.join(os.homedir(), ".hop2/hop-digest-state.json");
+const normalise = (t) => t.replace(/[0-9]+/g, "#").replace(/\s+/g, " ");
+const tailHash = (t) => crypto.createHash("sha1").update(normalise(t)).digest("hex");
+const loadState = () => {
+  try { return JSON.parse(fs.readFileSync(STATE_PATH, "utf8")); } catch { return { sessions: {} }; }
+};
+
 const main = async () => {
   const list = await api("/api/sessions");
   const sessions = (list.sessions || list).filter(
@@ -100,6 +114,35 @@ const main = async () => {
       screen
     });
   }
+
+  // Only sessions that MEANINGFULLY changed since the last run go to the
+  // model in full; the rest ride along as names, for fleet context at no
+  // cost. If nothing changed at all, there is no edition — an hourly
+  // cadence is only affordable because a quiet hour costs nothing (Jian:
+  // "suppress if truly no update").
+  const state = loadState();
+  const hashes = Object.fromEntries(seen.map((s) => [s.session, tailHash(s.screen)]));
+  const changed = seen.filter((s) =>
+    hashes[s.session] !== state.sessions?.[s.session] || (s.wants_you && !state.rangBefore?.[s.session]));
+  const unchanged = seen.filter((s) => !changed.includes(s)).map((s) => s.name);
+  const saveState = () => {
+    fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
+    fs.writeFileSync(STATE_PATH, JSON.stringify({
+      sessions: hashes,
+      rangBefore: Object.fromEntries(seen.map((s) => [s.session, !!s.wants_you]))
+    }, null, 1));
+  };
+  if (changed.length === 0) {
+    saveState();
+    console.log("no meaningful update since last edition — suppressed");
+    return;
+  }
+  const prevEdition = (() => {
+    for (const out of OUTS) {
+      try { return JSON.parse(fs.readFileSync(out, "utf8")); } catch { /* next */ }
+    }
+    return null;
+  })();
 
   const prompt = `You are the user's co-scientist, not a status board.
 
@@ -167,17 +210,53 @@ Reply with ONLY a JSON object:
            "why":"<what it means or puts at risk, one sentence>",
            "urgency":"needs-you"|"blocked"|"finished"|"fyi"}]}
 
-Sessions:
-${JSON.stringify(seen, null, 1)}`;
+Editions run hourly, and the reader has already seen your previous one —
+it is included below. Do not re-report what it already told them unless
+something moved; a story that merely continues can be one clause inside a
+new story or absent. Sessions listed under "unchanged" have not changed
+meaningfully since that edition — mention one only if a CHANGED session's
+story needs it.
+
+Previous edition:
+${prevEdition ? JSON.stringify({ summary: prevEdition.summary, items: prevEdition.items }, null, 1) : "(none)"}
+
+Sessions with meaningful updates:
+${JSON.stringify(changed, null, 1)}
+
+Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
 
   const raw = await run("claude", ["-p", "--model", MODEL], prompt);
   const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
   const digest = JSON.parse(json);
   digest.model = MODEL;
-  digest.generated_at = digest.generated_at || new Date().toISOString();
+  // OUR clock, always: the model fabricates plausible timestamps (measured:
+  // an edition stamped noon that ran at 15:42), and the archive and the
+  // read-ledgers key on this value.
+  digest.generated_at = new Date().toISOString();
+  saveState();
+  // The agent judged the changes not newsworthy: keep the current edition
+  // current rather than pushing an empty page over it.
+  if (!(digest.items?.length) && prevEdition) {
+    console.log(`agent judged nothing newsworthy — edition kept (${MODEL})`);
+    return;
+  }
+  // The archive: editions accumulate newest-first, capped — the newspaper
+  // stack you can leaf back through, not a stream that overwrites itself.
+  let archive = [];
+  for (const out of OUTS) {
+    try { archive = JSON.parse(fs.readFileSync(
+      path.join(path.dirname(out), "digest-archive.json"), "utf8")).editions || []; break; }
+    catch { /* next root */ }
+  }
+  archive.unshift(digest);
+  archive = archive.slice(0, 20);
   const body = JSON.stringify(digest, null, 1);
-  for (const out of OUTS) fs.writeFileSync(out, body);
-  console.log(`${OUTS.join(", ")}: ${digest.items?.length ?? 0} items (${MODEL})`);
+  const archiveBody = JSON.stringify({ editions: archive }, null, 1);
+  for (const out of OUTS) {
+    fs.writeFileSync(out, body);
+    fs.writeFileSync(path.join(path.dirname(out), "digest-archive.json"), archiveBody);
+  }
+  console.log(`${OUTS.join(", ")}: ${digest.items?.length ?? 0} items (${MODEL}), archive=${archive.length}`);
 };
 
 main().catch((e) => { console.error(String(e)); process.exit(1); });

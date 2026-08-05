@@ -403,7 +403,7 @@ struct SessionsView: View {
             if let d = model.digest, d.generatedAt != digestDismissed,
                filter.isEmpty {
                 Section {
-                    DigestCard(digest: d,
+                    DigestCard(editions: model.digestEditions.isEmpty ? [d] : model.digestEditions,
                                readSessions: digestReadSet(for: d.generatedAt),
                                nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name

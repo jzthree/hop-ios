@@ -8,16 +8,12 @@
     <string>/bin/zsh</string><string>-lc</string>
     <string>node "$HOME/Code/hop-ios/tools/digest.mjs" &gt;&gt; /tmp/hop-digest.log 2&gt;&amp;1</string>
   </array>
-  <!-- 06:40, 12:00, 17:00, 22:00. The first is timed to LAND before the
-       phone is picked up (~8-9), since a run takes several minutes on Opus
-       and nobody is waiting on it. -->
+  <!-- Hourly at :40 (Jian). Affordable because the generator suppresses:
+       a quiet hour is a hash comparison and no model call, and an hour whose
+       changes the agent judges non-newsworthy keeps the current edition.
+       :40 keeps the pre-wake edition landing before ~7:00. -->
   <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>40</integer></dict>
-    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
+  <dict><key>Minute</key><integer>40</integer></dict>
   <key>RunAtLoad</key><false/>
 </dict>
 </plist>

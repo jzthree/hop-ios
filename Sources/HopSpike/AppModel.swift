@@ -36,6 +36,9 @@ final class AppModel: ObservableObject {
     @Published var requestedSession: String?
     /// The host agent's briefing, if one has been written since we last looked.
     @Published var digest: HopDigest?
+    /// The stack of past editions, newest first — the newspaper you can leaf
+    /// back through. digest is always editions.first when both exist.
+    @Published var digestEditions: [HopDigest] = []
 
     /// Fetched from the directory the daemon already serves under /assets/,
     /// with the cookie the app already holds — so this costs no new endpoint
@@ -53,6 +56,7 @@ final class AppModel: ObservableObject {
            let d = HopDigest(json: obj) {
             if digest != d { digest = d }
             UserDefaults.standard.set(data, forKey: "lastDigest")
+            await refreshDigestArchive()
             return
         }
         // The served file is a casualty of every web rebuild (the dist is
@@ -65,6 +69,25 @@ final class AppModel: ObservableObject {
            let d = HopDigest(json: obj) {
             digest = d
         }
+    }
+
+    /// The editions stack. Absent (pre-archive generator, or first run) is
+    /// fine — the current digest alone becomes a one-edition stack.
+    private func refreshDigestArchive() async {
+        guard let url = baseURL?.appendingPathComponent("assets/digest-archive.json") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["editions"] as? [[String: Any]] else {
+            digestEditions = digest.map { [$0] } ?? []
+            return
+        }
+        let editions = raw.compactMap { HopDigest(json: $0) }
+        digestEditions = editions.isEmpty ? (digest.map { [$0] } ?? []) : editions
     }
     /// internalName -> last rendered screen text (the daemon renders these on
     /// demand, so only ask for what's actually on screen).
