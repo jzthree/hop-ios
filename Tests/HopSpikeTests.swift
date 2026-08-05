@@ -1309,6 +1309,42 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
     }
 
+    // MARK: - linkHit (tap-on-link)
+
+    private func joined(_ rows: [String], cols: Int) -> String {
+        rows.map { $0.padding(toLength: cols, withPad: " ", startingAt: 0) }.joined()
+    }
+
+    func testTapInsideAUrlHitsIt() {
+        let rows = ["View: https://hop.example/a.pdf", "$ "]
+        let j = joined(rows, cols: 40)
+        // Offset on the 'h' of https (row 0, col 6).
+        XCTAssertEqual(linkHit(atOffset: 6, in: j), "https://hop.example/a.pdf")
+    }
+
+    func testTapOnPlainTextMisses() {
+        let rows = ["View: https://hop.example/a.pdf", "$ "]
+        let j = joined(rows, cols: 40)
+        XCTAssertNil(linkHit(atOffset: 2, in: j), "tap on 'View:' is not a tap on the URL")
+        XCTAssertNil(linkHit(atOffset: 41, in: j), "the prompt row has no link")
+    }
+
+    func testWrappedUrlConnectsAcrossRows() {
+        // The demo case verbatim: a served artifact URL wider than the grid.
+        // The first row is FULL (that is what wrapping means), so the joined
+        // string carries the URL through the boundary.
+        let cols = 30
+        let url = "https://hop.example/assets/view/demo/hop-demo.html"
+        let line = "View: " + url                     // 56 chars, wraps at 30
+        let row0 = String(line.prefix(cols))
+        let row1 = String(line.dropFirst(cols))
+        let j = joined([row0, row1], cols: cols)
+        // Tap on the SECOND row, middle of the continuation.
+        XCTAssertEqual(linkHit(atOffset: cols + 5, in: j), url)
+        // And on the first row, inside the URL's start.
+        XCTAssertEqual(linkHit(atOffset: 8, in: j), url)
+    }
+
     // MARK: - keyboard protocol tracking (shift+enter gate)
 
     func testKittyPushEnablesAndPopDisables() {

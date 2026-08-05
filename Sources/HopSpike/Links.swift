@@ -85,3 +85,32 @@ func findMatchRow(from start: Int, direction: Int, needle: String,
     }
     return nil
 }
+
+/// Normalise a raw regex hit the way extractLinks does — shared so a tapped
+/// link and a menu link are the same string for the same pixels.
+func normalizeLink(_ raw: String) -> String? {
+    var s = trimTrailingPunctuation(raw)
+    guard s.count > "http://".count else { return nil }
+    if !s.lowercased().hasPrefix("http") { s = "http://" + s }
+    return s
+}
+
+/// The URL under a character offset in a screen JOINED WITHOUT SEPARATORS —
+/// every row padded to the grid width, rows concatenated. Wrapped URLs then
+/// connect naturally (a wrapped row is full to its last column) with exact
+/// offset math (offset = row * cols + col), and no wrap flags are needed;
+/// unwrapped rows end in spaces, which the URL charset already excludes.
+/// The tap must land INSIDE the match — a row that merely contains a link
+/// somewhere is not a tap on it.
+func linkHit(atOffset offset: Int, in joined: String) -> String? {
+    let ns = joined as NSString
+    guard offset >= 0, offset < ns.length else { return nil }
+    var hit: String?
+    urlPattern.enumerateMatches(in: joined,
+                                range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+        guard let m, NSLocationInRange(offset, m.range) else { return }
+        hit = normalizeLink(ns.substring(with: m.range))
+        stop.pointee = true
+    }
+    return hit
+}

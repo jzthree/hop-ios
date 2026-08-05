@@ -159,6 +159,7 @@ struct TerminalHostView: View {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
                        },
                        onBackSwipe: { dismiss() },
+                       onOpenLink: { link in openLinkSmart(link) },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -271,17 +272,7 @@ struct TerminalHostView: View {
                 // Newest first, and capped: a build log can put dozens on
                 // screen and an endless action sheet is unusable.
                 ForEach(links.prefix(8), id: \.self) { link in
-                    Button(displayLink(link)) {
-                        guard let url = URL(string: link) else { return }
-                        // Links into the user's own hop server (hop view
-                        // artifacts) open IN-APP: Safari has no session
-                        // cookie and would render the login page.
-                        if isOwnServerLink(link, serverURL: model.normalizedServerURL) {
-                            artifactURL = url
-                        } else {
-                            UIApplication.shared.open(url)
-                        }
-                    }
+                    Button(displayLink(link)) { openLinkSmart(link) }
                 }
                 Button("Cancel", role: .cancel) {}
             }
@@ -630,6 +621,19 @@ struct TerminalHostView: View {
         .padding(.top, windowTopInset() + 1)
     }
 
+    /// One open path for every link, tapped or menu-picked: the user's own
+    /// hop server (hop view artifacts) opens IN-APP with the session cookie —
+    /// Safari has no hop session and would render the login page — and
+    /// everything else goes to Safari.
+    private func openLinkSmart(_ link: String) {
+        guard let url = URL(string: link) else { return }
+        if isOwnServerLink(link, serverURL: model.normalizedServerURL) {
+            artifactURL = url
+        } else {
+            UIApplication.shared.open(url)
+        }
+    }
+
     /// A LABEL, not a menu. The in-title switcher is gone at Jian's word —
     /// switching happens in the switcher view (or the pill swipe, which
     /// stays: it is direct manipulation, not chrome). The dot, name, lock
@@ -918,6 +922,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onScroll: (Bool) -> Void = { _ in }
     var onChromeTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
+    var onOpenLink: (String) -> Void = { _ in }
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -957,6 +962,7 @@ struct TerminalScreen: UIViewRepresentable {
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
         tv.onChromeTap = onChromeTap
+        tv.onOpenLink = onOpenLink
         tv.onBackSwipe = onBackSwipe
         context.coordinator.onGridChange = onFitRefresh
         tv.installAccessoryBar()
@@ -2475,7 +2481,44 @@ final class HopTermView: TerminalView {
     /// through to the keyboard).
     static var chromeStrip: CGFloat { windowTopInset() + 46 }
 
-    @objc private func handleChromeTap(_ g: UITapGestureRecognizer) { onChromeTap?() }
+    /// A link was tapped directly on the grid.
+    var onOpenLink: ((String) -> Void)?
+
+    /// The URL under a tap, or nil. Rows are padded to the grid width and
+    /// joined without separators, so wrapped URLs connect and the offset
+    /// math is exact — see linkHit. Built per tap; the grid is small.
+    func linkUnderTap(_ locInView: CGPoint) -> String? {
+        let t = getTerminal()
+        let x = locInView.x - bounds.origin.x
+        let y = locInView.y - bounds.origin.y
+        let cellH = drawnCellHeight(viewHeight: bounds.height,
+                                    drawnRows: drawnRows, terminalRows: t.rows)
+        let cellW = bounds.width / CGFloat(max(1, drawnCols > 0 ? drawnCols : t.cols))
+        let row = Int(y / max(1, cellH))
+        let col = Int(x / max(1, cellW))
+        guard row >= 0, row < t.rows, col >= 0, col < t.cols else { return nil }
+        var joined = ""
+        joined.reserveCapacity(t.rows * (t.cols + 1))
+        for r in 0..<t.rows {
+            var line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
+            if line.count > t.cols { line = String(line.prefix(t.cols)) }
+            joined += line.padding(toLength: t.cols, withPad: " ", startingAt: 0)
+        }
+        return linkHit(atOffset: row * t.cols + col, in: joined)
+    }
+
+    @objc private func handleChromeTap(_ g: UITapGestureRecognizer) {
+        // Content can live UNDER the summon strip — a short session's whole
+        // output does (Jian: "the session is too short, it appears too close
+        // to the top that I cannot click on the link"). A tap that lands ON
+        // a link opens it; the strip's chrome duty only applies to taps on
+        // nothing.
+        if let link = linkUnderTap(g.location(in: self)), let open = onOpenLink {
+            open(link)
+            return
+        }
+        onChromeTap?()
+    }
 
     /// Records the geometry behind "the session moved up and took half the
     /// screen": whether this view still starts where the screen does. Cheap,
@@ -2509,6 +2552,14 @@ final class HopTermView: TerminalView {
     }
 
     @objc private func handleClickTap(_ g: UITapGestureRecognizer) {
+        // A tap that lands ON a URL means "open it" in any mode — claude's
+        // own output is full of PR links, and sending a synthetic mouse
+        // click at a URL instead of opening it helps nobody.
+        if let link = linkUnderTap(g.location(in: self)), let open = onOpenLink {
+            open(link)
+            return
+        }
+        guard remoteTakesMouse else { return }
         let t = getTerminal()
         // Visible-relative, like the chrome strip: location(in:) carries the
         // scrollback offset on this scroll view.
@@ -3655,7 +3706,11 @@ extension HopTermView: UIGestureRecognizerDelegate {
             let inStrip = inChromeStrip(tap)
             if tap === chromeTap { return inStrip }
             if tap === clickTap {
-                return !inStrip && remoteTakesMouse && momentumLink == nil && !brakeTouch
+                guard !inStrip, momentumLink == nil, !brakeTouch else { return false }
+                // Mouse mode always arms it (the SGR click path); otherwise
+                // it arms exactly when the finger is ON a link — a plain tap
+                // on text stays a focus tap.
+                return remoteTakesMouse || linkUnderTap(tap.location(in: self)) != nil
             }
             if inStrip { return false }   // reaching for controls ≠ asking to type
         }
