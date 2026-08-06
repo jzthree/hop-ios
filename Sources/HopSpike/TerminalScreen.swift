@@ -78,6 +78,9 @@ struct TerminalHostView: View {
     /// How many artifacts this session has published — decides whether the
     /// pill carries the tray, and a growth while watching raises a toast.
     @State private var artifactCount = 0
+    /// The newest artifact this session has published — the menu's one-click
+    /// "view latest" (the manifest is newest-first, so it is items.first).
+    @State private var latestArtifact: (name: String, url: URL)?
     /// Bumped by the bell; the .task(id:) re-checks the manifest.
     @State private var artifactCheck = 0
     @State private var pillPeek: HopSession?
@@ -530,11 +533,19 @@ struct TerminalHostView: View {
                       (resp as? HTTPURLResponse)?.statusCode == 200,
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let raw = obj["items"] as? [[String: Any]] else { return }
-                let mine = raw.filter { ($0["session"] as? String) == session.internalName }.count
-                if mine > artifactCount, artifactCount > 0 || artifactCheck > 0 {
+                let mine = raw.filter { ($0["session"] as? String) == session.internalName }
+                if mine.count > artifactCount, artifactCount > 0 || artifactCheck > 0 {
                     toast = "New artifact — tap the tray"
                 }
-                withAnimation(.easeOut(duration: 0.2)) { artifactCount = mine }
+                if let first = mine.first, let path = first["path"] as? String,
+                   let name = first["name"] as? String,
+                   let base = URL(string: model.normalizedServerURL) {
+                    latestArtifact = (name.removingPercentEncoding ?? name,
+                                      base.appendingPathComponent(String(path.dropFirst())))
+                } else {
+                    latestArtifact = nil
+                }
+                withAnimation(.easeOut(duration: 0.2)) { artifactCount = mine.count }
             }
             .task(id: session.internalName) {
                 chromeShown = true
@@ -834,8 +845,19 @@ struct TerminalHostView: View {
                 Button { controlAction = .links } label: {
                     Label("Open link…", systemImage: "link")
                 }
+                // Artifacts, first-class (Jian: "directly having a place in
+                // the menu, one click to view the most recent"). The latest
+                // opens straight into the viewer; the panel holds the rest.
+                if let latest = latestArtifact {
+                    Button {
+                        artifactURL = latest.url
+                    } label: {
+                        Label("View \(latest.name)", systemImage: "sparkles.rectangle.stack")
+                    }
+                }
                 Button { artifactPanel = true } label: {
-                    Label("Artifacts", systemImage: "tray.full")
+                    Label(artifactCount > 0 ? "Artifacts (\(artifactCount))" : "Artifacts",
+                          systemImage: "tray.full")
                 }
                 // Fork from INSIDE the session — the moment you want a copy
                 // to try something is usually mid-conversation. Switches to
