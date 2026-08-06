@@ -1580,6 +1580,7 @@ struct TerminalScreen: UIViewRepresentable {
                     self.onToast(reason)
                 case .joined(let cols, let rows):
                     self.wakeMark("joined pty=\(cols)x\(rows)")
+                    if cols > 1, rows > 1 { tv.pinnedGrid = (cols, rows) }
                     self.sizeAtJoin = (cols, rows)
                 case .renamed(let name):
                     self.onRenamed(name)
@@ -1610,7 +1611,16 @@ struct TerminalScreen: UIViewRepresentable {
                         self.wakeMark("active_size \(cols)x\(rows) OURS")
                         self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
-                        self.view?.pinnedGrid = nil     // local fits rule again
+                        // Pin to OUR size too — the local grid must equal
+                        // the PTY grid ALWAYS, exactly as xterm.js does on
+                        // the web. Left unpinned, SwiftTerm's bounds-refit
+                        // could drift a column from the elected width, and a
+                        // one-column drift wraps every PTY row's last char
+                        // onto the next row's start — Jian's screenshot:
+                        // "w"+"gallow", "ji"+"legitimate", stale row tails.
+                        // The web never shows it because its grid never
+                        // drifts. THIS was the text-rendering bug.
+                        self.view?.pinnedGrid = (cols, rows)
                         self.scheduleBufferHeal(cols: cols, rows: rows)
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
