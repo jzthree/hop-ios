@@ -479,6 +479,7 @@ struct TerminalHostView: View {
             // (chromeBar below), so the terminal holds one size for the whole
             // visit and toggling chrome moves nothing.
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .statusBarHidden(landscapePhone)
             .overlay(alignment: .top) {
                 // Suppressed once the session is gone (the ended card carries
