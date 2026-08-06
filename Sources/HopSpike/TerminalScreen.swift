@@ -302,7 +302,9 @@ struct TerminalHostView: View {
                                  nameFor: { name in
                                      model.sessions.first(where: { $0.internalName == name })?.name ?? name
                                  },
-                                 onlySession: session.internalName)
+                                 onlySession: session.internalName,
+                                 servers: model.sessions.filter(\.isPort)
+                                     .map { ($0.name, $0.internalName) })
                     .presentationDetents([.fraction(0.45), .large])
                     .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.45)))
             }

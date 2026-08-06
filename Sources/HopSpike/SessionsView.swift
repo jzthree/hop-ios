@@ -724,7 +724,9 @@ struct SessionsView: View {
                                      nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
                             ?? internalName
-                    })
+                    },
+                                     servers: model.sessions.filter(\.isPort)
+                                         .map { ($0.name, $0.internalName) })
                 }
                 .sheet(isPresented: $showAccount) {
                     // .medium clipped the last row once diagnostics arrived;
