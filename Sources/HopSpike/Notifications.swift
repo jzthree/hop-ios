@@ -84,6 +84,21 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
     }
 
     /// Called after every session refresh with the sessions currently wanting
+    /// The interrupt classifier (Jian: routine completions and healthy
+    /// loops must NOT notify; being blocked on him must). Agents declare the
+    /// difference themselves — `hop notify <reason>` prints this marker and
+    /// rings — so the phone never guesses. Returns the reason when the
+    /// snippet carries the marker, nil for the quiet tier.
+    nonisolated static func blockedReason(in snippet: String?) -> String? {
+        guard let snippet else { return nil }
+        guard let range = snippet.range(of: "⚑ NEEDS YOU:", options: .backwards)
+        else { return nil }
+        let reason = snippet[range.upperBound...]
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return reason.isEmpty ? "Session is blocked on you" : reason
+    }
+
     /// attention. Dedupes per bellSeq so one bell is one notification.
     /// `snippet` returns what the session is actually SAYING right now. The
     /// body used to be the tagline — a description of what a session is for,
@@ -104,11 +119,18 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         for s in sessions {
             guard s.attention, shouldNotify(bellSeq: s.bellSeq,
                                             lastNotified: notified[s.internalName]) else { continue }
+            let live = await snippet(s)
+            // TWO TIERS (Jian). Quiet: a plain bell — the badge above and
+            // the wall's dot already carry it; recording it as notified
+            // without posting is the feature, not a bug. Interrupt: the
+            // agent said WHY via `hop notify`, and that reason is the body.
+            guard let reason = Self.blockedReason(in: live) else {
+                notified[s.internalName] = s.bellSeq
+                continue
+            }
             let content = UNMutableNotificationContent()
             content.title = s.name
-            let live = await snippet(s)
-            content.body = live
-                ?? (s.tagline.isEmpty ? "Session wants your attention" : s.tagline)
+            content.body = reason
             // The tagline still rides along as the subtitle when there's a live
             // line to show: which session, and what it's for, without crowding
             // the part you actually read.

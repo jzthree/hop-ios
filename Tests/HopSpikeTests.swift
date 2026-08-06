@@ -1309,6 +1309,27 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
     }
 
+    // MARK: - blockedReason (two-tier notifications)
+
+    func testPlainBellSnippetIsQuiet() {
+        XCTAssertNil(HopNotifier.blockedReason(in: "build finished\n$ "),
+                     "a routine completion must not interrupt")
+        XCTAssertNil(HopNotifier.blockedReason(in: nil))
+    }
+
+    func testNotifyMarkerCarriesItsReason() {
+        let snippet = "some output\n⚑ NEEDS YOU: VPN is down — reconnect to continue\n"
+        XCTAssertEqual(HopNotifier.blockedReason(in: snippet),
+                       "VPN is down — reconnect to continue")
+    }
+
+    func testLatestMarkerWinsAndBareMarkerStillInterrupts() {
+        let snippet = "⚑ NEEDS YOU: old question\nmore output\n⚑ NEEDS YOU: pick a path\n"
+        XCTAssertEqual(HopNotifier.blockedReason(in: snippet), "pick a path")
+        XCTAssertEqual(HopNotifier.blockedReason(in: "⚑ NEEDS YOU:\n"),
+                       "Session is blocked on you")
+    }
+
     // MARK: - linkHit (tap-on-link)
 
     private func joined(_ rows: [String], cols: Int) -> String {
