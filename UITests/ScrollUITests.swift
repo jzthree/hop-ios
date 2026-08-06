@@ -223,19 +223,30 @@ final class ScrollUITests: XCTestCase {
         let afterWake = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         XCTAssertTrue(afterWake.isEmpty,
                       "waking claimed the size with no keystroke: \(afterWake)")
-        // Half two: a keystroke does. (typeText reaches the send path — the
-        // half-open test proves the daemon receives it.)
+        // Half two: the user-visible contract — after a keystroke the grid is
+        // YOURS. Which door it came through is deliberately not pinned: the
+        // buffer heal's reconnect may already have won it back with a POLITE
+        // attach claim (granted only because nobody typed — the same rule),
+        // in which case the keystroke has nothing left to do. What must be
+        // true either way: no silent wake-claim happened (half one), and the
+        // foreign chip is gone shortly after the user acts.
         app.typeText(" ")
         var claimed = ""
-        for _ in 0..<30 {
+        for _ in 0..<10 {
             if let s = try? String(contentsOfFile: marker, encoding: .utf8), !s.isEmpty {
                 claimed = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             }
             usleep(300_000)
         }
-        XCTAssertFalse(claimed.isEmpty, "a keystroke claimed nothing")
-        XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
+        if !claimed.isEmpty {
+            XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
+        }
+        let chip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS '100×30'")).firstMatch
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: chip, handler: nil)
+        waitForExpectations(timeout: 20)
     }
 
     /// The passkey door exists on the sign-in screen. Skips honestly when the

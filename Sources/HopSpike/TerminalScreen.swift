@@ -1631,19 +1631,19 @@ struct TerminalScreen: UIViewRepresentable {
                         // foreign size in the meantime IS the flash. Hold
                         // the adopt; the claim's confirm cancels it. A lost
                         // race still adopts, 1.2s late.
-                        if self.userIsLooking,
-                           !self.observeOnly,
-                           Date().timeIntervalSince(self.connectStartedAt) < 3.0,
-                           self.deferredAdopt == nil {
-                            self.wakeMark("active_size \(cols)x\(rows) DEFERRED")
-                            self.deferredAdopt = (cols, rows)
-                            Task { @MainActor [weak self] in
-                                try? await Task.sleep(for: .milliseconds(1200))
-                                guard let self, let p = self.deferredAdopt else { return }
-                                self.deferredAdopt = nil
-                                self.adoptForeign(cols: p.cols, rows: p.rows)
-                            }
-                        } else {
+                        // The deferral is GONE. It existed to hide a
+                        // foreign-size flash during attach, from before
+                        // auto-scale made foreign sizes look intentional —
+                        // and it had become the corruptor: the serialized
+                        // snapshot painted at the OLD width during the
+                        // 1.2s hold, then the adopt resized and SwiftTerm
+                        // REWRAPPED the entire just-painted transcript.
+                        // First controlled reproduction (sim, 2026-08-06):
+                        // intra-word interleaving born exactly here. Adopt
+                        // immediately; the grid must be right BEFORE the
+                        // snapshot lands, and message order guarantees
+                        // active_size arrives first.
+                        do {
                             self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
                             self.deferredAdopt = nil
                             self.adoptForeign(cols: cols, rows: rows)
@@ -2051,12 +2051,11 @@ struct TerminalScreen: UIViewRepresentable {
             // POLITE. Maintaining our own grid must never outrank a human
             // typing somewhere else.
             client.sendResize(cols: cols, rows: rows)
-            #if DEBUG
-            if let marker = ProcessInfo.processInfo.environment["HOP_CLAIM_MARKER"] {
-                try? "\(cols)x\(rows)\n".write(toFile: marker, atomically: true, encoding: .utf8)
-            }
-            #endif
-            return true
+            // No claim witness here: this is POLITE maintenance of a grid we
+            // already hold. The HOP_CLAIM_MARKER is the e2e witness for
+            // DELIBERATE claims only, and writing it here made the wake test
+            // read keyboard-settle upkeep as a silent wake-claim.
+                        return true
         }
 
         /// Wake is not one moment: the keyboard, the safe areas and SwiftUI's
