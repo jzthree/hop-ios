@@ -158,6 +158,10 @@ final class ScrollUITests: XCTestCase {
         let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].tap()
+        // Back leads the menu — the pill's one control carries navigation
+        // first (the chevron's replacement; Jian's reconciliation).
+        XCTAssertTrue(app.buttons["Back to sessions"].waitForExistence(timeout: 5),
+                      "Back to sessions missing from the menu")
         // The text-size stepper keeps the menu OPEN (menuActionDismissBehavior
         // .disabled) — a tap on Smaller must not dismiss. Tap Bigger after to
         // leave the persisted size where it started.
