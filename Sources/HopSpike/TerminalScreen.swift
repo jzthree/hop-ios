@@ -75,6 +75,11 @@ struct TerminalHostView: View {
     /// The codex-style side panel: this session's published artifacts in a
     /// half-height sheet the terminal stays alive above.
     @State private var artifactPanel = false
+    /// How many artifacts this session has published — decides whether the
+    /// pill carries the tray, and a growth while watching raises a toast.
+    @State private var artifactCount = 0
+    /// Bumped by the bell; the .task(id:) re-checks the manifest.
+    @State private var artifactCheck = 0
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
@@ -164,6 +169,7 @@ struct TerminalHostView: View {
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
                        onBufferHeal: { reconnectToken += 1 },
+                       onBell: { artifactCheck += 1 },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -508,6 +514,28 @@ struct TerminalHostView: View {
             .onChange(of: network.pathGeneration) {
                 if status == .closed { reconnectToken += 1 }
             }
+            .task(id: "\(session.internalName)-\(artifactCheck)") {
+                // On open and on every bell: count this session's artifacts.
+                // The bell fires the moment hop view copies the file, and the
+                // manifest write follows within milliseconds — the small delay
+                // covers that gap. Growth while watching gets a toast, so a
+                // publish is noticed even with the pill hidden.
+                try? await Task.sleep(for: .milliseconds(artifactCheck == 0 ? 0 : 1200))
+                guard let url = URL(string: model.normalizedServerURL)?
+                    .appendingPathComponent("assets/view/manifest.json") else { return }
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 8
+                req.cachePolicy = .reloadIgnoringLocalCacheData
+                guard let (data, resp) = try? await model.urlSession.data(for: req),
+                      (resp as? HTTPURLResponse)?.statusCode == 200,
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let raw = obj["items"] as? [[String: Any]] else { return }
+                let mine = raw.filter { ($0["session"] as? String) == session.internalName }.count
+                if mine > artifactCount, artifactCount > 0 || artifactCheck > 0 {
+                    toast = "New artifact — tap the tray"
+                }
+                withAnimation(.easeOut(duration: 0.2)) { artifactCount = mine }
+            }
             .task(id: session.internalName) {
                 chromeShown = true
                 // VoiceOver users keep the chrome. Hiding it trades
@@ -584,6 +612,21 @@ struct TerminalHostView: View {
                 titleLabel
             }
             Spacer(minLength: 4)
+            // The tray: present exactly when there is something in it, one
+            // tap to the panel (⋯ → Artifacts was "a bit inconvenient" —
+            // Jian — and hidden besides). Appears within a beat of an agent
+            // publishing, because hop view rings the bell.
+            if artifactCount > 0 {
+                Button { artifactPanel = true } label: {
+                    Image(systemName: "tray.full")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.hopGlow)
+                        .frame(width: 32, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Artifacts (\(artifactCount))")
+                .transition(.opacity)
+            }
             actionsMenu
         }
         .padding(.horizontal, 8)
@@ -945,6 +988,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onBackSwipe: () -> Void = {}
     var onOpenLink: (String) -> Void = { _ in }
     var onBufferHeal: () -> Void = {}
+    var onBell: () -> Void = {}
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -962,6 +1006,7 @@ struct TerminalScreen: UIViewRepresentable {
         c.onRetryState = onRetryState
         c.onOthers = onOthers
         c.onBufferHeal = onBufferHeal
+        c.onBell = onBell
         return c
     }
 
@@ -1151,6 +1196,7 @@ struct TerminalScreen: UIViewRepresentable {
         private var healTask: Task<Void, Never>?
         private var healedForGrid: (cols: Int, rows: Int)?
         var onBufferHeal: (() -> Void)?
+        var onBell: (() -> Void)?
 
         func scheduleBufferHeal(cols: Int, rows: Int) {
             if let done = healedForGrid, done == (cols, rows) { return }
@@ -1468,6 +1514,13 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.setRemoteModes(altScreen: alternateScreen,
                                       mouseReporting: mouseReporting, mouseSgr: mouseSgr)
                     tv.feed(text: data)
+                    // The anchor pass the quiet session never got: live
+                    // output queues one, but a session whose whole life is
+                    // the snapshot (a fresh shell: two lines, then silence)
+                    // painted top-stuck and STAYED there — no further output,
+                    // no bounds change, no pass (Jian: "I don't see short
+                    // sessions start low"). Anchor on the snapshot itself.
+                    tv.queueAnchorPass()
                     tv.queueAnchorPass()
                 case .presence(let list):
                     self.onPresence(list)
@@ -2377,7 +2430,12 @@ struct TerminalScreen: UIViewRepresentable {
             let hv = source as? HopTermView
             if t.buffer.yDisp > 0 { hv?.sawScrollback = true }
             let hasHistory = t.buffer.yDisp > 0 || hv?.sawScrollback == true
-            let inHistory = hasHistory && position < 0.999
+            // In sessions where the APP owns scrolling — claude's alt screen,
+            // anything taking wheel events — the local viewport never moves,
+            // so "Live" would offer a jump to a place you never left (Jian:
+            // "the live button displays even when clicking has no effect").
+            let remoteOwnsScrolling = (hv?.remoteAltScreen ?? false) || (hv?.remoteTakesMouse ?? false)
+            let inHistory = hasHistory && position < 0.999 && !remoteOwnsScrolling
             onScroll(inHistory)
             // Only USER scrolls may move the anchor. SwiftTerm's live-edge
             // pin arrives through this same callback, and letting it write
@@ -2415,6 +2473,10 @@ struct TerminalScreen: UIViewRepresentable {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            // hop view rings the bell when it publishes — the bell is the
+            // artifact system's own doorbell, so use it: re-check the
+            // manifest and the tray appears within a beat of the publish.
+            onBell?()
         }
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
     }
