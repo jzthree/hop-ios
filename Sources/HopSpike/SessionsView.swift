@@ -1138,7 +1138,7 @@ struct SessionRow: View {
                     // command and none of its answer; five is enough to see
                     // what a session is actually doing without opening it,
                     // and the rows still fit several sessions per screen.
-                    Text(screen.flatMap { TileInk.snippet($0, lines: 5) }
+                    Text(screen.flatMap { TileInk.cachedSnippet($0, lines: 5) }
                          ?? AttributedString(preview))
                         .font(.system(size: 9, design: .monospaced))
                         // The preview is a glance aid, not body text. Letting

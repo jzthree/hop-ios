@@ -2603,7 +2603,24 @@ final class HopTermView: TerminalView {
     /// The URL under a tap, or nil. Rows are padded to the grid width and
     /// joined without separators, so wrapped URLs connect and the offset
     /// math is exact — see linkHit. Built per tap; the grid is small.
+    /// One scan per touch: the gate (gestureRecognizerShouldBegin) and the
+    /// handler both ask, milliseconds apart, and each scan builds the whole
+    /// grid as a string — measured as one of the costs behind "a bit
+    /// laggier". Same point within half a second returns the cached answer.
+    private var linkTapCache: (point: CGPoint, at: TimeInterval, link: String?)?
+
     func linkUnderTap(_ locInView: CGPoint) -> String? {
+        if let c = linkTapCache,
+           abs(c.point.x - locInView.x) < 2, abs(c.point.y - locInView.y) < 2,
+           CACurrentMediaTime() - c.at < 0.5 {
+            return c.link
+        }
+        let link = linkUnderTapUncached(locInView)
+        linkTapCache = (locInView, CACurrentMediaTime(), link)
+        return link
+    }
+
+    private func linkUnderTapUncached(_ locInView: CGPoint) -> String? {
         let t = getTerminal()
         let x = locInView.x - bounds.origin.x
         let y = locInView.y - bounds.origin.y
@@ -3044,13 +3061,21 @@ final class HopTermView: TerminalView {
     /// How many rows actually hold content, counted from the bottom up with
     /// an early exit — the common cases (full screen, near-empty screen) both
     /// terminate in a handful of rows.
+    private var usedRowsCache: Int = -1
+    /// Invalidated by output (queueAnchorPass callers) — layout passes during
+    /// a keyboard animation then cost a cached Int instead of a full-grid
+    /// string scan per frame.
+    func invalidateUsedRows() { usedRowsCache = -1 }
     private func usedRows() -> Int {
+        if usedRowsCache >= 0 { return usedRowsCache }
         let t = getTerminal()
+        var used = 0
         for r in stride(from: t.rows - 1, through: 0, by: -1) {
             let line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
-            if !line.isEmpty { return r + 1 }
+            if !line.isEmpty { used = r + 1; break }
         }
-        return 0
+        usedRowsCache = used
+        return used
     }
 
     /// Jian's rule, verbatim: "start the terminal lower unless the content is
@@ -3088,6 +3113,7 @@ final class HopTermView: TerminalView {
     /// log. One pass per frame-ish is indistinguishable and free.
     private var anchorQueued = false
     func queueAnchorPass() {
+        invalidateUsedRows()
         guard !anchorQueued else { return }
         anchorQueued = true
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
