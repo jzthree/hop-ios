@@ -170,18 +170,20 @@ func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> 
 /// onto a tall phone fits its width and covers about half its height. Zero
 /// when they agree, so the normal case pays nothing, and zero for slack small
 /// enough to be rounding rather than letterboxing.
-func letterboxOffset(viewHeight: CGFloat, gridRows: Int, capacityRows: Int,
-                     minimum: CGFloat = 8) -> CGFloat {
+func anchorOffset(viewHeight: CGFloat, gridRows: Int, capacityRows: Int,
+                  minimum: CGFloat = 8) -> CGFloat {
     guard viewHeight > 1, gridRows > 0, capacityRows > 0,
           gridRows < capacityRows else { return 0 }
     let content = viewHeight * CGFloat(gridRows) / CGFloat(capacityRows)
     let slack = viewHeight - content
     // PROPORTIONAL, not a flat floor: one row short of a fifty-row fit is
     // 16pt on an 800pt screen, and nudging the terminal 8pt for that would
-    // jitter on every refit. Letterboxing is for a grid of a genuinely
+    // jitter on every refit. Anchoring is for a grid of a genuinely
     // different shape, which is tens of percent, never one row.
     guard slack > max(minimum, viewHeight * 0.08) else { return 0 }
-    return (slack / 2).rounded(.down)
+    // ALL the slack above: content sits low, where thumbs and eyes are —
+    // "start the terminal lower", one rule everywhere it fits.
+    return slack.rounded(.down)
 }
 
 /// The font size that makes `gridCols` columns fit in `viewWidth` points.

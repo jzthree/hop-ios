@@ -968,8 +968,22 @@ private struct SessionDialogs: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $creating) {
-                NewSessionSheet(name: $newName) { name, cwd in
-                    Task { if await model.createSession(name: name, cwd: cwd) { path = [name] } }
+                NewSessionSheet(name: $newName) { name, cwd, agent in
+                    Task {
+                        guard await model.createSession(name: name, cwd: cwd) else { return }
+                        path = [name]
+                        if agent {
+                            // The daemon has no "command" field on create —
+                            // an agent is `claude` typed into the fresh
+                            // shell, through the same daemon input path the
+                            // lock-screen reply uses. The wait covers the
+                            // shell's own startup.
+                            try? await Task.sleep(for: .seconds(1.5))
+                            await model.refreshSessions(silent: true)
+                            let target = resolveSessionName(name, in: model.sessions) ?? name
+                            _ = await QuickReply.send("claude\n", to: target, model: model)
+                        }
+                    }
                 }
             }
             .alert("Rename session",

@@ -57,6 +57,9 @@ final class ScrollUITests: XCTestCase {
         eKey.tap()
         sleep(1)
         // Back out and into the Account sheet, where the trace surfaces.
+        // Back lives in the menu now — the chevron is gone (Jian's final
+        // reconciliation of the two-controls question).
+        app.buttons["Terminal actions"].tap()
         app.buttons["Back to sessions"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10))
         app.buttons["Settings"].tap()

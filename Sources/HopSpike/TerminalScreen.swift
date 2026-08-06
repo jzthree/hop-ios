@@ -601,13 +601,9 @@ struct TerminalHostView: View {
             // menu in the title at all. The earlier duplication was the
             // button AND a menu; the resolution is the button WITHOUT the
             // menu, not the reverse (removing the button stranded him).
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Back to sessions")
+            // Chevron GONE at Jian's word ("remove it except the one menu"):
+            // the menu is the single control, Back is its first item, and
+            // edge-swipe stays the fast way out. Recorded final.
             // Mid-swipe the title becomes the DESTINATION: past the commit
             // threshold you read the name you will land on, not the one you
             // are leaving. Release inside the threshold and nothing happens.
@@ -629,16 +625,31 @@ struct TerminalHostView: View {
             // tap to the panel (⋯ → Artifacts was "a bit inconvenient" —
             // Jian — and hidden besides). Appears within a beat of an agent
             // publishing, because hop view rings the bell.
-            if artifactCount > 0 {
-                Button { artifactPanel = true } label: {
-                    Image(systemName: "tray.full")
-                        .font(.system(size: 14, weight: .semibold))
+            // Artifacts as PILLS on the bar (Jian: "directly, even without
+            // ⋯"): the newest is a chip straight into the viewer; more than
+            // one adds +n opening the panel.
+            if let latest = latestArtifact {
+                Button { artifactURL = latest.url } label: {
+                    Text(latest.name)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 110)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color.hopGlow.opacity(0.18), in: Capsule())
                         .foregroundStyle(Color.hopGlow)
-                        .frame(width: 32, height: 34)
-                        .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Artifacts (\(artifactCount))")
+                .accessibilityLabel("View \(latest.name)")
                 .transition(.opacity)
+                if artifactCount > 1 {
+                    Button { artifactPanel = true } label: {
+                        Text("+\(artifactCount - 1)")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6).padding(.vertical, 4)
+                            .background(Color.hopGlow.opacity(0.12), in: Capsule())
+                            .foregroundStyle(Color.hopGlow)
+                    }
+                    .accessibilityLabel("All artifacts")
+                }
             }
             actionsMenu
         }
@@ -823,6 +834,11 @@ struct TerminalHostView: View {
     /// the connection.
     private var actionsMenu: some View {
         Menu {
+            Section {
+                Button { dismiss() } label: {
+                    Label("Back to sessions", systemImage: "chevron.left")
+                }
+            }
             // State-conditional, and FIRST: while the socket is verified
             // live a Reconnect row is dead weight — and it was the one row
             // that pushed the menu past the keyboard-up fold (the pixels
@@ -3118,8 +3134,10 @@ final class HopTermView: TerminalView {
         if pinnedGrid != nil {
             let rows = t.rows
             let capacity = drawnRows > 0 ? drawnRows : rows
-            dy = letterboxOffset(viewHeight: bounds.height,
-                                 gridRows: rows, capacityRows: capacity)
+            // FULL slack below a short foreign grid too — centring read as
+            // "still not working" (Jian): one rule, content low.
+            dy = anchorOffset(viewHeight: bounds.height,
+                              gridRows: rows, capacityRows: capacity)
         } else if t.buffer.yDisp == 0, !sawScrollback {
             let used = usedRows()
             if used > 0, used < t.rows, bounds.height > 1 {

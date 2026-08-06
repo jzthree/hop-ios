@@ -9,7 +9,11 @@ import SwiftUI
 struct NewSessionSheet: View {
     @EnvironmentObject var model: AppModel
     @Binding var name: String
-    var onCreate: (String, String?) -> Void
+    /// (name, cwd, startAgent) — startAgent types `claude` into the fresh
+    /// shell, because "new session" is usually "new AGENT" here (Jian:
+    /// "sometimes I want to directly start an agent rather than a terminal").
+    var onCreate: (String, String?, Bool) -> Void
+    @State private var startAgent = true
     @Environment(\.dismiss) private var dismiss
     @State private var cwd: String?              // nil = daemon default
     @FocusState private var nameFocused: Bool
@@ -26,6 +30,14 @@ struct NewSessionSheet: View {
             Text("New session")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
+
+            // Terminal or agent, the first question — defaulting to agent,
+            // because that is what this fleet is for.
+            Picker("Starts", selection: $startAgent) {
+                Text("Agent").tag(true)
+                Text("Terminal").tag(false)
+            }
+            .pickerStyle(.segmented)
 
             TextField("name", text: $name)
                 .font(.system(.body, design: .monospaced))
@@ -74,7 +86,7 @@ struct NewSessionSheet: View {
 
     private func create() {
         guard !trimmed.isEmpty else { return }
-        onCreate(trimmed, cwd)
+        onCreate(trimmed, cwd, startAgent)
         dismiss()
     }
 

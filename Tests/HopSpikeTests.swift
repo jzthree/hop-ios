@@ -1378,28 +1378,29 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(m.altScreen)
     }
 
-        // MARK: - letterboxOffset
+        // MARK: - anchorOffset
 
-    func testLetterboxIsZeroWhenTheGridFillsTheView() {
+    func testAnchorIsZeroWhenTheGridFillsTheView() {
         // The normal case: we own the grid, so capacity == rows.
-        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 49, capacityRows: 49), 0)
+        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 49, capacityRows: 49), 0)
     }
 
-    func testLetterboxSplitsTheSlackEvenly() {
+    func testAnchorPutsAllSlackAbove() {
         // A desk's 24 rows on a phone that fits 48 at the scaled font: the
-        // content covers half the height, so half the slack goes above.
-        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 24, capacityRows: 48), 200)
+        // content covers half the height and sits at the BOTTOM — one rule,
+        // "start the terminal lower", centring read as broken.
+        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 24, capacityRows: 48), 400)
     }
 
-    func testLetterboxIgnoresRoundingSlack() {
-        // One row of difference out of fifty is rounding, not letterboxing —
+    func testAnchorIgnoresRoundingSlack() {
+        // One row of difference out of fifty is rounding, not anchoring —
         // nudging for it would jitter the terminal on every refit.
-        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 49, capacityRows: 50), 0)
+        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 49, capacityRows: 50), 0)
     }
 
-    func testLetterboxNeverMovesAGridBiggerThanTheView() {
-        // Panning territory: more rows than fit. Centring would hide the top.
-        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
+    func testAnchorNeverMovesAGridBiggerThanTheView() {
+        // Panning territory: more rows than fit. Shifting would hide the top.
+        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
     }
 
     // MARK: - resolveSessionName (hop2 e4bdd86 mirror)
