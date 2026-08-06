@@ -46,6 +46,8 @@ struct TerminalHostView: View {
     /// while it is up, briefly and on purpose: the grid underneath never
     /// moves, so showing chrome costs a glance-through instead of a reflow.
     @State private var chromeShown = true
+    /// Arms the summon tip after the first auto-hide.
+    @State private var chromeTipAnchor = false
     /// Observer mode: shrink type until the peer's full grid width fits.
     @State private var fitWidth = false
     @State private var fitTick = 0
@@ -81,6 +83,12 @@ struct TerminalHostView: View {
     /// The newest artifact this session has published — the menu's one-click
     /// "view latest" (the manifest is newest-first, so it is items.first).
     @State private var latestArtifact: (name: String, url: URL)?
+    /// The inbox's contents: this session's recent artifacts, newest first.
+    @State private var recentArtifacts: [(name: String, url: URL)] = []
+    /// Expanded shows the chip strip under the pill; collapsed just the tray
+    /// count. REMEMBERED (Jian: "it will remember that state") — an inbox
+    /// you had open stays open on every session until you close it.
+    @AppStorage("artifactInboxExpanded") private var artifactInboxExpanded = true
     /// Bumped by the bell; the .task(id:) re-checks the manifest.
     @State private var artifactCheck = 0
     @State private var pillPeek: HopSession?
@@ -168,6 +176,9 @@ struct TerminalHostView: View {
                        onScroll: { scrolledUp = $0 },
                        onChromeTap: {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
+                           // The lesson's completion: summoning donates the
+                           // event, and the tip never shows again.
+                           Task { await ChromeSummonTip.chromeSummoned.donate() }
                        },
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
@@ -488,8 +499,50 @@ struct TerminalHostView: View {
                 // pill drew over the find bar (probe-caught: the field took
                 // typing while the pill covered it).
                 if chromeShown, !landscapePhone, !findOpen, goneReason == nil {
-                    chromeBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    VStack(spacing: 5) {
+                        chromeBar
+                        // The inbox, expanded: recent artifacts as chips,
+                        // newest first, horizontally scrollable; the last
+                        // chip opens the full panel.
+                        if artifactInboxExpanded, !recentArtifacts.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(recentArtifacts, id: \.url) { item in
+                                        Button { artifactURL = item.url } label: {
+                                            Text(item.name)
+                                                .font(.caption2.weight(.semibold))
+                                                .lineLimit(1).truncationMode(.middle)
+                                                .frame(maxWidth: 130)
+                                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                                .background(.ultraThinMaterial, in: Capsule())
+                                                .overlay(Capsule().strokeBorder(
+                                                    Color.hopGlow.opacity(0.35), lineWidth: 0.5))
+                                                .foregroundStyle(Color.hopGlow)
+                                        }
+                                    }
+                                    if artifactCount > recentArtifacts.count {
+                                        Button { artifactPanel = true } label: {
+                                            Text("all \(artifactCount)")
+                                                .font(.caption2.weight(.bold))
+                                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                                .background(.ultraThinMaterial, in: Capsule())
+                                                .foregroundStyle(Color.hopPurple)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 8)
+                            }
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chromeTipAnchor, !landscapePhone, goneReason == nil {
+                    // An invisible anchor where the strip lives, carrying the
+                    // one-time "tap here" lesson.
+                    Color.clear
+                        .frame(height: 1)
+                        .popoverTip(ChromeSummonTip(), arrowEdge: .top)
+                        .padding(.top, windowTopInset() + 8)
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -540,14 +593,17 @@ struct TerminalHostView: View {
                 if mine.count > artifactCount, artifactCount > 0 || artifactCheck > 0 {
                     toast = "New artifact — tap the tray"
                 }
-                if let first = mine.first, let path = first["path"] as? String,
-                   let name = first["name"] as? String,
-                   let base = URL(string: model.normalizedServerURL) {
-                    latestArtifact = (name.removingPercentEncoding ?? name,
-                                      base.appendingPathComponent(String(path.dropFirst())))
+                if let base = URL(string: model.normalizedServerURL) {
+                    recentArtifacts = mine.prefix(6).compactMap { o in
+                        guard let path = o["path"] as? String,
+                              let name = o["name"] as? String else { return nil }
+                        return (name.removingPercentEncoding ?? name,
+                                base.appendingPathComponent(String(path.dropFirst())))
+                    }
                 } else {
-                    latestArtifact = nil
+                    recentArtifacts = []
                 }
+                latestArtifact = recentArtifacts.first
                 withAnimation(.easeOut(duration: 0.2)) { artifactCount = mine.count }
             }
             .task(id: session.internalName) {
@@ -568,6 +624,11 @@ struct TerminalHostView: View {
                 guard !ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") else { return }
                 try? await Task.sleep(for: .seconds(3))
                 withAnimation(.easeOut(duration: 0.25)) { chromeShown = false }
+                // First hide = the practice run (Jian: "let the user practice
+                // bringing the menu back the first time"). The tip points at
+                // the strip and is dismissed by DOING it — the summon donates
+                // the event, and the rule never shows it again.
+                chromeTipAnchor = true
             }
             .onAppear {
                 model.openSession = session.internalName
@@ -602,9 +663,17 @@ struct TerminalHostView: View {
             // menu in the title at all. The earlier duplication was the
             // button AND a menu; the resolution is the button WITHOUT the
             // menu, not the reverse (removing the button stranded him).
-            // Chevron GONE at Jian's word ("remove it except the one menu"):
-            // the menu is the single control, Back is its first item, and
-            // edge-swipe stays the fast way out. Recorded final.
+            // The chevron is BACK — fourth ruling, made after the system-bar
+            // leak was sealed so every state is deliberate: "it should be a
+            // button on the left of the menu." A visible way back that never
+            // depends on a menu render; Back stays in the menu too.
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Back to sessions")
             // Mid-swipe the title becomes the DESTINATION: past the commit
             // threshold you read the name you will land on, not the one you
             // are leaving. Release inside the threshold and nothing happens.
@@ -626,31 +695,28 @@ struct TerminalHostView: View {
             // tap to the panel (⋯ → Artifacts was "a bit inconvenient" —
             // Jian — and hidden besides). Appears within a beat of an agent
             // publishing, because hop view rings the bell.
-            // Artifacts as PILLS on the bar (Jian: "directly, even without
-            // ⋯"): the newest is a chip straight into the viewer; more than
-            // one adds +n opening the panel.
-            if let latest = latestArtifact {
-                Button { artifactURL = latest.url } label: {
-                    Text(latest.name)
-                        .font(.caption2.weight(.semibold))
-                        .lineLimit(1).truncationMode(.middle)
-                        .frame(maxWidth: 110)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.hopGlow.opacity(0.18), in: Capsule())
-                        .foregroundStyle(Color.hopGlow)
-                }
-                .accessibilityLabel("View \(latest.name)")
-                .transition(.opacity)
-                if artifactCount > 1 {
-                    Button { artifactPanel = true } label: {
-                        Text("+\(artifactCount - 1)")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6).padding(.vertical, 4)
-                            .background(Color.hopGlow.opacity(0.12), in: Capsule())
-                            .foregroundStyle(Color.hopGlow)
+            // The artifact INBOX toggle (Jian: "expandable inbox on the
+            // menu… it will remember that state"): the tray shows the count;
+            // tapping expands or collapses the chip strip under the pill,
+            // and the choice persists across sessions.
+            if artifactCount > 0 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        artifactInboxExpanded.toggle()
                     }
-                    .accessibilityLabel("All artifacts")
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: artifactInboxExpanded ? "tray.full.fill" : "tray.full")
+                        Text("\(artifactCount)").font(.caption2.weight(.bold))
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.hopGlow)
+                    .frame(height: 34)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
                 }
+                .accessibilityLabel(artifactInboxExpanded
+                                    ? "Collapse artifacts" : "Expand artifacts")
             }
             actionsMenu
         }
