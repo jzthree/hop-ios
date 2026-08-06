@@ -3147,6 +3147,19 @@ final class HopTermView: TerminalView {
     /// wrong grid; with the font scaled to the elected columns the wrong fit
     /// differs only in ROWS, and row-only resizes do not rewrap.
     var pinnedGrid: (cols: Int, rows: Int)?
+
+    /// iOS auto-repeats a held delete key ONLY while the responder reports
+    /// hasText — and SwiftTerm computes hasText from its synthetic
+    /// UITextInput storage, which our reconnect/reset churn empties. Storage
+    /// empty → iOS decides there is nothing to delete → hold-⌫ stops
+    /// repeating (Jian: "long hold backspace to keep deleting disappeared —
+    /// this is a regression"). A terminal ALWAYS conceptually has text
+    /// before the cursor, and SwiftTerm's deleteBackward already handles the
+    /// empty-storage case by sending a raw backspace — so answering true is
+    /// both honest and what restores the system keyboard's repeat, for good,
+    /// independent of storage state.
+    override var hasText: Bool { true }
+
     /// The font the USER chose, independent of auto-scale. What a keystroke
     /// claims must be computed from this: while a peer's grid is drawn, the
     /// live fittedCols/Rows describe the SCALED font, and claiming those
