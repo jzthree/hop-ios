@@ -72,6 +72,9 @@ struct TerminalHostView: View {
     @State private var pillDragX: CGFloat = 0
     /// An artifact link (hop view) being shown in-app.
     @State private var artifactURL: URL?
+    /// The codex-style side panel: this session's published artifacts in a
+    /// half-height sheet the terminal stays alive above.
+    @State private var artifactPanel = false
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
@@ -279,6 +282,20 @@ struct TerminalHostView: View {
             }
             .sheet(item: $artifactURL) { url in
                 ArtifactSheet(url: url)
+            }
+            // The side-panel experience on a phone: a half-height detent with
+            // the terminal INTERACTIVE above it — read the output, browse the
+            // rich results, no mode switch. Pull to full height to read a
+            // report properly.
+            .sheet(isPresented: $artifactPanel) {
+                ArtifactsBrowser(serverURL: model.normalizedServerURL,
+                                 urlSession: model.urlSession,
+                                 nameFor: { name in
+                                     model.sessions.first(where: { $0.internalName == name })?.name ?? name
+                                 },
+                                 onlySession: session.internalName)
+                    .presentationDetents([.fraction(0.45), .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.45)))
             }
             .overlay {
                 if let goneReason {
@@ -774,6 +791,9 @@ struct TerminalHostView: View {
                 Button { controlAction = .links } label: {
                     Label("Open link…", systemImage: "link")
                 }
+                Button { artifactPanel = true } label: {
+                    Label("Artifacts", systemImage: "tray.full")
+                }
                 // Fork from INSIDE the session — the moment you want a copy
                 // to try something is usually mid-conversation. Switches to
                 // the fork; the original keeps running behind you.
@@ -1032,7 +1052,7 @@ struct TerminalScreen: UIViewRepresentable {
             // dirty so nothing stale can survive the pass.
             uiView.getTerminal().updateFullScreen()
             uiView.setNeedsDisplay(uiView.bounds)
-            uiView.applyLetterbox()
+            uiView.applyAnchor()
         }
         uiView.applyTheme(light: lightTheme)
         uiView.naturalFontPt = CGFloat(fontSize)
@@ -1448,6 +1468,7 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.setRemoteModes(altScreen: alternateScreen,
                                       mouseReporting: mouseReporting, mouseSgr: mouseSgr)
                     tv.feed(text: data)
+                    tv.queueAnchorPass()
                 case .presence(let list):
                     self.onPresence(list)
                     // Who is here BESIDES us. The badge needs this separately
@@ -2159,7 +2180,7 @@ struct TerminalScreen: UIViewRepresentable {
             // display pass then has nothing stale to preserve.
             tv.getTerminal().updateFullScreen()
             tv.setNeedsDisplay(tv.bounds)
-            tv.applyLetterbox()
+            tv.applyAnchor()
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -2305,7 +2326,7 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
-            view?.applyLetterbox()
+            view?.queueAnchorPass()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
             // adopted grid has been silently defeated. Nudge the font smaller
@@ -2947,14 +2968,70 @@ final class HopTermView: TerminalView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let pin = pinnedGrid else { return }
-        let t = getTerminal()
-        if t.cols != pin.cols || t.rows != pin.rows {
-            t.resize(cols: pin.cols, rows: pin.rows)
-            t.updateFullScreen()
-            setNeedsDisplay(bounds)
+        if let pin = pinnedGrid {
+            let t = getTerminal()
+            if t.cols != pin.cols || t.rows != pin.rows {
+                t.resize(cols: pin.cols, rows: pin.rows)
+                t.updateFullScreen()
+                setNeedsDisplay(bounds)
+            }
         }
-        applyLetterbox()
+        applyAnchor()
+    }
+
+    /// How many rows actually hold content, counted from the bottom up with
+    /// an early exit — the common cases (full screen, near-empty screen) both
+    /// terminate in a handful of rows.
+    private func usedRows() -> Int {
+        let t = getTerminal()
+        for r in stride(from: t.rows - 1, through: 0, by: -1) {
+            let line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
+            if !line.isEmpty { return r + 1 }
+        }
+        return 0
+    }
+
+    /// Jian's rule, verbatim: "start the terminal lower unless the content is
+    /// more than a full screen." A fresh session's two lines used to sit at
+    /// the very top — under the status area and the chrome strip, where he
+    /// could not even tap a link. Content now rests just above the keyboard,
+    /// like every messaging app, and grows upward until it fills the screen;
+    /// from then on the terminal behaves classically. A TRANSFORM, like the
+    /// letterbox: the grid never changes, so the size election never hears
+    /// about any of this, and gesture coordinates map back through the
+    /// translation automatically.
+    func applyAnchor() {
+        // Scrollback means more than a screen of content: classical layout.
+        let t = getTerminal()
+        var dy: CGFloat = 0
+        if pinnedGrid != nil {
+            let rows = t.rows
+            let capacity = drawnRows > 0 ? drawnRows : rows
+            dy = letterboxOffset(viewHeight: bounds.height,
+                                 gridRows: rows, capacityRows: capacity)
+        } else if t.buffer.yDisp == 0, !sawScrollback {
+            let used = usedRows()
+            if used > 0, used < t.rows, bounds.height > 1 {
+                let cellH = drawnCellHeight(viewHeight: bounds.height,
+                                            drawnRows: drawnRows, terminalRows: t.rows)
+                dy = (CGFloat(t.rows - used) * cellH).rounded(.down)
+            }
+        }
+        let wanted = dy > 1 ? CGAffineTransform(translationX: 0, y: dy) : .identity
+        if transform != wanted { transform = wanted }
+    }
+
+    /// Coalesced anchor pass: output arrives in bursts, and scanning rows per
+    /// chunk would run the scan hundreds of times a second under a compile
+    /// log. One pass per frame-ish is indistinguishable and free.
+    private var anchorQueued = false
+    func queueAnchorPass() {
+        guard !anchorQueued else { return }
+        anchorQueued = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
+            self?.anchorQueued = false
+            self?.applyAnchor()
+        }
     }
 
     /// Centre a grid that cannot fill this screen.
@@ -2972,15 +3049,7 @@ final class HopTermView: TerminalView {
     /// SwiftTerm keeps fitting to the real viewport and the size we would
     /// claim on your next keystroke is still YOUR size, not the letterbox's.
     /// Getting that wrong would make typing claim the peer's grid forever.
-    func applyLetterbox() {
-        let rows = getTerminal().rows
-        let capacity = drawnRows > 0 ? drawnRows : rows
-        guard capacity > 0, rows > 0, bounds.height > 1 else { return }
-        let dy = letterboxOffset(viewHeight: bounds.height,
-                                 gridRows: rows, capacityRows: capacity)
-        let wanted = dy > 0 ? CGAffineTransform(translationX: 0, y: dy) : .identity
-        if transform != wanted { transform = wanted }
-    }
+
     var drawnCols = 0
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins

@@ -261,3 +261,16 @@ GET /.well-known/apple-app-site-association    (no auth, application/json)
 `webcredentials` alone is what passkeys need. Team 5AD7QB9795, bundle
 io.zhoulab.hop.spike. Pairs with the Xcode-account gate on Jian's side —
 BOTH are required before the native sheet can replace the web view.
+
+
+### Addendum 2026-08-05 — the tile claim, observed live
+
+While probing an unrelated fix: scratch session demo-view is PTY 79x80.
+The phone's keystroke claim (user:true) wins, and within a second the
+grid is 79x80 again — something re-claims with the deliberate flag.
+Nothing legitimate is 79 cols x 80 ROWS; that is a wall surface's
+geometry. With iOS no longer contesting (keystroke-only rule), the
+tile's user:true is the only unilateral claim left in the system, and
+it now visibly defeats a human keystroke. The one-line fix suggested
+above (autofit re-claims as ordinary resizes) has a live reproduction
+whenever a session is open on the desktop wall.

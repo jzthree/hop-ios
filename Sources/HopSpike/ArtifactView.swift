@@ -85,6 +85,8 @@ struct ArtifactsBrowser: View {
     let urlSession: URLSession
     /// internalName → display name, same mapping the briefing uses.
     var nameFor: (String) -> String
+    /// Scope to one session — the terminal's side panel. Fleet-wide when nil.
+    var onlySession: String? = nil
     @State private var items: [ArtifactItem] = []
     @State private var loaded = false
     @State private var viewing: URL?
@@ -138,7 +140,7 @@ struct ArtifactsBrowser: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("Artifacts")
+            .navigationTitle(onlySession.map { nameFor($0) } ?? "Artifacts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -189,6 +191,7 @@ struct ArtifactsBrowser: View {
                                 bytes: (o["bytes"] as? Int) ?? 0,
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }
+        if let only = onlySession { items = items.filter { $0.session == only } }
     }
 }
 
