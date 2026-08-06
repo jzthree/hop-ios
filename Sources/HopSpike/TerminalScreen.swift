@@ -2907,6 +2907,8 @@ final class HopTermView: TerminalView {
     }
 
     func installScrollGesture() {
+        _ = Self.hasTextAlwaysTrue   // arm the hold-⌫ repeat fix once
+
         // On a phone a drag scrolls. That has to be exclusive, because
         // SwiftTerm's own pans do two things we don't want during a scroll:
         // with mouse mode on (claude turns it on) a drag sends a CLICK at the
@@ -3149,16 +3151,23 @@ final class HopTermView: TerminalView {
     var pinnedGrid: (cols: Int, rows: Int)?
 
     /// iOS auto-repeats a held delete key ONLY while the responder reports
-    /// hasText — and SwiftTerm computes hasText from its synthetic
-    /// UITextInput storage, which our reconnect/reset churn empties. Storage
-    /// empty → iOS decides there is nothing to delete → hold-⌫ stops
-    /// repeating (Jian: "long hold backspace to keep deleting disappeared —
-    /// this is a regression"). A terminal ALWAYS conceptually has text
-    /// before the cursor, and SwiftTerm's deleteBackward already handles the
-    /// empty-storage case by sending a raw backspace — so answering true is
-    /// both honest and what restores the system keyboard's repeat, for good,
-    /// independent of storage state.
-    override var hasText: Bool { true }
+    /// hasText — and SwiftTerm computes it from its synthetic UITextInput
+    /// storage, which our reconnect/reset churn empties. Storage empty → iOS
+    /// decides there is nothing to delete → hold-⌫ stops repeating (Jian's
+    /// regression report). A terminal ALWAYS conceptually has text before
+    /// the cursor, and SwiftTerm's deleteBackward handles empty storage by
+    /// sending a raw backspace — so answering true is honest AND restores
+    /// the repeat. hasText is public-not-open (the replace() wall again), so
+    /// a Swift override is refused; UIKit reads it through the ObjC runtime,
+    /// and the runtime can answer. Scoped to THIS subclass only.
+    static let hasTextAlwaysTrue: Void = {
+        let sel = #selector(getter: UIKeyInput.hasText)
+        let imp = imp_implementationWithBlock({ (_: AnyObject) -> Bool in true } as @convention(block) (AnyObject) -> Bool)
+        if let method = class_getInstanceMethod(HopTermView.self, sel) {
+            class_replaceMethod(HopTermView.self, sel, imp,
+                                method_getTypeEncoding(method))
+        }
+    }()
 
     /// The font the USER chose, independent of auto-scale. What a keystroke
     /// claims must be computed from this: while a peer's grid is drawn, the
