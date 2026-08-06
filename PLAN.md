@@ -695,6 +695,25 @@ the hop wall reading the same /assets/view/manifest.json, DigestCard's
 pattern exactly (own file, one insertion, localStorage read state if
 wanted). hop2 side is done — the manifest exists and is auth-served.
 
+## 52b. [TOP — next implementing round] Folders that feel like iOS
+Jian: "create session and move to folder can be more intuitive — add a
+new session to a folder directly, and rearrange similar to how iOS icons
+rearrange."
+Round shape:
+1. CREATE INTO A FOLDER: in By-folder grouping, each folder section gets
+   its own "+" (context menu on the header, and a trailing row button) →
+   NewSessionSheet pre-targeted; on success POST /api/sessions/move to
+   the folder before opening. The daemon API is already there.
+2. DRAG TO FILE: List rows draggable (.draggable(session.internalName)),
+   folder section headers and folder rows as drop targets
+   (.dropDestination) → moveSession. Tiles: drag a tile onto a tile =
+   nothing (no icon-grid semantics on a wall of terminals), but drag onto
+   a folder header works in list mode; assess long-press-drag in tiles
+   after list mode ships.
+3. REORDER: /api/folders/order exists — .onMove on the folder sections
+   in an edit mode, mirroring iOS icon wiggle the way a List can.
+Keep the existing Move-to menu; drag is the fast path, not the only one.
+
 ## 46b. (space for Jian's next reports)
 
 ## 47. [DONE 2026-07-30] Case-folded name resolution at the boundaries
