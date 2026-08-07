@@ -1024,6 +1024,9 @@ struct TerminalScreen: UIViewRepresentable {
         tv.getTerminal().changeScrollback(5000)
         tv.terminalDelegate = context.coordinator
         tv.keyHandler = context.coordinator
+        tv.onPossibleSizeMismatch = { [weak coordinator = context.coordinator] cols, rows in
+            coordinator?.reassertOwnFit(cols: cols, rows: rows)
+        }
         tv.onChromeTap = onChromeTap
         tv.onOpenLink = onOpenLink
         tv.onBackSwipe = onBackSwipe
@@ -2416,40 +2419,56 @@ struct TerminalScreen: UIViewRepresentable {
                 wakeMark("fit \(newCols)x\(newRows) recorded, not sent (inactive)")
                 return
             }
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
+                .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
+            reassertOwnFit(cols: newCols, rows: newRows)
+        }
+
+        // THE PAN-STUCK BUG (Jian, on device: "sometimes pannable but not
+        // scrollable, typing does not fix it, back and reenter does"):
+        // pinnedGrid can end up larger than what the view can actually draw
+        // — an active_size confirmed as OURS pins to that confirmed size
+        // without re-validating it against current bounds, and if
+        // bounds/font were transiently stale at claim time (mid-rotation,
+        // mid-keyboard-animation), the confirmed size silently doesn't fit.
+        // peerSizedGrid then reads true (pan engages) while peerHoldsSize
+        // reads false (no chip) — the exact reported symptom.
+        //
+        // Shared by two callers: sizeChanged (a REAL layout pass — cols/rows
+        // are what SwiftTerm's own bounds-based fit just measured) and
+        // handleScrollPan's pan-begin (a SYNTHETIC check — cols/rows are
+        // naturalFit()'s measurement, used because a device log showed
+        // sizeChanged can simply not fire again for a long stretch after a
+        // wake, leaving a pan stuck with nothing to notice the mismatch).
+        // Deliberately does NOT touch drawnCols/drawnRows/fittedCols/Rows —
+        // those describe what a REAL layout pass measured, and the pan-begin
+        // caller's guess must never be mistaken for one, or a legitimate
+        // peer-held oversized grid's letterbox/pan math would compute off a
+        // value nobody's layout pass actually reported.
+        fileprivate func reassertOwnFit(cols: Int, rows: Int) {
+            guard claimed, !observeOnly, userIsLooking else { return }
             if peerHoldsSize {
                 // Declare, don't contest: keep the server's record of OUR
                 // natural fit fresh while a peer owns the grid (rotation,
                 // keyboard changes), so the next keystroke's ownership
                 // transfer lands at the right size. A non-owner's resize
                 // never moves the PTY — the server just answers with the
-                // grid we are already drawing.
+                // grid we are already drawing. Deliberately IGNORES the
+                // cols/rows this was called with and re-measures naturalFit()
+                // itself: a caller's cols/rows can be the auto-scaled fit
+                // (sizeChanged's newCols/newRows, while a peer's grid has us
+                // scaled down) — declaring THAT would propose the peer's own
+                // size back as ours, which confirms as OURS by construction.
                 if let nat = view?.naturalFit(), nat.cols > 1, nat.rows > 1 {
                     client.sendResize(cols: nat.cols, rows: nat.rows)
                 }
                 return
             }
-            // THE PAN-STUCK BUG (Jian, on device: "sometimes pannable but not
-            // scrollable, typing does not fix it, back and reenter does"):
-            // pinnedGrid can end up larger than what THIS layout pass just
-            // measured we can actually draw — an active_size confirmed as
-            // OURS pins to that confirmed size without re-validating it
-            // against current bounds, and if bounds/font were transiently
-            // stale at claim time (mid-rotation, mid-keyboard-animation),
-            // the confirmed size silently doesn't fit. peerSizedGrid then
-            // reads true (pan engages) while peerHoldsSize reads false (no
-            // chip, and reclaimOnUserIntent's peerHoldsSize guard means
-            // typing does nothing) — the exact reported symptom. This is the
-            // proactive half: whenever THIS layout pass computes a natural
-            // fit that disagrees with what's pinned, correct the pin to
-            // match what was just measured, right here, instead of waiting
-            // for a round trip through the server to notice.
-            if let pin = view?.pinnedGrid, pin != (newCols, newRows) {
-                wakeMark("fit MISMATCH pinned=\(pin.cols)x\(pin.rows) natural=\(newCols)x\(newRows) — re-pinning")
-                view?.pinnedGrid = (newCols, newRows)
+            if let pin = view?.pinnedGrid, pin != (cols, rows) {
+                wakeMark("fit MISMATCH pinned=\(pin.cols)x\(pin.rows) natural=\(cols)x\(rows) — re-pinning")
+                view?.pinnedGrid = (cols, rows)
             }
-            Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
-                .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
-            client.sendResize(cols: newCols, rows: newRows)
+            client.sendResize(cols: cols, rows: rows)
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {}
@@ -2739,6 +2758,14 @@ final class HopTermView: TerminalView {
     /// grid by panning it stays free of claims.
     var onUserIntent: (() -> Void)?
 
+    /// A pan gesture just began while pannable (peerSizedGrid) — carries
+    /// naturalFit()'s guess of what should actually fit, in case that's
+    /// disagreeing with what's pinned for reasons SwiftTerm's own layout
+    /// pass hasn't had a reason to notice (see the pan-stuck bug note in
+    /// handleScrollPan). The coordinator owns the decision of what to do
+    /// with it — this view only reports the mismatch.
+    var onPossibleSizeMismatch: ((Int, Int) -> Void)?
+
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
@@ -2931,12 +2958,29 @@ final class HopTermView: TerminalView {
                 // The direct witness for "pannable but not scrollable"
                 // reports: this is the moment a drag actually became a pan
                 // rather than scrollback, with everything that decided it.
-                // Correlate against the MISMATCH/stuck-pan lines in
-                // sizeChanged / reclaimOnUserIntent by timestamp — if this
-                // fires with no such line nearby, the bug isn't the
-                // pinned-vs-natural-fit mismatch those two guard against.
                 let t = getTerminal()
                 KBLog.record("pan began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+                // Proven gap (device log, build 325): sizeChanged's MISMATCH
+                // re-pin only runs when SwiftTerm's OWN layout pass fires —
+                // and after a wake it can just not fire again for a long
+                // while with nothing on screen to trigger one. A pan
+                // beginning is itself proof the user is trying to interact
+                // RIGHT NOW, same standing as a keystroke — so report what a
+                // fresh layout pass would have measured (naturalFit(), the
+                // same measurement reclaimOnUserIntent already trusts) via
+                // onPossibleSizeMismatch, NOT the TerminalViewDelegate —
+                // going through sizeChanged itself would also run its
+                // drawnCols/drawnRows update, and this guess must never be
+                // mistaken for what a real layout pass measured (a
+                // legitimate peer-held oversized grid's letterbox/pan math
+                // reads those and would go wrong for the rest of this
+                // gesture). The coordinator's own peerHoldsSize check still
+                // applies on the other end: a peer-held grid gets a polite
+                // re-declare and keeps panning; only the OURS-but-mismatched
+                // case gets re-pinned and corrected.
+                if let nat = naturalFit(), nat != (t.cols, t.rows) {
+                    onPossibleSizeMismatch?(nat.cols, nat.rows)
+                }
             case .changed:
                 let t = g.translation(in: self)
                 g.setTranslation(.zero, in: self)
