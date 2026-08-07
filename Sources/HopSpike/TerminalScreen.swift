@@ -431,6 +431,14 @@ struct TerminalHostView: View {
                 if landscape {
                     withAnimation(.easeOut(duration: 0.2)) { chromeShown = false }
                 }
+                // Rotating the phone is a deliberate physical act on THIS
+                // session (Jian: "convert to landscape did not trigger
+                // autofit") — claim the new shape like the chip tap does,
+                // after the rotation's layout settles.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    controlAction = .claimSize
+                }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
@@ -1205,6 +1213,20 @@ struct TerminalScreen: UIViewRepresentable {
             // left 84 of 90 columns fitting — measured, off by one wrap.
             size = fitFontSize(base: size, baseCellWidth: advance(size),
                                viewWidth: width, gridCols: cols)
+            // BOTH axes (Jian: "it can say match while I cannot scroll to
+            // bottom"). Width-only fitting left a tall grid's bottom rows
+            // below a viewport that deliberately does not scroll — invisible
+            // and unreachable. Cap the font by height too, so the WHOLE
+            // grid is on screen; the anchor centres the narrower result.
+            let rows = context.coordinator.electedRows > 1
+                ? context.coordinator.electedRows : uiView.getTerminal().rows
+            if rows > 0, uiView.bounds.height > 1 {
+                let baseCellH = UIFont.monospacedSystemFont(
+                    ofSize: size, weight: .regular).lineHeight
+                if baseCellH * CGFloat(rows) > uiView.bounds.height {
+                    size = max(4, size * uiView.bounds.height / (baseCellH * CGFloat(rows)))
+                }
+            }
             // Each nudge is a 3% shrink on top of the analytic guess, applied
             // until SwiftTerm reports the elected column count actually fits.
             size = max(4, size * CGFloat(pow(0.97, Double(context.coordinator.fitNudges))))
@@ -1340,7 +1362,11 @@ struct TerminalScreen: UIViewRepresentable {
             let elected = electedCols > 1 ? "\(electedCols)×\(electedRows)" : "—"
             let gridOK = electedCols <= 1 || (t.cols == electedCols && t.rows == electedRows)
             let fit = view?.naturalFit().map { "\($0.cols)×\($0.rows)" } ?? "—"
-            let verdict = gridOK ? "✓ grid matches session" : "✗ grid ≠ session \(elected)"
+            let capacity = view?.drawnRows ?? 0
+            let cut = capacity > 0 ? max(0, t.rows - capacity) : 0
+            let verdict = !gridOK ? "✗ grid ≠ session \(elected)"
+                : cut > 0 ? "✗ bottom \(cut) rows off screen"
+                : "✓ fit ok"
             onSizeReport?("\(grid) drawn · fits \(fit) · \(verdict)")
         }
 
@@ -1395,7 +1421,15 @@ struct TerminalScreen: UIViewRepresentable {
         /// the focusing tap, the click tap, and every delivered keystroke;
         /// throttled here so the callers don't need to care.
         func reclaimOnUserIntent() {
-            guard isLive, peerHoldsSize, !observeOnly, userIsLooking,
+            // Not only peer-held: after a rotation the grid WE hold is the
+            // wrong shape for the new bounds, and typing must fix that too
+            // (Jian: "keyboard typing does not fix it either"). A keystroke
+            // asserts the natural fit whenever the room's grid differs from
+            // it, whoever nominally holds the size.
+            let natural = view?.naturalFit()
+            let mismatch = peerHoldsSize
+                || (natural.map { electedCols > 1 && ($0.cols != electedCols || $0.rows != electedRows) } ?? false)
+            guard isLive, mismatch, !observeOnly, userIsLooking,
                   fittedCols > 1, fittedRows > 1,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
             lastReclaimAt = Date()
