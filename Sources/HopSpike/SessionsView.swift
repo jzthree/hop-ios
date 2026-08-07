@@ -673,6 +673,16 @@ struct SessionsView: View {
                     if let session = model.sessions.first(where: { $0.internalName == name })
                         ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
+                            // BOTH layers, deliberately: .toolbar(.hidden)
+                            // inside the terminal screen leaks on some entry
+                            // paths (deep links, post-sheet returns — a known
+                            // SwiftUI failure), and a leaked system bar was
+                            // "sometimes a standalone back button, sometimes
+                            // both" — three visual languages for one screen.
+                            // Hiding at the destination too makes the pill's
+                            // menu the ONE chrome, every path.
+                            .navigationBarBackButtonHidden(true)
+                            .toolbar(.hidden, for: .navigationBar)
                             .task { await model.unpark(session) }
                             // Handoff: the open session follows you to the
                             // desk. SwiftUI invalidates the activity when

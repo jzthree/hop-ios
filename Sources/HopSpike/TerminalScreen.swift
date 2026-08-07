@@ -450,6 +450,7 @@ struct TerminalHostView: View {
             // (chromeBar below), so the terminal holds one size for the whole
             // visit and toggling chrome moves nothing.
             .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
             .statusBarHidden(landscapePhone)
             .overlay(alignment: .top) {
                 // Suppressed once the session is gone (the ended card carries
@@ -491,23 +492,16 @@ struct TerminalHostView: View {
                 if status == .closed { reconnectToken += 1 }
             }
             .task(id: session.internalName) {
+                // Chrome persists by default — no auto-hide. It used to vanish
+                // 3s after open, which traded a moment of extra terminal rows
+                // for "I cannot invoke it easily" every time the tap-to-summon
+                // strip was missed or forgotten; the same timer was ALSO once
+                // misread by XCUITest as "menus don't open in an overlay,"
+                // costing hours on a test flake that wasn't one. The bar's
+                // background tap (chromeBar below) is still there for anyone
+                // who wants to hide it on purpose — that's a choice now, not
+                // a default that fights the next thing you want to do.
                 chromeShown = true
-                // VoiceOver users keep the chrome. Hiding it trades
-                // discoverability for terminal rows, and the ways back — a tap
-                // on an unmarked strip, a drag toward the live edge — are
-                // gestures VoiceOver cannot see. For a VoiceOver user the
-                // hidden bar isn't minimal, it's GONE, and with it the back
-                // button, the switcher and every terminal action.
-                guard !UIAccessibility.isVoiceOverRunning else { return }
-                // Under test the bar stays put. The same launch argument
-                // already steadies the caret, for the same reason: XCUITest
-                // resolves elements against a moving target and reports the
-                // miss as whatever assertion happened to be next, which cost
-                // hours here — a chrome timer was read as "menus don't open in
-                // an overlay" and a working feature was reverted over it.
-                guard !ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") else { return }
-                try? await Task.sleep(for: .seconds(3))
-                withAnimation(.easeOut(duration: 0.25)) { chromeShown = false }
             }
             .onAppear {
                 model.openSession = session.internalName
