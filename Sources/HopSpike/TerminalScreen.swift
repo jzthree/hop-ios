@@ -46,6 +46,15 @@ struct TerminalHostView: View {
     /// while it is up, briefly and on purpose: the grid underneath never
     /// moves, so showing chrome costs a glance-through instead of a reflow.
     @State private var chromeShown = true
+    /// User preference, off by default: the chrome persists unless you
+    /// explicitly ask it to auto-hide (⋯ → Auto-hide menu). It used to
+    /// auto-hide unconditionally 3s after open, which read as "I cannot
+    /// invoke it easily" to anyone who didn't want that trade — now it's a
+    /// trade you opt into, and the first time it actually hides under this
+    /// setting, a one-time tip teaches the way back.
+    @AppStorage("chromeAutoHide") private var chromeAutoHideEnabled = false
+    /// Arms the summon tip's anchor after the first auto-hide.
+    @State private var chromeTipAnchor = false
     /// Observer mode: shrink type until the peer's full grid width fits.
     @State private var fitWidth = false
     @State private var fitTick = 0
@@ -156,7 +165,12 @@ struct TerminalHostView: View {
                        control: $controlAction,
                        onScroll: { scrolledUp = $0 },
                        onChromeTap: {
-                           withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
+                           withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                               chromeShown.toggle()
+                           }
+                           // The lesson's completion: summoning donates the
+                           // event, and the tip never shows again.
+                           Task { await ChromeSummonTip.chromeSummoned.donate() }
                        },
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
@@ -461,6 +475,15 @@ struct TerminalHostView: View {
                 if chromeShown, !landscapePhone, !findOpen, goneReason == nil {
                     chromeBar
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if chromeTipAnchor, !landscapePhone, goneReason == nil {
+                    // An invisible anchor where the pill lives, carrying the
+                    // one-time "tap here" lesson — only reachable when
+                    // auto-hide actually fired (chromeTipAnchor), so someone
+                    // who never enabled it never sees this either.
+                    Color.clear
+                        .frame(height: 1)
+                        .popoverTip(ChromeSummonTip(), arrowEdge: .top)
+                        .padding(.top, windowTopInset() + 8)
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -493,15 +516,24 @@ struct TerminalHostView: View {
             }
             .task(id: session.internalName) {
                 // Chrome persists by default — no auto-hide. It used to vanish
-                // 3s after open, which traded a moment of extra terminal rows
-                // for "I cannot invoke it easily" every time the tap-to-summon
-                // strip was missed or forgotten; the same timer was ALSO once
-                // misread by XCUITest as "menus don't open in an overlay,"
-                // costing hours on a test flake that wasn't one. The bar's
-                // background tap (chromeBar below) is still there for anyone
-                // who wants to hide it on purpose — that's a choice now, not
-                // a default that fights the next thing you want to do.
+                // 3s after open unconditionally, which traded a moment of
+                // extra terminal rows for "I cannot invoke it easily" for
+                // anyone who didn't want that trade; the same timer was ALSO
+                // once misread by XCUITest as "menus don't open in an
+                // overlay," costing hours on a test flake that wasn't one.
+                // Auto-hide is opt-in now (⋯ → Auto-hide menu) — this task
+                // only runs the timer for someone who asked for it.
                 chromeShown = true
+                guard chromeAutoHideEnabled else { return }
+                guard !UIAccessibility.isVoiceOverRunning else { return }
+                guard !ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") else { return }
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { chromeShown = false }
+                // First hide under this setting = the practice run. The tip
+                // points at the summon strip and is dismissed by DOING it —
+                // the summon donates the event, and the rule never shows it
+                // again (see onChromeTap above).
+                chromeTipAnchor = true
             }
             .onAppear {
                 model.openSession = session.internalName
@@ -564,16 +596,23 @@ struct TerminalHostView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11)
-            .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5)
+        // Dynamic Island's own material: solid, near-black, fully rounded —
+        // not the translucent glass every OTHER floating control in iOS
+        // uses. The island reads as part of the display, not a panel over
+        // it; matching that means giving up the blur here specifically.
+        .background(Color.hopIslandBlack, in: Capsule())
+        .overlay(Capsule()
+            .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
             .allowsHitTesting(false))
-        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+        .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
         // The bar floats over the strip whose tap summons chrome — so the
         // bar itself must answer the same tap, or showing chrome would
         // consume the only gesture that hides it. Controls still win; this
-        // catches taps on the bar's empty background.
-        .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { chromeShown = false } }
+        // catches taps on the bar's empty background. Spring, not ease-out —
+        // the island's own expand/collapse is snappy, not a fade.
+        .onTapGesture {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { chromeShown = false }
+        }
         // Safari's address-bar swipe, for terminals: drag the pill sideways
         // to step through the fleet in switcher order. Horizontal-dominant
         // and 50pt of travel, so bar taps and menu touches never misfire.
@@ -812,6 +851,17 @@ struct TerminalHostView: View {
                 } label: {
                     Label(lightTheme ? "Dark terminal" : "Light terminal",
                           systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
+                }
+                // Off by default: the menu persists until you ask for this
+                // trade. Turning it on arms the 3s timer in the session task
+                // above; the first time it actually fires, a one-time tip
+                // teaches the way back (tap the top of the screen).
+                Button {
+                    chromeAutoHideEnabled.toggle()
+                    if !chromeAutoHideEnabled { chromeTipAnchor = false }
+                } label: {
+                    Label(chromeAutoHideEnabled ? "Keep menu visible" : "Auto-hide menu",
+                          systemImage: chromeAutoHideEnabled ? "eye" : "eye.slash")
                 }
             }
             // Sharing and Session fold into SUBMENUS. Not for tidiness: with
@@ -2724,6 +2774,8 @@ final class HopTermView: TerminalView {
     }
 
     func installScrollGesture() {
+        _ = Self.hasTextAlwaysTrue   // arm the hold-⌫ repeat fix once
+
         // On a phone a drag scrolls. That has to be exclusive, because
         // SwiftTerm's own pans do two things we don't want during a scroll:
         // with mouse mode on (claude turns it on) a drag sends a CLICK at the
@@ -2973,6 +3025,26 @@ final class HopTermView: TerminalView {
     /// wrong grid; with the font scaled to the elected columns the wrong fit
     /// differs only in ROWS, and row-only resizes do not rewrap.
     var pinnedGrid: (cols: Int, rows: Int)?
+
+    /// iOS auto-repeats a held delete key ONLY while the responder reports
+    /// hasText — and SwiftTerm computes it from its synthetic UITextInput
+    /// storage, which our reconnect/reset churn empties. Storage empty → iOS
+    /// decides there is nothing to delete → hold-⌫ stops repeating. A
+    /// terminal ALWAYS conceptually has text before the cursor, and
+    /// SwiftTerm's deleteBackward handles empty storage by sending a raw
+    /// backspace — so answering true is honest AND restores the repeat.
+    /// hasText is public-not-open, so a Swift override is refused; UIKit
+    /// reads it through the ObjC runtime, and the runtime can answer.
+    /// Scoped to THIS subclass only.
+    static let hasTextAlwaysTrue: Void = {
+        let sel = #selector(getter: UIKeyInput.hasText)
+        let imp = imp_implementationWithBlock({ (_: AnyObject) -> Bool in true } as @convention(block) (AnyObject) -> Bool)
+        if let method = class_getInstanceMethod(HopTermView.self, sel) {
+            class_replaceMethod(HopTermView.self, sel, imp,
+                                method_getTypeEncoding(method))
+        }
+    }()
+
     /// The font the USER chose, independent of auto-scale. What a keystroke
     /// claims must be computed from this: while a peer's grid is drawn, the
     /// live fittedCols/Rows describe the SCALED font, and claiming those

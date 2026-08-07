@@ -27,6 +27,11 @@ extension Color {
     /// bottom. Flat fills next to these look like holes.
     static let hopCardTop = Color(hex: 0x1a212c)
     static let hopCardBottom = Color(hex: 0x10151c)
+    /// Dynamic Island's own black — not hopSurface's terminal-panel dark.
+    /// The island is solid and reads as part of the display bezel; the
+    /// chrome pill borrows this specifically to read as an extension of it
+    /// rather than another floating glass panel.
+    static let hopIslandBlack = Color(hex: 0x000000)
 
     static var hopCard: LinearGradient {
         LinearGradient(colors: [.hopCardTop, .hopCardBottom],
