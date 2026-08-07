@@ -596,14 +596,30 @@ struct TerminalHostView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        // Dynamic Island's own material: solid, near-black, fully rounded —
-        // not the translucent glass every OTHER floating control in iOS
-        // uses. The island reads as part of the display, not a panel over
-        // it; matching that means giving up the blur here specifically.
-        .background(Color.hopIslandBlack, in: Capsule())
-        .overlay(Capsule()
-            .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-            .allowsHitTesting(false))
+        // Content clears the island itself; the BACKGROUND (below) goes all
+        // the way to y=0 — so what the island sits inside of and what the
+        // controls sit inside of are the same uninterrupted black shape,
+        // with no seam between "hardware black" and "app chrome" for the
+        // island to visibly float above.
+        .padding(.top, windowTopInset())
+        // Square where it meets the screen edge (it's supposed to read as
+        // the island's OWN blackness continuing down, not a separate rounded
+        // panel starting near it); rounded at the bottom, where it resolves
+        // into ordinary pill chrome holding the controls.
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
+                                   bottomTrailingRadius: 20, topTrailingRadius: 0,
+                                   style: .continuous)
+                .fill(Color.hopIslandBlack)
+                .ignoresSafeArea(edges: .top)
+        )
+        .overlay(
+            UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
+                                   bottomTrailingRadius: 20, topTrailingRadius: 0,
+                                   style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        )
         .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
         // The bar floats over the strip whose tap summons chrome — so the
         // bar itself must answer the same tap, or showing chrome would
@@ -651,7 +667,10 @@ struct TerminalHostView: View {
                 model.requestedSession = next.internalName
             })
         .padding(.horizontal, 5)
-        .padding(.top, windowTopInset() + 1)
+        // No top padding here anymore — the background above already reaches
+        // y=0 on its own (ignoresSafeArea); adding frame padding at this
+        // level would just push the whole shape, background included, back
+        // down and reopen the gap this exists to close.
     }
 
     /// One open path for every link, tapped or menu-picked: the user's own
