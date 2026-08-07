@@ -144,6 +144,38 @@ const main = async () => {
     return null;
   })();
 
+  // The paper's own back-issues: past editions, newest first, so the writer
+  // KNOWS what the reader has been told across the last days — a thread can
+  // be followed to its landing, and a story that has sat unresolved edition
+  // after edition can be called a stall, which no single hour's screens can
+  // reveal. Generous but bounded: whole editions ride along until the byte
+  // budget is spent; the newest is skipped because it rides in full above.
+  const HISTORY_BYTE_BUDGET = 24_000;
+  const editionHistory = (() => {
+    let editions = [];
+    for (const out of OUTS) {
+      try {
+        editions = JSON.parse(fs.readFileSync(
+          path.join(path.dirname(out), "digest-archive.json"), "utf8")).editions || [];
+        break;
+      } catch { /* next root */ }
+    }
+    const kept = [];
+    let bytes = 0;
+    for (const e of editions) {
+      if (e.generated_at && e.generated_at === prevEdition?.generated_at) continue;
+      const slim = {
+        generated_at: e.generated_at,
+        summary: e.summary,
+        items: (e.items || []).map((i) => ({ session: i.session, headline: i.headline, why: i.why }))
+      };
+      bytes += JSON.stringify(slim).length;
+      if (bytes > HISTORY_BYTE_BUDGET) break;
+      kept.push(slim);
+    }
+    return kept;
+  })();
+
   const prompt = `You are the user's co-scientist, not a status board.
 
 They run a lab through these terminals: model training and evaluation,
@@ -211,14 +243,22 @@ Reply with ONLY a JSON object:
            "urgency":"needs-you"|"blocked"|"finished"|"fyi"}]}
 
 Editions run hourly, and the reader has already seen your previous one —
-it is included below. Do not re-report what it already told them unless
-something moved; a story that merely continues can be one clause inside a
-new story or absent. Sessions listed under "unchanged" have not changed
-meaningfully since that edition — mention one only if a CHANGED session's
-story needs it.
+it is included below, with earlier editions under it (newest first). Do
+not re-report what they already told the reader unless something moved; a
+story that merely continues can be one clause inside a new story or
+absent. The back-issues are your memory, so use them for what one hour's
+screens cannot show: follow a thread to its landing ("the sweep promised
+Tuesday finished"), and say so plainly when something has sat unresolved
+edition after edition — a quiet stall is front-page news precisely
+because no single hour makes it visible. Sessions listed under
+"unchanged" have not changed meaningfully since the previous edition —
+mention one only if a CHANGED session's story needs it.
 
 Previous edition:
 ${prevEdition ? JSON.stringify({ summary: prevEdition.summary, items: prevEdition.items }, null, 1) : "(none)"}
+
+Earlier editions (newest first):
+${editionHistory.length ? JSON.stringify(editionHistory, null, 1) : "(none)"}
 
 Sessions with meaningful updates:
 ${JSON.stringify(changed, null, 1)}
@@ -249,7 +289,9 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
     catch { /* next root */ }
   }
   archive.unshift(digest);
-  archive = archive.slice(0, 20);
+  // Deep enough that the prompt's byte-budgeted history (above) is fed by
+  // days of editions, not hours; still one bounded file the phone can leaf.
+  archive = archive.slice(0, 48);
   const body = JSON.stringify(digest, null, 1);
   const archiveBody = JSON.stringify({ editions: archive }, null, 1);
   for (const out of OUTS) {
