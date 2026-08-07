@@ -85,12 +85,6 @@ struct ArtifactsBrowser: View {
     let urlSession: URLSession
     /// internalName → display name, same mapping the briefing uses.
     var nameFor: (String) -> String
-    /// Scope to one session — the terminal's side panel. Fleet-wide when nil.
-    var onlySession: String? = nil
-    /// Live webservers (hop's port sessions): the daemon proxies
-    /// /s/<name>/ to the server's localhost port behind the same cookie —
-    /// a REAL running dev server in the viewer, not a file of it.
-    var servers: [(name: String, internalName: String)] = []
     @State private var items: [ArtifactItem] = []
     @State private var loaded = false
     @State private var viewing: URL?
@@ -101,39 +95,13 @@ struct ArtifactsBrowser: View {
             Group {
                 if !loaded {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if items.isEmpty && servers.isEmpty {
+                } else if items.isEmpty {
                     ContentUnavailableView(
                         "Nothing published yet",
                         systemImage: "tray",
                         description: Text("When an agent runs `hop view` on a plot, a report or a PDF, it lands here."))
                 } else {
                     List {
-                        if !servers.isEmpty {
-                            Section("Live servers") {
-                                ForEach(servers, id: \.internalName) { srv in
-                                    Button {
-                                        if var u = URL(string: serverURL) {
-                                            u.appendPathComponent("s/\(srv.internalName)/")
-                                            viewing = u
-                                        }
-                                    } label: {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "globe")
-                                                .foregroundStyle(Color.hopLive)
-                                                .frame(width: 22)
-                                            Text(srv.name)
-                                                .font(.subheadline)
-                                                .foregroundStyle(.primary)
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
                         ForEach(grouped, id: \.session) { group in
                             Section(nameFor(group.session)) {
                                 ForEach(group.rows) { item in
@@ -170,7 +138,7 @@ struct ArtifactsBrowser: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle(onlySession.map { nameFor($0) } ?? "Artifacts")
+            .navigationTitle("Artifacts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -221,7 +189,6 @@ struct ArtifactsBrowser: View {
                                 bytes: (o["bytes"] as? Int) ?? 0,
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }
-        if let only = onlySession { items = items.filter { $0.session == only } }
     }
 }
 

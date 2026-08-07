@@ -57,9 +57,6 @@ final class ScrollUITests: XCTestCase {
         eKey.tap()
         sleep(1)
         // Back out and into the Account sheet, where the trace surfaces.
-        // Back lives in the menu now — the chevron is gone (Jian's final
-        // reconciliation of the two-controls question).
-        app.buttons["Terminal actions"].tap()
         app.buttons["Back to sessions"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10))
         app.buttons["Settings"].tap()
@@ -158,10 +155,6 @@ final class ScrollUITests: XCTestCase {
         let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].tap()
-        // Back leads the menu — the pill's one control carries navigation
-        // first (the chevron's replacement; Jian's reconciliation).
-        XCTAssertTrue(app.buttons["Back to sessions"].waitForExistence(timeout: 5),
-                      "Back to sessions missing from the menu")
         // The text-size stepper keeps the menu OPEN (menuActionDismissBehavior
         // .disabled) — a tap on Smaller must not dismiss. Tap Bigger after to
         // leave the persisted size where it started.
@@ -223,30 +216,19 @@ final class ScrollUITests: XCTestCase {
         let afterWake = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         XCTAssertTrue(afterWake.isEmpty,
                       "waking claimed the size with no keystroke: \(afterWake)")
-        // Half two: the user-visible contract — after a keystroke the grid is
-        // YOURS. Which door it came through is deliberately not pinned: the
-        // buffer heal's reconnect may already have won it back with a POLITE
-        // attach claim (granted only because nobody typed — the same rule),
-        // in which case the keystroke has nothing left to do. What must be
-        // true either way: no silent wake-claim happened (half one), and the
-        // foreign chip is gone shortly after the user acts.
+        // Half two: a keystroke does. (typeText reaches the send path — the
+        // half-open test proves the daemon receives it.)
         app.typeText(" ")
         var claimed = ""
-        for _ in 0..<10 {
+        for _ in 0..<30 {
             if let s = try? String(contentsOfFile: marker, encoding: .utf8), !s.isEmpty {
                 claimed = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             }
             usleep(300_000)
         }
-        if !claimed.isEmpty {
-            XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
-        }
-        let chip = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS '100×30'")).firstMatch
-        let gone = NSPredicate(format: "exists == false")
-        expectation(for: gone, evaluatedWith: chip, handler: nil)
-        waitForExpectations(timeout: 20)
+        XCTAssertFalse(claimed.isEmpty, "a keystroke claimed nothing")
+        XCTAssertNotEqual(claimed, "100x30", "the keystroke claimed the FOREIGN grid")
     }
 
     /// The passkey door exists on the sign-in screen. Skips honestly when the

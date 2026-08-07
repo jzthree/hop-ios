@@ -46,8 +46,6 @@ struct TerminalHostView: View {
     /// while it is up, briefly and on purpose: the grid underneath never
     /// moves, so showing chrome costs a glance-through instead of a reflow.
     @State private var chromeShown = true
-    /// Arms the summon tip after the first auto-hide.
-    @State private var chromeTipAnchor = false
     /// Observer mode: shrink type until the peer's full grid width fits.
     @State private var fitWidth = false
     @State private var fitTick = 0
@@ -74,25 +72,6 @@ struct TerminalHostView: View {
     @State private var pillDragX: CGFloat = 0
     /// An artifact link (hop view) being shown in-app.
     @State private var artifactURL: URL?
-    /// The codex-style side panel: this session's published artifacts in a
-    /// half-height sheet the terminal stays alive above.
-    @State private var artifactPanel = false
-    /// The live size verdict for the menu's self-check row.
-    @State private var sizeReport = ""
-    /// How many artifacts this session has published — decides whether the
-    /// pill carries the tray, and a growth while watching raises a toast.
-    @State private var artifactCount = 0
-    /// The newest artifact this session has published — the menu's one-click
-    /// "view latest" (the manifest is newest-first, so it is items.first).
-    @State private var latestArtifact: (name: String, url: URL)?
-    /// The inbox's contents: this session's recent artifacts, newest first.
-    @State private var recentArtifacts: [(name: String, url: URL)] = []
-    /// Expanded shows the chip strip under the pill; collapsed just the tray
-    /// count. REMEMBERED (Jian: "it will remember that state") — an inbox
-    /// you had open stays open on every session until you close it.
-    @AppStorage("artifactInboxExpanded") private var artifactInboxExpanded = true
-    /// Bumped by the bell; the .task(id:) re-checks the manifest.
-    @State private var artifactCheck = 0
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
@@ -178,14 +157,9 @@ struct TerminalHostView: View {
                        onScroll: { scrolledUp = $0 },
                        onChromeTap: {
                            withAnimation(.easeOut(duration: 0.2)) { chromeShown.toggle() }
-                           // The lesson's completion: summoning donates the
-                           // event, and the tip never shows again.
-                           Task { await ChromeSummonTip.chromeSummoned.donate() }
                        },
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
-                       onBell: { artifactCheck += 1 },
-                       onSizeReport: { sizeReport = $0 },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -305,22 +279,6 @@ struct TerminalHostView: View {
             .sheet(item: $artifactURL) { url in
                 ArtifactSheet(url: url)
             }
-            // The side-panel experience on a phone: a half-height detent with
-            // the terminal INTERACTIVE above it — read the output, browse the
-            // rich results, no mode switch. Pull to full height to read a
-            // report properly.
-            .sheet(isPresented: $artifactPanel) {
-                ArtifactsBrowser(serverURL: model.normalizedServerURL,
-                                 urlSession: model.urlSession,
-                                 nameFor: { name in
-                                     model.sessions.first(where: { $0.internalName == name })?.name ?? name
-                                 },
-                                 onlySession: session.internalName,
-                                 servers: model.sessions.filter(\.isPort)
-                                     .map { ($0.name, $0.internalName) })
-                    .presentationDetents([.fraction(0.45), .large])
-                    .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.45)))
-            }
             .overlay {
                 if let goneReason {
                     VStack(spacing: 12) {
@@ -430,14 +388,6 @@ struct TerminalHostView: View {
                 if landscape {
                     withAnimation(.easeOut(duration: 0.2)) { chromeShown = false }
                 }
-                // Rotating the phone is a deliberate physical act on THIS
-                // session (Jian: "convert to landscape did not trigger
-                // autofit") — claim the new shape like the chip tap does,
-                // after the rotation's layout settles.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(600))
-                    controlAction = .claimSize
-                }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
@@ -500,7 +450,6 @@ struct TerminalHostView: View {
             // (chromeBar below), so the terminal holds one size for the whole
             // visit and toggling chrome moves nothing.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationBarBackButtonHidden(true)
             .statusBarHidden(landscapePhone)
             .overlay(alignment: .top) {
                 // Suppressed once the session is gone (the ended card carries
@@ -509,50 +458,8 @@ struct TerminalHostView: View {
                 // pill drew over the find bar (probe-caught: the field took
                 // typing while the pill covered it).
                 if chromeShown, !landscapePhone, !findOpen, goneReason == nil {
-                    VStack(spacing: 5) {
-                        chromeBar
-                        // The inbox, expanded: recent artifacts as chips,
-                        // newest first, horizontally scrollable; the last
-                        // chip opens the full panel.
-                        if artifactInboxExpanded, !recentArtifacts.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(recentArtifacts, id: \.url) { item in
-                                        Button { artifactURL = item.url } label: {
-                                            Text(item.name)
-                                                .font(.caption2.weight(.semibold))
-                                                .lineLimit(1).truncationMode(.middle)
-                                                .frame(maxWidth: 130)
-                                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                                .background(.ultraThinMaterial, in: Capsule())
-                                                .overlay(Capsule().strokeBorder(
-                                                    Color.hopGlow.opacity(0.35), lineWidth: 0.5))
-                                                .foregroundStyle(Color.hopGlow)
-                                        }
-                                    }
-                                    if artifactCount > recentArtifacts.count {
-                                        Button { artifactPanel = true } label: {
-                                            Text("all \(artifactCount)")
-                                                .font(.caption2.weight(.bold))
-                                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                                .background(.ultraThinMaterial, in: Capsule())
-                                                .foregroundStyle(Color.hopPurple)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 8)
-                            }
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                } else if chromeTipAnchor, !landscapePhone, goneReason == nil {
-                    // An invisible anchor where the strip lives, carrying the
-                    // one-time "tap here" lesson.
-                    Color.clear
-                        .frame(height: 1)
-                        .popoverTip(ChromeSummonTip(), arrowEdge: .top)
-                        .padding(.top, windowTopInset() + 8)
+                    chromeBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -583,39 +490,6 @@ struct TerminalHostView: View {
             .onChange(of: network.pathGeneration) {
                 if status == .closed { reconnectToken += 1 }
             }
-            .task(id: "\(session.internalName)-\(artifactCheck)") {
-                // On open and on every bell: count this session's artifacts.
-                // The bell fires the moment hop view copies the file, and the
-                // manifest write follows within milliseconds — the small delay
-                // covers that gap. Growth while watching gets a toast, so a
-                // publish is noticed even with the pill hidden.
-                try? await Task.sleep(for: .milliseconds(artifactCheck == 0 ? 0 : 1200))
-                guard let url = URL(string: model.normalizedServerURL)?
-                    .appendingPathComponent("assets/view/manifest.json") else { return }
-                var req = URLRequest(url: url)
-                req.timeoutInterval = 8
-                req.cachePolicy = .reloadIgnoringLocalCacheData
-                guard let (data, resp) = try? await model.urlSession.data(for: req),
-                      (resp as? HTTPURLResponse)?.statusCode == 200,
-                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let raw = obj["items"] as? [[String: Any]] else { return }
-                let mine = raw.filter { ($0["session"] as? String) == session.internalName }
-                if mine.count > artifactCount, artifactCount > 0 || artifactCheck > 0 {
-                    toast = "New artifact — tap the tray"
-                }
-                if let base = URL(string: model.normalizedServerURL) {
-                    recentArtifacts = mine.prefix(6).compactMap { o in
-                        guard let path = o["path"] as? String,
-                              let name = o["name"] as? String else { return nil }
-                        return (name.removingPercentEncoding ?? name,
-                                base.appendingPathComponent(String(path.dropFirst())))
-                    }
-                } else {
-                    recentArtifacts = []
-                }
-                latestArtifact = recentArtifacts.first
-                withAnimation(.easeOut(duration: 0.2)) { artifactCount = mine.count }
-            }
             .task(id: session.internalName) {
                 chromeShown = true
                 // VoiceOver users keep the chrome. Hiding it trades
@@ -634,11 +508,6 @@ struct TerminalHostView: View {
                 guard !ProcessInfo.processInfo.arguments.contains("-hop-ui-testing") else { return }
                 try? await Task.sleep(for: .seconds(3))
                 withAnimation(.easeOut(duration: 0.25)) { chromeShown = false }
-                // First hide = the practice run (Jian: "let the user practice
-                // bringing the menu back the first time"). The tip points at
-                // the strip and is dismissed by DOING it — the summon donates
-                // the event, and the rule never shows it again.
-                chromeTipAnchor = true
             }
             .onAppear {
                 model.openSession = session.internalName
@@ -673,10 +542,6 @@ struct TerminalHostView: View {
             // menu in the title at all. The earlier duplication was the
             // button AND a menu; the resolution is the button WITHOUT the
             // menu, not the reverse (removing the button stranded him).
-            // The chevron is BACK — fourth ruling, made after the system-bar
-            // leak was sealed so every state is deliberate: "it should be a
-            // button on the left of the menu." A visible way back that never
-            // depends on a menu render; Back stays in the menu too.
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .semibold))
@@ -701,33 +566,6 @@ struct TerminalHostView: View {
                 titleLabel
             }
             Spacer(minLength: 4)
-            // The tray: present exactly when there is something in it, one
-            // tap to the panel (⋯ → Artifacts was "a bit inconvenient" —
-            // Jian — and hidden besides). Appears within a beat of an agent
-            // publishing, because hop view rings the bell.
-            // The artifact INBOX toggle (Jian: "expandable inbox on the
-            // menu… it will remember that state"): the tray shows the count;
-            // tapping expands or collapses the chip strip under the pill,
-            // and the choice persists across sessions.
-            if artifactCount > 0 {
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        artifactInboxExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: artifactInboxExpanded ? "tray.full.fill" : "tray.full")
-                        Text("\(artifactCount)").font(.caption2.weight(.bold))
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.hopGlow)
-                    .frame(height: 34)
-                    .padding(.horizontal, 4)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityLabel(artifactInboxExpanded
-                                    ? "Collapse artifacts" : "Expand artifacts")
-            }
             actionsMenu
         }
         .padding(.horizontal, 8)
@@ -911,11 +749,6 @@ struct TerminalHostView: View {
     /// the connection.
     private var actionsMenu: some View {
         Menu {
-            Section {
-                Button { dismiss() } label: {
-                    Label("Back to sessions", systemImage: "chevron.left")
-                }
-            }
             // State-conditional, and FIRST: while the socket is verified
             // live a Reconnect row is dead weight — and it was the one row
             // that pushed the menu past the keyboard-up fold (the pixels
@@ -939,20 +772,6 @@ struct TerminalHostView: View {
                 }
                 Button { controlAction = .links } label: {
                     Label("Open link…", systemImage: "link")
-                }
-                // Artifacts, first-class (Jian: "directly having a place in
-                // the menu, one click to view the most recent"). The latest
-                // opens straight into the viewer; the panel holds the rest.
-                if let latest = latestArtifact {
-                    Button {
-                        artifactURL = latest.url
-                    } label: {
-                        Label("View \(latest.name)", systemImage: "sparkles.rectangle.stack")
-                    }
-                }
-                Button { artifactPanel = true } label: {
-                    Label(artifactCount > 0 ? "Artifacts (\(artifactCount))" : "Artifacts",
-                          systemImage: "tray.full")
                 }
                 // Fork from INSIDE the session — the moment you want a copy
                 // to try something is usually mid-conversation. Switches to
@@ -1040,23 +859,6 @@ struct TerminalHostView: View {
                     Label("Session", systemImage: "slider.horizontal.3")
                 }
             }
-            Section {
-                // The self-check (Jian: "can hop check the size and whether
-                // fit succeeded"): what is drawn, what fits, one verdict. A
-                // ✗ names the mismatch and taps into the fix instead of
-                // leaving it to be discovered as wrapped text.
-                if !sizeReport.isEmpty {
-                    if sizeReport.contains("✗") {
-                        Button { controlAction = .claimSize } label: {
-                            Label(sizeReport, systemImage: "exclamationmark.triangle")
-                        }
-                    } else {
-                        Button {} label: {
-                            Label(sizeReport, systemImage: "checkmark.circle")
-                        }.disabled(true)
-                    }
-                }
-            }
         } label: {
             // Part of the pill, not a floating button: a hairline seam and a
             // bare glyph — the chevron's visual sibling at the other end
@@ -1121,8 +923,6 @@ struct TerminalScreen: UIViewRepresentable {
     var onChromeTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
     var onOpenLink: (String) -> Void = { _ in }
-    var onBell: () -> Void = {}
-    var onSizeReport: (String) -> Void = { _ in }
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -1139,8 +939,6 @@ struct TerminalScreen: UIViewRepresentable {
                     onSizeState: onSizeState) { status = $0 }
         c.onRetryState = onRetryState
         c.onOthers = onOthers
-        c.onBell = onBell
-        c.onSizeReport = onSizeReport
         return c
     }
 
@@ -1210,20 +1008,6 @@ struct TerminalScreen: UIViewRepresentable {
             // left 84 of 90 columns fitting — measured, off by one wrap.
             size = fitFontSize(base: size, baseCellWidth: advance(size),
                                viewWidth: width, gridCols: cols)
-            // BOTH axes (Jian: "it can say match while I cannot scroll to
-            // bottom"). Width-only fitting left a tall grid's bottom rows
-            // below a viewport that deliberately does not scroll — invisible
-            // and unreachable. Cap the font by height too, so the WHOLE
-            // grid is on screen; the anchor centres the narrower result.
-            let rows = context.coordinator.electedRows > 1
-                ? context.coordinator.electedRows : uiView.getTerminal().rows
-            if rows > 0, uiView.bounds.height > 1 {
-                let baseCellH = UIFont.monospacedSystemFont(
-                    ofSize: size, weight: .regular).lineHeight
-                if baseCellH * CGFloat(rows) > uiView.bounds.height {
-                    size = max(4, size * uiView.bounds.height / (baseCellH * CGFloat(rows)))
-                }
-            }
             // Each nudge is a 3% shrink on top of the analytic guess, applied
             // until SwiftTerm reports the elected column count actually fits.
             size = max(4, size * CGFloat(pow(0.97, Double(context.coordinator.fitNudges))))
@@ -1245,7 +1029,7 @@ struct TerminalScreen: UIViewRepresentable {
             // dirty so nothing stale can survive the pass.
             uiView.getTerminal().updateFullScreen()
             uiView.setNeedsDisplay(uiView.bounds)
-            uiView.applyAnchor()
+            uiView.applyLetterbox()
         }
         uiView.applyTheme(light: lightTheme)
         uiView.naturalFontPt = CGFloat(fontSize)
@@ -1330,40 +1114,6 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
-        /// Buffer-heal machinery. SwiftTerm's Buffer.resize REWRAPS the
-        /// scrollback on every column change and its rewrap is where the
-        /// interleaved-lines corruption comes from — Jian's decisive clue:
-        /// the bug is iOS-only, same PTY, same bytes, web clean, so the
-        /// damage is local. There is no reflow switch to turn off
-        /// (reflowWider/Narrower are unconditional), and once the rewrap has
-        /// run the buffer itself is wrong — repainting redraws the damage.
-        /// The daemon still holds the truth, so after a column-changing
-        /// transition settles we quietly reconnect: the bounded replay
-        /// rebuilds the buffer from the daemon's grid. Once per elected
-        /// grid, so a heal can never loop.
-        var onBell: (() -> Void)?
-        /// The size self-check (Jian: "can hop check the size and whether
-        /// fit succeeded"): a one-line verdict — local grid vs the room's
-        /// elected grid vs what this screen fits — emitted on every event
-        /// that can change any of the three. ✓ means the three-way story is
-        /// consistent; ✗ names the mismatch instead of leaving it to be
-        /// discovered as wrapped text.
-        var onSizeReport: ((String) -> Void)?
-
-        func emitSizeReport() {
-            guard let t = view?.getTerminal() else { return }
-            let grid = "\(t.cols)×\(t.rows)"
-            let elected = electedCols > 1 ? "\(electedCols)×\(electedRows)" : "—"
-            let gridOK = electedCols <= 1 || (t.cols == electedCols && t.rows == electedRows)
-            let fit = view?.naturalFit().map { "\($0.cols)×\($0.rows)" } ?? "—"
-            let capacity = view?.drawnRows ?? 0
-            let cut = capacity > 0 ? max(0, t.rows - capacity) : 0
-            let verdict = !gridOK ? "✗ grid ≠ session \(elected)"
-                : cut > 0 ? "✗ bottom \(cut) rows off screen"
-                : "✓ fit ok"
-            onSizeReport?("\(grid) drawn · fits \(fit) · \(verdict)")
-        }
-
         /// The last deliberate claim this client sent, so the confirming
         /// active_size is recognised as OURS even though the live fitted dims
         /// still describe the auto-scaled font at that moment.
@@ -1402,15 +1152,7 @@ struct TerminalScreen: UIViewRepresentable {
         /// the focusing tap, the click tap, and every delivered keystroke;
         /// throttled here so the callers don't need to care.
         func reclaimOnUserIntent() {
-            // Not only peer-held: after a rotation the grid WE hold is the
-            // wrong shape for the new bounds, and typing must fix that too
-            // (Jian: "keyboard typing does not fix it either"). A keystroke
-            // asserts the natural fit whenever the room's grid differs from
-            // it, whoever nominally holds the size.
-            let natural = view?.naturalFit()
-            let mismatch = peerHoldsSize
-                || (natural.map { electedCols > 1 && ($0.cols != electedCols || $0.rows != electedRows) } ?? false)
-            guard isLive, mismatch, !observeOnly, userIsLooking,
+            guard isLive, peerHoldsSize, !observeOnly, userIsLooking,
                   fittedCols > 1, fittedRows > 1,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
             lastReclaimAt = Date()
@@ -1675,14 +1417,6 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.setRemoteModes(altScreen: alternateScreen,
                                       mouseReporting: mouseReporting, mouseSgr: mouseSgr)
                     tv.feed(text: data)
-                    // The anchor pass the quiet session never got: live
-                    // output queues one, but a session whose whole life is
-                    // the snapshot (a fresh shell: two lines, then silence)
-                    // painted top-stuck and STAYED there — no further output,
-                    // no bounds change, no pass (Jian: "I don't see short
-                    // sessions start low"). Anchor on the snapshot itself.
-                    tv.queueAnchorPass()
-                    tv.queueAnchorPass()
                 case .presence(let list):
                     self.onPresence(list)
                     // Who is here BESIDES us. The badge needs this separately
@@ -1701,7 +1435,6 @@ struct TerminalScreen: UIViewRepresentable {
                     self.onToast(reason)
                 case .joined(let cols, let rows):
                     self.wakeMark("joined pty=\(cols)x\(rows)")
-                    if cols > 1, rows > 1 { tv.pinnedGrid = (cols, rows) }
                     self.sizeAtJoin = (cols, rows)
                 case .renamed(let name):
                     self.onRenamed(name)
@@ -1728,29 +1461,11 @@ struct TerminalScreen: UIViewRepresentable {
                     self.electedCols = cols
                     self.electedRows = rows
                     let ourClaim = self.lastUserClaim.map { $0 == (cols, rows) } ?? false
-                    // OURS means the PHONE'S NATURAL fit — never the fit at
-                    // the current font. Comparing against fittedCols/Rows
-                    // while auto-scaled made every foreign size confirm as
-                    // "ours" (the scaled font fits exactly the foreign grid,
-                    // by construction): no chip, no reclaim, a session open
-                    // at the wrong size with no indicator (Jian's rule 2).
-                    let natural = self.view?.naturalFit()
-                    let isNatural = natural.map { $0 == (cols, rows) } ?? false
-                    if isNatural || ourClaim {
+                    if (cols == self.fittedCols && rows == self.fittedRows) || ourClaim {
                         self.wakeMark("active_size \(cols)x\(rows) OURS")
                         self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
-                        // Pin to OUR size too — the local grid must equal
-                        // the PTY grid ALWAYS, exactly as xterm.js does on
-                        // the web. Left unpinned, SwiftTerm's bounds-refit
-                        // could drift a column from the elected width, and a
-                        // one-column drift wraps every PTY row's last char
-                        // onto the next row's start — Jian's screenshot:
-                        // "w"+"gallow", "ji"+"legitimate", stale row tails.
-                        // The web never shows it because its grid never
-                        // drifts. THIS was the text-rendering bug.
-                        self.view?.pinnedGrid = (cols, rows)
-                        self.emitSizeReport()
+                        self.view?.pinnedGrid = nil     // local fits rule again
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
                     } else if mine.cols != cols || mine.rows != rows {
@@ -1760,19 +1475,19 @@ struct TerminalScreen: UIViewRepresentable {
                         // foreign size in the meantime IS the flash. Hold
                         // the adopt; the claim's confirm cancels it. A lost
                         // race still adopts, 1.2s late.
-                        // The deferral is GONE. It existed to hide a
-                        // foreign-size flash during attach, from before
-                        // auto-scale made foreign sizes look intentional —
-                        // and it had become the corruptor: the serialized
-                        // snapshot painted at the OLD width during the
-                        // 1.2s hold, then the adopt resized and SwiftTerm
-                        // REWRAPPED the entire just-painted transcript.
-                        // First controlled reproduction (sim, 2026-08-06):
-                        // intra-word interleaving born exactly here. Adopt
-                        // immediately; the grid must be right BEFORE the
-                        // snapshot lands, and message order guarantees
-                        // active_size arrives first.
-                        do {
+                        if self.userIsLooking,
+                           !self.observeOnly,
+                           Date().timeIntervalSince(self.connectStartedAt) < 3.0,
+                           self.deferredAdopt == nil {
+                            self.wakeMark("active_size \(cols)x\(rows) DEFERRED")
+                            self.deferredAdopt = (cols, rows)
+                            Task { @MainActor [weak self] in
+                                try? await Task.sleep(for: .milliseconds(1200))
+                                guard let self, let p = self.deferredAdopt else { return }
+                                self.deferredAdopt = nil
+                                self.adoptForeign(cols: p.cols, rows: p.rows)
+                            }
+                        } else {
                             self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
                             self.deferredAdopt = nil
                             self.adoptForeign(cols: cols, rows: rows)
@@ -2180,11 +1895,12 @@ struct TerminalScreen: UIViewRepresentable {
             // POLITE. Maintaining our own grid must never outrank a human
             // typing somewhere else.
             client.sendResize(cols: cols, rows: rows)
-            // No claim witness here: this is POLITE maintenance of a grid we
-            // already hold. The HOP_CLAIM_MARKER is the e2e witness for
-            // DELIBERATE claims only, and writing it here made the wake test
-            // read keyboard-settle upkeep as a silent wake-claim.
-                        return true
+            #if DEBUG
+            if let marker = ProcessInfo.processInfo.environment["HOP_CLAIM_MARKER"] {
+                try? "\(cols)x\(rows)\n".write(toFile: marker, atomically: true, encoding: .utf8)
+            }
+            #endif
+            return true
         }
 
         /// Wake is not one moment: the keyboard, the safe areas and SwiftUI's
@@ -2410,8 +2126,7 @@ struct TerminalScreen: UIViewRepresentable {
             // display pass then has nothing stale to preserve.
             tv.getTerminal().updateFullScreen()
             tv.setNeedsDisplay(tv.bounds)
-            tv.applyAnchor()
-            emitSizeReport()
+            tv.applyLetterbox()
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -2518,14 +2233,9 @@ struct TerminalScreen: UIViewRepresentable {
                 v.setNeedsLayout()
                 v.layoutIfNeeded()
             }
-            // The NATURAL fit, never the current-font fit: after a heal
-            // reconnect the font is still auto-scaled to the peer's grid,
-            // and claiming the scaled fit re-proposes THEIR size as ours —
-            // autofit-on-open silently failing (Jian's rule 1).
             let t = view?.getTerminal()
-            let natural = view?.naturalFit()
-            let cols = natural?.cols ?? (fittedCols > 0 ? fittedCols : (t?.cols ?? 0))
-            let rows = natural?.rows ?? (fittedRows > 0 ? fittedRows : (t?.rows ?? 0))
+            let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
+            let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
             guard cols > 0, rows > 0 else { return }
             // A pocket reconnect claims NOTHING. This used to send the claim
             // regardless and merely drop the deliberate flag — so a socket
@@ -2562,8 +2272,7 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
-            view?.queueAnchorPass()
-            emitSizeReport()
+            view?.applyLetterbox()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
             // adopted grid has been silently defeated. Nudge the font smaller
@@ -2614,12 +2323,7 @@ struct TerminalScreen: UIViewRepresentable {
             let hv = source as? HopTermView
             if t.buffer.yDisp > 0 { hv?.sawScrollback = true }
             let hasHistory = t.buffer.yDisp > 0 || hv?.sawScrollback == true
-            // In sessions where the APP owns scrolling — claude's alt screen,
-            // anything taking wheel events — the local viewport never moves,
-            // so "Live" would offer a jump to a place you never left (Jian:
-            // "the live button displays even when clicking has no effect").
-            let remoteOwnsScrolling = (hv?.remoteAltScreen ?? false) || (hv?.remoteTakesMouse ?? false)
-            let inHistory = hasHistory && position < 0.999 && !remoteOwnsScrolling
+            let inHistory = hasHistory && position < 0.999
             onScroll(inHistory)
             // Only USER scrolls may move the anchor. SwiftTerm's live-edge
             // pin arrives through this same callback, and letting it write
@@ -2657,10 +2361,6 @@ struct TerminalScreen: UIViewRepresentable {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            // hop view rings the bell when it publishes — the bell is the
-            // artifact system's own doorbell, so use it: re-check the
-            // manifest and the tray appears within a beat of the publish.
-            onBell?()
         }
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
     }
@@ -2787,24 +2487,7 @@ final class HopTermView: TerminalView {
     /// The URL under a tap, or nil. Rows are padded to the grid width and
     /// joined without separators, so wrapped URLs connect and the offset
     /// math is exact — see linkHit. Built per tap; the grid is small.
-    /// One scan per touch: the gate (gestureRecognizerShouldBegin) and the
-    /// handler both ask, milliseconds apart, and each scan builds the whole
-    /// grid as a string — measured as one of the costs behind "a bit
-    /// laggier". Same point within half a second returns the cached answer.
-    private var linkTapCache: (point: CGPoint, at: TimeInterval, link: String?)?
-
     func linkUnderTap(_ locInView: CGPoint) -> String? {
-        if let c = linkTapCache,
-           abs(c.point.x - locInView.x) < 2, abs(c.point.y - locInView.y) < 2,
-           CACurrentMediaTime() - c.at < 0.5 {
-            return c.link
-        }
-        let link = linkUnderTapUncached(locInView)
-        linkTapCache = (locInView, CACurrentMediaTime(), link)
-        return link
-    }
-
-    private func linkUnderTapUncached(_ locInView: CGPoint) -> String? {
         let t = getTerminal()
         let x = locInView.x - bounds.origin.x
         let y = locInView.y - bounds.origin.y
@@ -2975,8 +2658,6 @@ final class HopTermView: TerminalView {
     }
 
     func installScrollGesture() {
-        _ = Self.hasTextAlwaysTrue   // arm the hold-⌫ repeat fix once
-
         // On a phone a drag scrolls. That has to be exclusive, because
         // SwiftTerm's own pans do two things we don't want during a scroll:
         // with mouse mode on (claude turns it on) a drag sends a CLICK at the
@@ -3217,26 +2898,6 @@ final class HopTermView: TerminalView {
     /// wrong grid; with the font scaled to the elected columns the wrong fit
     /// differs only in ROWS, and row-only resizes do not rewrap.
     var pinnedGrid: (cols: Int, rows: Int)?
-
-    /// iOS auto-repeats a held delete key ONLY while the responder reports
-    /// hasText — and SwiftTerm computes it from its synthetic UITextInput
-    /// storage, which our reconnect/reset churn empties. Storage empty → iOS
-    /// decides there is nothing to delete → hold-⌫ stops repeating (Jian's
-    /// regression report). A terminal ALWAYS conceptually has text before
-    /// the cursor, and SwiftTerm's deleteBackward handles empty storage by
-    /// sending a raw backspace — so answering true is honest AND restores
-    /// the repeat. hasText is public-not-open (the replace() wall again), so
-    /// a Swift override is refused; UIKit reads it through the ObjC runtime,
-    /// and the runtime can answer. Scoped to THIS subclass only.
-    static let hasTextAlwaysTrue: Void = {
-        let sel = #selector(getter: UIKeyInput.hasText)
-        let imp = imp_implementationWithBlock({ (_: AnyObject) -> Bool in true } as @convention(block) (AnyObject) -> Bool)
-        if let method = class_getInstanceMethod(HopTermView.self, sel) {
-            class_replaceMethod(HopTermView.self, sel, imp,
-                                method_getTypeEncoding(method))
-        }
-    }()
-
     /// The font the USER chose, independent of auto-scale. What a keystroke
     /// claims must be computed from this: while a peer's grid is drawn, the
     /// live fittedCols/Rows describe the SCALED font, and claiming those
@@ -3253,81 +2914,14 @@ final class HopTermView: TerminalView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if let pin = pinnedGrid {
-            let t = getTerminal()
-            if t.cols != pin.cols || t.rows != pin.rows {
-                t.resize(cols: pin.cols, rows: pin.rows)
-                t.updateFullScreen()
-                setNeedsDisplay(bounds)
-            }
-        }
-        applyAnchor()
-    }
-
-    /// How many rows actually hold content, counted from the bottom up with
-    /// an early exit — the common cases (full screen, near-empty screen) both
-    /// terminate in a handful of rows.
-    private var usedRowsCache: Int = -1
-    /// Invalidated by output (queueAnchorPass callers) — layout passes during
-    /// a keyboard animation then cost a cached Int instead of a full-grid
-    /// string scan per frame.
-    func invalidateUsedRows() { usedRowsCache = -1 }
-    private func usedRows() -> Int {
-        if usedRowsCache >= 0 { return usedRowsCache }
+        guard let pin = pinnedGrid else { return }
         let t = getTerminal()
-        var used = 0
-        for r in stride(from: t.rows - 1, through: 0, by: -1) {
-            let line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
-            if !line.isEmpty { used = r + 1; break }
+        if t.cols != pin.cols || t.rows != pin.rows {
+            t.resize(cols: pin.cols, rows: pin.rows)
+            t.updateFullScreen()
+            setNeedsDisplay(bounds)
         }
-        usedRowsCache = used
-        return used
-    }
-
-    /// Jian's rule, verbatim: "start the terminal lower unless the content is
-    /// more than a full screen." A fresh session's two lines used to sit at
-    /// the very top — under the status area and the chrome strip, where he
-    /// could not even tap a link. Content now rests just above the keyboard,
-    /// like every messaging app, and grows upward until it fills the screen;
-    /// from then on the terminal behaves classically. A TRANSFORM, like the
-    /// letterbox: the grid never changes, so the size election never hears
-    /// about any of this, and gesture coordinates map back through the
-    /// translation automatically.
-    func applyAnchor() {
-        // Scrollback means more than a screen of content: classical layout.
-        let t = getTerminal()
-        var dy: CGFloat = 0
-        if pinnedGrid != nil {
-            let rows = t.rows
-            let capacity = drawnRows > 0 ? drawnRows : rows
-            // FULL slack below a short foreign grid too — centring read as
-            // "still not working" (Jian): one rule, content low.
-            dy = anchorOffset(viewHeight: bounds.height,
-                              gridRows: rows, capacityRows: capacity)
-        } else if t.buffer.yDisp == 0, !sawScrollback {
-            let used = usedRows()
-            if used > 0, used < t.rows, bounds.height > 1 {
-                let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                            drawnRows: drawnRows, terminalRows: t.rows)
-                dy = (CGFloat(t.rows - used) * cellH).rounded(.down)
-            }
-        }
-        let wanted = dy > 1 ? CGAffineTransform(translationX: 0, y: dy) : .identity
-        if transform != wanted { transform = wanted }
-    }
-
-    /// Coalesced anchor pass: output arrives in bursts, and scanning rows per
-    /// chunk would run the scan hundreds of times a second under a compile
-    /// log. One pass per frame-ish is indistinguishable and free.
-    private var anchorQueued = false
-    func queueAnchorPass() {
-        invalidateUsedRows()
-        guard !anchorQueued else { return }
-        anchorQueued = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
-            self?.anchorQueued = false
-            self?.applyAnchor()
-        }
+        applyLetterbox()
     }
 
     /// Centre a grid that cannot fill this screen.
@@ -3345,7 +2939,15 @@ final class HopTermView: TerminalView {
     /// SwiftTerm keeps fitting to the real viewport and the size we would
     /// claim on your next keystroke is still YOUR size, not the letterbox's.
     /// Getting that wrong would make typing claim the peer's grid forever.
-
+    func applyLetterbox() {
+        let rows = getTerminal().rows
+        let capacity = drawnRows > 0 ? drawnRows : rows
+        guard capacity > 0, rows > 0, bounds.height > 1 else { return }
+        let dy = letterboxOffset(viewHeight: bounds.height,
+                                 gridRows: rows, capacityRows: capacity)
+        let wanted = dy > 0 ? CGAffineTransform(translationX: 0, y: dy) : .identity
+        if transform != wanted { transform = wanted }
+    }
     var drawnCols = 0
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins

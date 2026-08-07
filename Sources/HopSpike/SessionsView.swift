@@ -403,7 +403,7 @@ struct SessionsView: View {
             if let d = model.digest, d.generatedAt != digestDismissed,
                filter.isEmpty {
                 Section {
-                    DigestCard(editions: model.digestEditions.isEmpty ? [d] : model.digestEditions,
+                    DigestCard(digest: d,
                                readSessions: digestReadSet(for: d.generatedAt),
                                nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
@@ -673,16 +673,6 @@ struct SessionsView: View {
                     if let session = model.sessions.first(where: { $0.internalName == name })
                         ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
-                            // BOTH layers, deliberately: .toolbar(.hidden)
-                            // inside the terminal screen leaks on some entry
-                            // paths (deep links, post-sheet returns — a known
-                            // SwiftUI failure), and a leaked system bar was
-                            // Jian's "sometimes a standalone back button,
-                            // sometimes both" — three visual languages for
-                            // one screen. Hiding at the destination too makes
-                            // the pill's menu the ONE chrome, every path.
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
                             .task { await model.unpark(session) }
                             // Handoff: the open session follows you to the
                             // desk. SwiftUI invalidates the activity when
@@ -734,9 +724,7 @@ struct SessionsView: View {
                                      nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
                             ?? internalName
-                    },
-                                     servers: model.sessions.filter(\.isPort)
-                                         .map { ($0.name, $0.internalName) })
+                    })
                 }
                 .sheet(isPresented: $showAccount) {
                     // .medium clipped the last row once diagnostics arrived;
@@ -978,22 +966,8 @@ private struct SessionDialogs: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $creating) {
-                NewSessionSheet(name: $newName) { name, cwd, agent in
-                    Task {
-                        guard await model.createSession(name: name, cwd: cwd) else { return }
-                        path = [name]
-                        if agent {
-                            // The daemon has no "command" field on create —
-                            // an agent is `claude` typed into the fresh
-                            // shell, through the same daemon input path the
-                            // lock-screen reply uses. The wait covers the
-                            // shell's own startup.
-                            try? await Task.sleep(for: .seconds(1.5))
-                            await model.refreshSessions(silent: true)
-                            let target = resolveSessionName(name, in: model.sessions) ?? name
-                            _ = await QuickReply.send("claude\n", to: target, model: model)
-                        }
-                    }
+                NewSessionSheet(name: $newName) { name, cwd in
+                    Task { if await model.createSession(name: name, cwd: cwd) { path = [name] } }
                 }
             }
             .alert("Rename session",
@@ -1164,7 +1138,7 @@ struct SessionRow: View {
                     // command and none of its answer; five is enough to see
                     // what a session is actually doing without opening it,
                     // and the rows still fit several sessions per screen.
-                    Text(screen.flatMap { TileInk.cachedSnippet($0, lines: 5) }
+                    Text(screen.flatMap { TileInk.snippet($0, lines: 5) }
                          ?? AttributedString(preview))
                         .font(.system(size: 9, design: .monospaced))
                         // The preview is a glance aid, not body text. Letting

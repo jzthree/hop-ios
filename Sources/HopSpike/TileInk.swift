@@ -80,25 +80,6 @@ enum TileInk {
     /// meaningfulTail picks, trimmed at run granularity so snippets don't
     /// carry the terminal's leading indentation into a text row. Nil when
     /// the session has no colour report; the caller falls back to plain.
-    /// The parse-and-style work is the expensive half of a list render, and
-    /// the list re-renders on every poll because relative timestamps change —
-    /// so unchanged screens were re-parsed every few seconds across every
-    /// visible row ("a bit laggier", after the previews grew to five lines).
-    /// Keyed by content hash; collisions would only swap two snippets.
-    /// NSCache is thread-safe; the annotation tells strict concurrency what
-    /// the class already guarantees. Only ever touched from the main actor
-    /// anyway (List row rendering).
-    private static nonisolated(unsafe) let snippetCache = NSCache<NSString, SnippetBox>()
-    private final class SnippetBox { let v: AttributedString; init(_ v: AttributedString) { self.v = v } }
-
-    static func cachedSnippet(_ screen: ScreenPreview, lines: Int) -> AttributedString? {
-        let key = "\(screen.text.hashValue)-\(lines)" as NSString
-        if let hit = snippetCache.object(forKey: key) { return hit.v }
-        guard let made = snippet(screen, lines: lines) else { return nil }
-        snippetCache.setObject(SnippetBox(made), forKey: key)
-        return made
-    }
-
     static func snippet(_ screen: ScreenPreview, lines wanted: Int) -> AttributedString? {
         guard !screen.colorRows.isEmpty else { return nil }
         let indices = AppModel.meaningfulTailIndices(of: screen.text, lines: wanted)

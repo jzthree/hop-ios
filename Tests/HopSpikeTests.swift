@@ -1309,27 +1309,6 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(appTint("unknown-app"), appTint("another-unknown"))
     }
 
-    // MARK: - blockedReason (two-tier notifications)
-
-    func testPlainBellSnippetIsQuiet() {
-        XCTAssertNil(HopNotifier.blockedReason(in: "build finished\n$ "),
-                     "a routine completion must not interrupt")
-        XCTAssertNil(HopNotifier.blockedReason(in: nil))
-    }
-
-    func testNotifyMarkerCarriesItsReason() {
-        let snippet = "some output\n⚑ NEEDS YOU: VPN is down — reconnect to continue\n"
-        XCTAssertEqual(HopNotifier.blockedReason(in: snippet),
-                       "VPN is down — reconnect to continue")
-    }
-
-    func testLatestMarkerWinsAndBareMarkerStillInterrupts() {
-        let snippet = "⚑ NEEDS YOU: old question\nmore output\n⚑ NEEDS YOU: pick a path\n"
-        XCTAssertEqual(HopNotifier.blockedReason(in: snippet), "pick a path")
-        XCTAssertEqual(HopNotifier.blockedReason(in: "⚑ NEEDS YOU:\n"),
-                       "Session is blocked on you")
-    }
-
     // MARK: - linkHit (tap-on-link)
 
     private func joined(_ rows: [String], cols: Int) -> String {
@@ -1399,29 +1378,28 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertTrue(m.altScreen)
     }
 
-        // MARK: - anchorOffset
+        // MARK: - letterboxOffset
 
-    func testAnchorIsZeroWhenTheGridFillsTheView() {
+    func testLetterboxIsZeroWhenTheGridFillsTheView() {
         // The normal case: we own the grid, so capacity == rows.
-        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 49, capacityRows: 49), 0)
+        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 49, capacityRows: 49), 0)
     }
 
-    func testAnchorPutsAllSlackAbove() {
+    func testLetterboxSplitsTheSlackEvenly() {
         // A desk's 24 rows on a phone that fits 48 at the scaled font: the
-        // content covers half the height and sits at the BOTTOM — one rule,
-        // "start the terminal lower", centring read as broken.
-        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 24, capacityRows: 48), 400)
+        // content covers half the height, so half the slack goes above.
+        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 24, capacityRows: 48), 200)
     }
 
-    func testAnchorIgnoresRoundingSlack() {
-        // One row of difference out of fifty is rounding, not anchoring —
+    func testLetterboxIgnoresRoundingSlack() {
+        // One row of difference out of fifty is rounding, not letterboxing —
         // nudging for it would jitter the terminal on every refit.
-        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 49, capacityRows: 50), 0)
+        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 49, capacityRows: 50), 0)
     }
 
-    func testAnchorNeverMovesAGridBiggerThanTheView() {
-        // Panning territory: more rows than fit. Shifting would hide the top.
-        XCTAssertEqual(anchorOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
+    func testLetterboxNeverMovesAGridBiggerThanTheView() {
+        // Panning territory: more rows than fit. Centring would hide the top.
+        XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
     }
 
     // MARK: - resolveSessionName (hop2 e4bdd86 mirror)
