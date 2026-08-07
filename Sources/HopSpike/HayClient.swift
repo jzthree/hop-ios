@@ -21,7 +21,11 @@ final class HayClient: NSObject {
         // app enabled alt-screen once, long before this tail begins.
         case snapshot(String, alternateScreen: Bool, cursorHidden: Bool,
                       mouseReporting: Bool, mouseSgr: Bool)          // raw terminal bytes (snapshot or live)
-        case activeSize(Int, Int)    // cols, rows
+        // cols, rows, mine: whether WE own this size, decided by comparing the
+        // message's owner clientId against our hello clientId. Identity, not
+        // size comparison — comparing sizes is how a follower whose scaled fit
+        // matches the foreign grid by construction confirms it as its own.
+        case activeSize(Int, Int, mine: Bool)
         case presence([Viewer])      // who else is attached
         case collab(Bool, String?)   // everyone-can-type, controllerId
         case rejected(String)        // input refused (control locked)
@@ -398,7 +402,12 @@ final class HayClient: NSObject {
             // Double silently yields nil, which is exactly the bug that once
             // zeroed lastActivityAt and bellSeq.
             if let c = jsonInt(obj["cols"]), let r = jsonInt(obj["rows"]) {
-                onEvent?(.activeSize(c, r))
+                // The server stamps every active_size with the size OWNER's
+                // clientId. No owner id (an old daemon) counts as not ours,
+                // which fails safe: we adopt rather than claim.
+                let owner = obj["clientId"] as? String
+                let mine = owner != nil && owner == clientId
+                onEvent?(.activeSize(c, r, mine: mine))
             }
         case "session_renamed":
             if let name = obj["displayName"] as? String, !name.isEmpty { onEvent?(.renamed(name)) }

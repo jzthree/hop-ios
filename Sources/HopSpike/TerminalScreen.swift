@@ -1016,6 +1016,23 @@ struct TerminalScreen: UIViewRepresentable {
                 if w <= width || size <= 4 { break }
                 size = max(4, size * width / w * 0.995)
             }
+            // BOTH axes for auto-scale: a grid whose bottom rows sit below an
+            // unscrollable viewport "fits" only in the dimension nobody was
+            // complaining about — Jian: "it can say match while I cannot
+            // scroll to bottom". The explicit Fit-to-width mode keeps its
+            // name and stays width-only.
+            let electedRows = context.coordinator.electedRows
+            if autoScale, !fitWidth, electedRows > 1, uiView.bounds.height > 0 {
+                let height = uiView.bounds.height
+                let lineH = { (pt: CGFloat) -> CGFloat in
+                    UIFont.monospacedSystemFont(ofSize: pt, weight: .regular).lineHeight
+                }
+                for _ in 0..<3 {
+                    let h = lineH(size) * CGFloat(electedRows)
+                    if h <= height || size <= 4 { break }
+                    size = max(4, size * height / h * 0.995)
+                }
+            }
             HopTermView.log.info("fit: cols=\(cols) width=\(Int(width)) -> \(size)pt")
         }
         // Only when it changed: setting a font re-lays-out the terminal, and
@@ -1114,10 +1131,6 @@ struct TerminalScreen: UIViewRepresentable {
 
         private var pending = PendingInput()
         private var lastReclaimAt = Date.distantPast
-        /// The last deliberate claim this client sent, so the confirming
-        /// active_size is recognised as OURS even though the live fitted dims
-        /// still describe the auto-scaled font at that moment.
-        private var lastUserClaim: (cols: Int, rows: Int)?
         /// Consecutive foreign sizes refused while the user was looking. The
         /// circuit breaker on the refuse-and-re-assert rule: three, then we
         /// adopt and let the chip hand the decision to the human.
@@ -1162,7 +1175,6 @@ struct TerminalScreen: UIViewRepresentable {
             // holds the grid, and claiming those would take the peer's own
             // size — a keystroke that changes nothing.
             let claim = view?.naturalFit() ?? (cols: fittedCols, rows: fittedRows)
-            lastUserClaim = claim
             client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
             #if DEBUG
             // The e2e probe's witness that intent reached the wire (the
@@ -1436,69 +1448,68 @@ struct TerminalScreen: UIViewRepresentable {
                 case .joined(let cols, let rows):
                     self.wakeMark("joined pty=\(cols)x\(rows)")
                     self.sizeAtJoin = (cols, rows)
+                    // Pin to the PTY grid from the first byte, so the
+                    // snapshot paints at the PTY's width and never at a
+                    // local fit. The attach active_size right behind this
+                    // re-pins with the owner verdict.
+                    if cols > 1, rows > 1 { self.view?.pinnedGrid = (cols, rows) }
                 case .renamed(let name):
                     self.onRenamed(name)
                 case .serverError(let message):
                     self.onToast(message)
                     Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
                         .error("server rejected a message: \(message, privacy: .public)")
-                case .activeSize(let cols, let rows):
-                    // ADOPTED, the way hop's mobile web does it (Jian's call —
-                    // this replaces #96's refuse-and-reflow). One PTY has one
-                    // size; when a peer holds it, the choice is between
-                    // wrapping their 80-column output into our 51-column grid
-                    // (mush) or drawing their grid at full size and PANNING
-                    // over it. The web's manual mode picks panning, and so do
-                    // we: HopTermView turns drags into 1:1 panning whenever
-                    // the grid is bigger than what fits, which is also what
-                    // makes the clipped region — claude's input box lives at
-                    // the bottom — reachable rather than lost.
+                case .activeSize(let cols, let rows, let mine):
+                    // One PTY, one size, and the server stamps every
+                    // active_size with the OWNER's clientId — so "is this
+                    // size ours" is an IDENTITY check, never a size
+                    // comparison. (Comparing sizes is how this used to be
+                    // fooled: once auto-scale engaged, the scaled fit
+                    // matched the foreign grid by construction, every peer
+                    // size confirmed as ours, and the chip and reclaim
+                    // silently disarmed.)
                     //
-                    // Self-heals in both directions: our next claim (attach,
-                    // or a keyboard-driven refit) takes the size back, and
-                    // their next keystroke reclaims it.
-                    let mine = tv.getTerminal()
+                    // Ownership lives on the server now — the last user
+                    // action (open or keystroke) owns the size, and a
+                    // keystroke transfers ownership AND applies our declared
+                    // fit before any resize of ours goes out. This client
+                    // only renders the verdict.
                     self.electedCols = cols
                     self.electedRows = rows
-                    let ourClaim = self.lastUserClaim.map { $0 == (cols, rows) } ?? false
-                    if (cols == self.fittedCols && rows == self.fittedRows) || ourClaim {
+                    if mine {
                         self.wakeMark("active_size \(cols)x\(rows) OURS")
-                        self.deferredAdopt = nil        // the flash never renders
-                        self.peerHoldsSize = false      // our size won; normal rules
-                        self.view?.pinnedGrid = nil     // local fits rule again
+                        self.peerHoldsSize = false
+                        // Pin even when the grid is ours: a one-column local
+                        // drift re-wraps every PTY row's tail onto the next
+                        // row's start (the spill bug). The pin is the single
+                        // source of truth for what is drawn; our refits go
+                        // out as resizes and come back as the next elected
+                        // size.
+                        tv.pinnedGrid = (cols, rows)
+                        let t = tv.getTerminal()
+                        if t.cols != cols || t.rows != rows {
+                            t.resize(cols: cols, rows: rows)
+                            t.updateFullScreen()
+                            tv.setNeedsDisplay(tv.bounds)
+                            tv.applyLetterbox()
+                            self.onGridChange()
+                        }
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
-                    } else if mine.cols != cols || mine.rows != rows {
-                        // The wake-flash fix, half two (PLAN 17, marker-
-                        // proven): on a foreground attach our deliberate
-                        // claim wins in ~20ms once sent — painting the
-                        // foreign size in the meantime IS the flash. Hold
-                        // the adopt; the claim's confirm cancels it. A lost
-                        // race still adopts, 1.2s late.
-                        if self.userIsLooking,
-                           !self.observeOnly,
-                           Date().timeIntervalSince(self.connectStartedAt) < 3.0,
-                           self.deferredAdopt == nil {
-                            self.wakeMark("active_size \(cols)x\(rows) DEFERRED")
-                            self.deferredAdopt = (cols, rows)
-                            Task { @MainActor [weak self] in
-                                try? await Task.sleep(for: .milliseconds(1200))
-                                guard let self, let p = self.deferredAdopt else { return }
-                                self.deferredAdopt = nil
-                                self.adoptForeign(cols: p.cols, rows: p.rows)
-                            }
-                        } else {
-                            self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
-                            self.deferredAdopt = nil
-                            self.adoptForeign(cols: cols, rows: rows)
-                        }
+                    } else if tv.getTerminal().cols != cols || tv.getTerminal().rows != rows {
+                        // Adopt IMMEDIATELY. The old 1.2s deferral painted
+                        // the snapshot at the stale width and then rewrapped
+                        // the whole just-painted transcript — the first
+                        // controlled repro of the corruption.
+                        self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
+                        self.adoptForeign(cols: cols, rows: rows)
                     } else {
-                        // Grid already drawn at the peer's size — this is what
-                        // a REFUSED reclaim's rebroadcast looks like. Re-arm,
-                        // so the next keystroke keeps trying.
+                        // Grid already drawn at the peer's size — a refused
+                        // declaration's rebroadcast. Keep the chip up; the
+                        // next keystroke takes the size back server-side.
                         self.peerHoldsSize = true
+                        tv.pinnedGrid = (cols, rows)
                         self.onSizeState("\(cols)×\(rows)")
-                        if self.reclaimTimer == nil { self.startReclaimRetry() }
                     }
                 case .ended(let message):
                     // The session is GONE, and reconnecting would not find it —
@@ -1666,7 +1677,6 @@ struct TerminalScreen: UIViewRepresentable {
                 // re-arms the chip, which is the honest answer.
                 if let claim = view?.naturalFit() ?? (fittedCols > 1 && fittedRows > 1
                                                       ? (cols: fittedCols, rows: fittedRows) : nil) {
-                    lastUserClaim = claim
                     client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
                 }
             }
@@ -1814,9 +1824,14 @@ struct TerminalScreen: UIViewRepresentable {
                     self.connectStartedAt = Date()
                     self.wakeEpochReset("retry-reconnect")
                     self.fastPaint(room: self.room)
-                    let term = tv.getTerminal()
+                    // Through announceSize like every other connect path: a
+                    // pocket auto-retry must announce the ELECTED size, not
+                    // whatever grid the local terminal happens to hold (a
+                    // stale adopted foreign grid reshaped sessions from a
+                    // pocket here).
+                    let announce = self.announceSize(tv.getTerminal())
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
-                                        cols: term.cols, rows: term.rows,
+                                        cols: announce.cols, rows: announce.rows,
                                         token: self.token_, using: self.urlSession)
                 }
             }
@@ -1875,7 +1890,18 @@ struct TerminalScreen: UIViewRepresentable {
             // peer's grid — a claim against another window comes from one
             // place now, and that place is a keystroke.
             guard isLive, !sessionEnded, !observeOnly, userIsLooking,
-                  !peerHoldsSize, let v = view else { return false }
+                  let v = view else { return false }
+            if peerHoldsSize {
+                // Not ours to maintain — but the keyboard/settle that got us
+                // here may have changed what this screen would fit, and the
+                // server's record of our declared fit must stay fresh (a
+                // keystroke applies it sight-unseen). Declare, never contest.
+                if let nat = v.naturalFit(), nat.cols > 1, nat.rows > 1 {
+                    wakeMark("\(reason) declare \(nat.cols)x\(nat.rows) (peer holds)")
+                    client.sendResize(cols: nat.cols, rows: nat.rows)
+                }
+                return false
+            }
             // Re-fit to the CURRENT bounds before reading anything: after a
             // wake the cached fit can still describe the pre-lock layout
             // (keyboard up, different safe area), and claiming stale dims is
@@ -2097,12 +2123,6 @@ struct TerminalScreen: UIViewRepresentable {
         /// Set at every connect entry; the adopt-defer window is measured
         /// from here.
         private var connectStartedAt = Date.distantPast
-        /// A foreign active_size held back while a deliberate claim races
-        /// it. If the claim confirms first, the flash never renders; if
-        /// nothing confirms, the late adopt fires — correctness over
-        /// cosmetics.
-        private var deferredAdopt: (cols: Int, rows: Int)?
-
         private func adoptForeign(cols: Int, rows: Int) {
             guard let tv = view else { return }
             wakeMark("adopt \(cols)x\(rows)")
@@ -2234,8 +2254,13 @@ struct TerminalScreen: UIViewRepresentable {
                 v.layoutIfNeeded()
             }
             let t = view?.getTerminal()
-            let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
-            let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
+            // The NATURAL fit at the user's font. While a peer's grid is
+            // adopted, fittedCols/Rows describe the auto-scaled font — they
+            // match the foreign grid by construction, and claiming them
+            // would re-propose the peer's own size as ours.
+            let nat = view?.naturalFit()
+            let cols = (nat?.cols ?? 0) > 1 ? nat!.cols : (fittedCols > 0 ? fittedCols : (t?.cols ?? 0))
+            let rows = (nat?.rows ?? 0) > 1 ? nat!.rows : (fittedRows > 0 ? fittedRows : (t?.rows ?? 0))
             guard cols > 0, rows > 0 else { return }
             // A pocket reconnect claims NOTHING. This used to send the claim
             // regardless and merely drop the deliberate flag — so a socket
@@ -2292,10 +2317,9 @@ struct TerminalScreen: UIViewRepresentable {
                 }
             }
             // Before the claim, record only. Sending now would reshape the PTY
-            // at a height the keyboard is about to take away. Peer-held and
-            // observer mode both suppress the send: one borrows the geometry
-            // until typing reclaims it, the other borrows it on purpose.
-            guard claimed, !peerHoldsSize, !observeOnly else { return }
+            // at a height the keyboard is about to take away. Observer mode
+            // suppresses everything: that geometry is borrowed on purpose.
+            guard claimed, !observeOnly else { return }
             // And never while nobody is looking (Jian: "the app keeps
             // resizing the terminal even when it is inactive"). iOS re-lays
             // this view out for reasons that have nothing to do with the
@@ -2305,6 +2329,18 @@ struct TerminalScreen: UIViewRepresentable {
             // wake check re-establishes it the moment he is back.
             guard userIsLooking else {
                 wakeMark("fit \(newCols)x\(newRows) recorded, not sent (inactive)")
+                return
+            }
+            if peerHoldsSize {
+                // Declare, don't contest: keep the server's record of OUR
+                // natural fit fresh while a peer owns the grid (rotation,
+                // keyboard changes), so the next keystroke's ownership
+                // transfer lands at the right size. A non-owner's resize
+                // never moves the PTY — the server just answers with the
+                // grid we are already drawing.
+                if let nat = view?.naturalFit(), nat.cols > 1, nat.rows > 1 {
+                    client.sendResize(cols: nat.cols, rows: nat.rows)
+                }
                 return
             }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
