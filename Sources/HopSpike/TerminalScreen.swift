@@ -1159,9 +1159,23 @@ struct TerminalScreen: UIViewRepresentable {
         /// the focusing tap, the click tap, and every delivered keystroke;
         /// throttled here so the callers don't need to care.
         func reclaimOnUserIntent() {
-            guard isLive, peerHoldsSize, !observeOnly, userIsLooking,
-                  fittedCols > 1, fittedRows > 1,
+            guard isLive, !observeOnly, userIsLooking,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
+            // Two reasons a keystroke reclaims: a peer holds the grid (the
+            // original case), OR we believe it's already ours but it's
+            // stuck pannable anyway (view?.peerSizedGrid — see the MISMATCH
+            // note in sizeChanged). The second case used to be invisible to
+            // this guard entirely: peerHoldsSize reads false there, so
+            // typing was a no-op — "typing does not fix it," reported
+            // verbatim. Force a layout pass first so fittedCols/fittedRows
+            // reflect THIS instant's bounds, not whatever was last measured
+            // — sendAttachClaim already does this for the same reason (a
+            // stale read is how a deliberate claim locks in the WRONG size).
+            let stuckPan = !peerHoldsSize && (view?.peerSizedGrid ?? false)
+            guard peerHoldsSize || stuckPan else { return }
+            view?.setNeedsLayout()
+            view?.layoutIfNeeded()
+            guard fittedCols > 1, fittedRows > 1 else { return }
             lastReclaimAt = Date()
             // A keystroke on THIS terminal is deliberate by definition —
             // carry the flag that wins outright. Claim the NATURAL fit: the
@@ -1169,6 +1183,9 @@ struct TerminalScreen: UIViewRepresentable {
             // holds the grid, and claiming those would take the peer's own
             // size — a keystroke that changes nothing.
             let claim = view?.naturalFit() ?? (cols: fittedCols, rows: fittedRows)
+            if stuckPan {
+                wakeMark("reclaim stuck-pan \(claim.cols)x\(claim.rows) (was pinned larger than drawable)")
+            }
             client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
             #if DEBUG
             // The e2e probe's witness that intent reached the wire (the
@@ -2337,6 +2354,25 @@ struct TerminalScreen: UIViewRepresentable {
                 }
                 return
             }
+            // THE PAN-STUCK BUG (Jian, on device: "sometimes pannable but not
+            // scrollable, typing does not fix it, back and reenter does"):
+            // pinnedGrid can end up larger than what THIS layout pass just
+            // measured we can actually draw — an active_size confirmed as
+            // OURS pins to that confirmed size without re-validating it
+            // against current bounds, and if bounds/font were transiently
+            // stale at claim time (mid-rotation, mid-keyboard-animation),
+            // the confirmed size silently doesn't fit. peerSizedGrid then
+            // reads true (pan engages) while peerHoldsSize reads false (no
+            // chip, and reclaimOnUserIntent's peerHoldsSize guard means
+            // typing does nothing) — the exact reported symptom. This is the
+            // proactive half: whenever THIS layout pass computes a natural
+            // fit that disagrees with what's pinned, correct the pin to
+            // match what was just measured, right here, instead of waiting
+            // for a round trip through the server to notice.
+            if let pin = view?.pinnedGrid, pin != (newCols, newRows) {
+                wakeMark("fit MISMATCH pinned=\(pin.cols)x\(pin.rows) natural=\(newCols)x\(newRows) — re-pinning")
+                view?.pinnedGrid = (newCols, newRows)
+            }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
             client.sendResize(cols: newCols, rows: newRows)
@@ -2816,6 +2852,15 @@ final class HopTermView: TerminalView {
             switch g.state {
             case .began:
                 stopMomentum()
+                // The direct witness for "pannable but not scrollable"
+                // reports: this is the moment a drag actually became a pan
+                // rather than scrollback, with everything that decided it.
+                // Correlate against the MISMATCH/stuck-pan lines in
+                // sizeChanged / reclaimOnUserIntent by timestamp — if this
+                // fires with no such line nearby, the bug isn't the
+                // pinned-vs-natural-fit mismatch those two guard against.
+                let t = getTerminal()
+                KBLog.record("pan began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
             case .changed:
                 let t = g.translation(in: self)
                 g.setTranslation(.zero, in: self)
