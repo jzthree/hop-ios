@@ -1880,11 +1880,16 @@ struct TerminalScreen: UIViewRepresentable {
             client.close()
         }
 
-        /// Reconnect on our own with backoff (1s, 2s, 4s, 8s, capped at 15s)
-        /// so a tunnel blip or a phone waking from sleep heals itself.
+        /// Reconnect on our own — IMMEDIATELY the first time (0s, 1s, 2s,
+        /// 4s, 8s, capped at 15s from there). Most disconnects are a tunnel
+        /// blip or a phone waking from sleep and are already gone by the
+        /// time a socket would even finish waiting to check — Jian: "most
+        /// disconnect can be fixed immediately." Backing off only starts
+        /// once that immediate retry has already failed, so a genuinely
+        /// dead server still doesn't get hammered.
         private func scheduleRetry() {
             guard alive, !sessionEnded, retryTask == nil else { return }
-            let delay = min(15.0, pow(2.0, Double(retryAttempt)))
+            let delay = retryAttempt == 0 ? 0.0 : min(15.0, pow(2.0, Double(retryAttempt - 1)))
             retryAttempt += 1
             onRetryState(Date().addingTimeInterval(delay), retryAttempt)
             retryTask = Task { [weak self] in
