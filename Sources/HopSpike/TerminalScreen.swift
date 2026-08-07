@@ -1753,7 +1753,15 @@ struct TerminalScreen: UIViewRepresentable {
                     self.electedCols = cols
                     self.electedRows = rows
                     let ourClaim = self.lastUserClaim.map { $0 == (cols, rows) } ?? false
-                    if (cols == self.fittedCols && rows == self.fittedRows) || ourClaim {
+                    // OURS means the PHONE'S NATURAL fit — never the fit at
+                    // the current font. Comparing against fittedCols/Rows
+                    // while auto-scaled made every foreign size confirm as
+                    // "ours" (the scaled font fits exactly the foreign grid,
+                    // by construction): no chip, no reclaim, a session open
+                    // at the wrong size with no indicator (Jian's rule 2).
+                    let natural = self.view?.naturalFit()
+                    let isNatural = natural.map { $0 == (cols, rows) } ?? false
+                    if isNatural || ourClaim {
                         self.wakeMark("active_size \(cols)x\(rows) OURS")
                         self.deferredAdopt = nil        // the flash never renders
                         self.peerHoldsSize = false      // our size won; normal rules
@@ -2538,9 +2546,14 @@ struct TerminalScreen: UIViewRepresentable {
                 v.setNeedsLayout()
                 v.layoutIfNeeded()
             }
+            // The NATURAL fit, never the current-font fit: after a heal
+            // reconnect the font is still auto-scaled to the peer's grid,
+            // and claiming the scaled fit re-proposes THEIR size as ours —
+            // autofit-on-open silently failing (Jian's rule 1).
             let t = view?.getTerminal()
-            let cols = fittedCols > 0 ? fittedCols : (t?.cols ?? 0)
-            let rows = fittedRows > 0 ? fittedRows : (t?.rows ?? 0)
+            let natural = view?.naturalFit()
+            let cols = natural?.cols ?? (fittedCols > 0 ? fittedCols : (t?.cols ?? 0))
+            let rows = natural?.rows ?? (fittedRows > 0 ? fittedRows : (t?.rows ?? 0))
             guard cols > 0, rows > 0 else { return }
             // A pocket reconnect claims NOTHING. This used to send the claim
             // regardless and merely drop the deliberate flag — so a socket
