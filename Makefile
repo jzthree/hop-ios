@@ -85,7 +85,13 @@ simbuild: gen
 install: build
 	@for i in $$(seq 1 15); do \
 	  out=$$(xcrun devicectl device install app --device $(DEVICE) "$(APP)" 2>&1); \
-	  if echo "$$out" | grep -qE "App installed|installationURL|Complete!"; then echo "installed (attempt $$i)"; exit 0; fi; \
+	  if echo "$$out" | grep -qE "App installed|installationURL|Complete!"; then \
+	    echo "installed (attempt $$i)"; \
+	    xcrun devicectl device process launch --terminate-existing --device $(DEVICE) io.zhoulab.hop.spike >/dev/null 2>&1 \
+	      && echo "relaunched (stale instance terminated)" \
+	      || echo "relaunch skipped (phone locked?) — old instance may still be running"; \
+	    exit 0; \
+	  fi; \
 	  echo "attempt $$i: $$(echo "$$out" | grep -oE 'DeviceLocked|disconnected immediately' | head -1)"; sleep 8; \
 	done; echo "install failed — unlock the phone or plug in a cable"; exit 1
 

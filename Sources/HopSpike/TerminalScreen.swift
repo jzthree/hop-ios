@@ -1345,8 +1345,14 @@ struct TerminalScreen: UIViewRepresentable {
         /// rebuilds the buffer from the daemon's grid. Once per elected
         /// grid, so a heal can never loop.
         private var healTask: Task<Void, Never>?
-        private var healedForGrid: (cols: Int, rows: Int)?
+        /// ONCE PER CONNECTION, not per grid: per-grid dedupe met the wall
+        /// tile's deliberate claim and built perpetual motion — adopt →
+        /// heal-reconnect → polite claim granted → tile steals back → adopt
+        /// → heal… a reconnect every few seconds, noticed while scrolling
+        /// because each reconnect resets the scroll position (Jian, live).
+        private var healedThisConnection = false
         var onBufferHeal: (() -> Void)?
+        func noteFreshConnectionForHeal() { healedThisConnection = false }
         var onBell: (() -> Void)?
         /// The size self-check (Jian: "can hop check the size and whether
         /// fit succeeded"): a one-line verdict — local grid vs the room's
@@ -1371,8 +1377,8 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         func scheduleBufferHeal(cols: Int, rows: Int) {
-            if let done = healedForGrid, done == (cols, rows) { return }
-            healedForGrid = (cols, rows)
+            if healedThisConnection { return }
+            healedThisConnection = true
             healTask?.cancel()
             healTask = Task { @MainActor [weak self] in
                 // After the font/pin churn settles — healing mid-transition
@@ -1887,6 +1893,7 @@ struct TerminalScreen: UIViewRepresentable {
             view.startFrameGapMonitor()
             snapshotLanded = false
             claimed = false
+            noteFreshConnectionForHeal()
             connectStartedAt = Date()
             wakeEpochReset("attach")
             fastPaint(room: room)
