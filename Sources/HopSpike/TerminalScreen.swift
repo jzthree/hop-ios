@@ -77,6 +77,8 @@ struct TerminalHostView: View {
     /// The codex-style side panel: this session's published artifacts in a
     /// half-height sheet the terminal stays alive above.
     @State private var artifactPanel = false
+    /// The live size verdict for the menu's self-check row.
+    @State private var sizeReport = ""
     /// How many artifacts this session has published — decides whether the
     /// pill carries the tray, and a growth while watching raises a toast.
     @State private var artifactCount = 0
@@ -184,6 +186,7 @@ struct TerminalHostView: View {
                        onOpenLink: { link in openLinkSmart(link) },
                        onBufferHeal: { reconnectToken += 1 },
                        onBell: { artifactCheck += 1 },
+                       onSizeReport: { sizeReport = $0 },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -1030,6 +1033,23 @@ struct TerminalHostView: View {
                     Label("Session", systemImage: "slider.horizontal.3")
                 }
             }
+            Section {
+                // The self-check (Jian: "can hop check the size and whether
+                // fit succeeded"): what is drawn, what fits, one verdict. A
+                // ✗ names the mismatch and taps into the fix instead of
+                // leaving it to be discovered as wrapped text.
+                if !sizeReport.isEmpty {
+                    if sizeReport.contains("✗") {
+                        Button { controlAction = .claimSize } label: {
+                            Label(sizeReport, systemImage: "exclamationmark.triangle")
+                        }
+                    } else {
+                        Button {} label: {
+                            Label(sizeReport, systemImage: "checkmark.circle")
+                        }.disabled(true)
+                    }
+                }
+            }
         } label: {
             // Part of the pill, not a floating button: a hairline seam and a
             // bare glyph — the chevron's visual sibling at the other end
@@ -1096,6 +1116,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onOpenLink: (String) -> Void = { _ in }
     var onBufferHeal: () -> Void = {}
     var onBell: () -> Void = {}
+    var onSizeReport: (String) -> Void = { _ in }
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -1114,6 +1135,7 @@ struct TerminalScreen: UIViewRepresentable {
         c.onOthers = onOthers
         c.onBufferHeal = onBufferHeal
         c.onBell = onBell
+        c.onSizeReport = onSizeReport
         return c
     }
 
@@ -1304,6 +1326,23 @@ struct TerminalScreen: UIViewRepresentable {
         private var healedForGrid: (cols: Int, rows: Int)?
         var onBufferHeal: (() -> Void)?
         var onBell: (() -> Void)?
+        /// The size self-check (Jian: "can hop check the size and whether
+        /// fit succeeded"): a one-line verdict — local grid vs the room's
+        /// elected grid vs what this screen fits — emitted on every event
+        /// that can change any of the three. ✓ means the three-way story is
+        /// consistent; ✗ names the mismatch instead of leaving it to be
+        /// discovered as wrapped text.
+        var onSizeReport: ((String) -> Void)?
+
+        func emitSizeReport() {
+            guard let t = view?.getTerminal() else { return }
+            let grid = "\(t.cols)×\(t.rows)"
+            let elected = electedCols > 1 ? "\(electedCols)×\(electedRows)" : "—"
+            let gridOK = electedCols <= 1 || (t.cols == electedCols && t.rows == electedRows)
+            let fit = view?.naturalFit().map { "\($0.cols)×\($0.rows)" } ?? "—"
+            let verdict = gridOK ? "✓ grid matches session" : "✗ grid ≠ session \(elected)"
+            onSizeReport?("\(grid) drawn · fits \(fit) · \(verdict)")
+        }
 
         func scheduleBufferHeal(cols: Int, rows: Int) {
             if let done = healedForGrid, done == (cols, rows) { return }
@@ -1688,6 +1727,7 @@ struct TerminalScreen: UIViewRepresentable {
                         // The web never shows it because its grid never
                         // drifts. THIS was the text-rendering bug.
                         self.view?.pinnedGrid = (cols, rows)
+                        self.emitSizeReport()
                         self.scheduleBufferHeal(cols: cols, rows: rows)
                         self.onSizeState(nil)
                         self.stopReclaimRetry()
@@ -2350,6 +2390,7 @@ struct TerminalScreen: UIViewRepresentable {
             tv.getTerminal().updateFullScreen()
             tv.setNeedsDisplay(tv.bounds)
             tv.applyAnchor()
+            emitSizeReport()
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -2496,6 +2537,7 @@ struct TerminalScreen: UIViewRepresentable {
             view?.drawnRows = newRows
             view?.drawnCols = newCols
             view?.queueAnchorPass()
+            emitSizeReport()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
             // adopted grid has been silently defeated. Nudge the font smaller
