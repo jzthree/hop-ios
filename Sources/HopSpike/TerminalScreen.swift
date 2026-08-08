@@ -1233,30 +1233,36 @@ struct TerminalScreen: UIViewRepresentable {
         func reclaimOnUserIntent() {
             guard isLive, !observeOnly, userIsLooking,
                   Date().timeIntervalSince(lastReclaimAt) > 1 else { return }
-            // Two reasons a keystroke reclaims: a peer holds the grid (the
-            // original case), OR we believe it's already ours but it's
-            // stuck pannable anyway (view?.peerSizedGrid — see the MISMATCH
-            // note in sizeChanged). The second case used to be invisible to
-            // this guard entirely: peerHoldsSize reads false there, so
-            // typing was a no-op — "typing does not fix it," reported
-            // verbatim. Force a layout pass first so fittedCols/fittedRows
-            // reflect THIS instant's bounds, not whatever was last measured
-            // — sendAttachClaim already does this for the same reason (a
-            // stale read is how a deliberate claim locks in the WRONG size).
-            let stuckPan = !peerHoldsSize && (view?.peerSizedGrid ?? false)
-            guard peerHoldsSize || stuckPan else { return }
+            // Force a layout pass BEFORE deciding anything: after a wake,
+            // drawn/fitted dims can still describe the pre-lock layout, and
+            // naturalFit() reads them — a stale read here is how a deliberate
+            // claim locks in the WRONG size (sendAttachClaim forces layout
+            // for the same reason).
             view?.setNeedsLayout()
             view?.layoutIfNeeded()
             guard fittedCols > 1, fittedRows > 1 else { return }
+            // Two reasons a keystroke reclaims: a peer holds the grid (the
+            // original case), OR the grid is nominally OURS but doesn't
+            // match what this view actually fits — in EITHER direction.
+            // Bigger than drawable was the pannable-not-scrollable bug;
+            // smaller than the fit is its mirror, the half-height screen
+            // (a keyboard-up grid surviving into a keyboard-down view).
+            // Both used to be invisible to this guard: peerHoldsSize reads
+            // false there, so typing was a no-op — reported verbatim, twice.
+            let nat = view?.naturalFit()
+            let grid = view?.getTerminal()
+            let offNatural = !peerHoldsSize && nat != nil && grid != nil
+                && (grid!.cols != nat!.cols || grid!.rows != nat!.rows)
+            guard peerHoldsSize || offNatural else { return }
             lastReclaimAt = Date()
             // A keystroke on THIS terminal is deliberate by definition —
             // carry the flag that wins outright. Claim the NATURAL fit: the
             // live fitted dims describe the auto-scaled font while a peer
             // holds the grid, and claiming those would take the peer's own
             // size — a keystroke that changes nothing.
-            let claim = view?.naturalFit() ?? (cols: fittedCols, rows: fittedRows)
-            if stuckPan {
-                wakeMark("reclaim stuck-pan \(claim.cols)x\(claim.rows) (was pinned larger than drawable)")
+            let claim = nat ?? (cols: fittedCols, rows: fittedRows)
+            if offNatural {
+                wakeMark("reclaim off-natural grid=\(grid!.cols)x\(grid!.rows) → \(claim.cols)x\(claim.rows)")
             }
             client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
             #if DEBUG
@@ -2960,39 +2966,37 @@ final class HopTermView: TerminalView {
     /// that rewrites what you were typing is worse than one that does nothing.
     /// Which case applies is `scrollSink`, decided by who owns the screen.
     @objc private func handleScrollPan(_ g: UIPanGestureRecognizer) {
+        if g.state == .began {
+            stopMomentum()
+            // A gesture is the user acting on what they SEE — the one moment
+            // stale geometry is guaranteed to be noticed. Force a layout
+            // pass FIRST: after a wake, drawn dims (and naturalFit, which
+            // reads them) can still describe the pre-lock layout, and no
+            // layout may run again for a long stretch on its own (proven,
+            // device log, build 325). Then report any grid≠natural mismatch
+            // — in EITHER direction: bigger than drawable was
+            // pannable-not-scrollable; smaller than the fit is the
+            // half-height screen (a keyboard-up grid surviving into a
+            // keyboard-down view). Reported via onPossibleSizeMismatch, NOT
+            // the TerminalViewDelegate — going through sizeChanged would
+            // also run its drawnCols/drawnRows update for what isn't a real
+            // layout measurement. The coordinator's peerHoldsSize check
+            // still applies on the other end: a peer-held grid gets a
+            // polite re-declare and keeps panning/letterboxing; only the
+            // OURS-but-mismatched case gets re-pinned and corrected.
+            setNeedsLayout()
+            layoutIfNeeded()
+            let t = getTerminal()
+            KBLog.record("gesture began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") nat=\(naturalFit().map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+            if let nat = naturalFit(), nat != (t.cols, t.rows) {
+                onPossibleSizeMismatch?(nat.cols, nat.rows)
+            }
+        }
         if !peerSizedGrid { panExtra = .zero }
         if peerSizedGrid {
             // Panning, not scrolling: the content moves with the finger, both
             // axes, and momentum carries it — the grid is a surface here.
             switch g.state {
-            case .began:
-                stopMomentum()
-                // The direct witness for "pannable but not scrollable"
-                // reports: this is the moment a drag actually became a pan
-                // rather than scrollback, with everything that decided it.
-                let t = getTerminal()
-                KBLog.record("pan began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") nat=\(naturalFit().map { "\($0.cols)x\($0.rows)" } ?? "nil")")
-                // Proven gap (device log, build 325): sizeChanged's MISMATCH
-                // re-pin only runs when SwiftTerm's OWN layout pass fires —
-                // and after a wake it can just not fire again for a long
-                // while with nothing on screen to trigger one. A pan
-                // beginning is itself proof the user is trying to interact
-                // RIGHT NOW, same standing as a keystroke — so report what a
-                // fresh layout pass would have measured (naturalFit(), the
-                // same measurement reclaimOnUserIntent already trusts) via
-                // onPossibleSizeMismatch, NOT the TerminalViewDelegate —
-                // going through sizeChanged itself would also run its
-                // drawnCols/drawnRows update, and this guess must never be
-                // mistaken for what a real layout pass measured (a
-                // legitimate peer-held oversized grid's letterbox/pan math
-                // reads those and would go wrong for the rest of this
-                // gesture). The coordinator's own peerHoldsSize check still
-                // applies on the other end: a peer-held grid gets a polite
-                // re-declare and keeps panning; only the OURS-but-mismatched
-                // case gets re-pinned and corrected.
-                if let nat = naturalFit(), nat != (t.cols, t.rows) {
-                    onPossibleSizeMismatch?(nat.cols, nat.rows)
-                }
             case .changed:
                 let t = g.translation(in: self)
                 g.setTranslation(.zero, in: self)
@@ -3007,7 +3011,7 @@ final class HopTermView: TerminalView {
         }
         switch g.state {
         case .began:
-            stopMomentum()
+            // stopMomentum already ran in the unified .began above.
             scrollDebt = 0
             gestureSink = sink
         case .changed:
