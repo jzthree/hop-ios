@@ -1110,6 +1110,10 @@ struct TerminalScreen: UIViewRepresentable {
             // rows it believes changed — which is how a rescale left "one line
             // of text at the bottom messed up" (Jian). Mark the whole buffer
             // dirty so nothing stale can survive the pass.
+            // Resync FIRST: the new font changed cellHeight under the
+            // offset, and without this the full-screen repaint below would
+            // repaint the wrong page for the settle's 400ms window.
+            uiView.resyncViewport()
             uiView.getTerminal().updateFullScreen()
             uiView.setNeedsDisplay(uiView.bounds)
             uiView.applyLetterbox()
@@ -3207,15 +3211,34 @@ final class HopTermView: TerminalView {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.window != nil else { return }
             let t = self.getTerminal()
+            let before = Int(self.contentOffset.y)
+            self.resyncViewport()
             t.updateFullScreen()
             self.setNeedsDisplay(self.bounds)
             self.applyLetterbox()
             KBLog.record("settle redraw (\(reason)) grid=\(t.cols)x\(t.rows) "
-                + "drawn=\(self.drawnCols)x\(self.drawnRows) off=\(Int(self.contentOffset.y)) "
+                + "drawn=\(self.drawnCols)x\(self.drawnRows) off=\(before)→\(Int(self.contentOffset.y)) "
                 + "font=\(String(format: "%.1f", self.font.pointSize))")
         }
         settleRedraw = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    /// Put contentOffset back into CURRENT cell units. The renderer picks
+    /// which rows to draw from contentOffset / cellHeight at draw time; a
+    /// font rescale changes cellHeight and leaves the offset in OLD units,
+    /// so every repaint faithfully paints the WRONG PAGE of the buffer —
+    /// whole pages mixed on screen, not a stray line (Jian: "the previous
+    /// page was not completely cleaned or two pages got written the same
+    /// time"). SwiftTerm's own resync (updateScroller) runs only on feeds,
+    /// and a quiet session feeds nothing — which is why only a scroll ever
+    /// healed it. scrollTo to the row we are ALREADY on is the public
+    /// spelling of that resync: same content row, offset recomputed in the
+    /// current cell metrics. Skipped while a finger or momentum owns the
+    /// offset, and in pan mode, where contentOffset IS the pan position.
+    func resyncViewport() {
+        guard !isTracking, !isDecelerating, !peerSizedGrid else { return }
+        scrollTo(row: getTerminal().buffer.yDisp, notifyAccessibility: false)
     }
 
     /// Centre a grid that cannot fill this screen.
