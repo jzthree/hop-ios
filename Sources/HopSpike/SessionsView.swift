@@ -640,7 +640,7 @@ struct SessionsView: View {
                 // The virtual folder: everything hop view has published,
                 // fleet-wide, grouped by session.
                 Button { showArtifacts = true } label: {
-                    Label("Artifacts", systemImage: "tray.full")
+                    Label("Views", systemImage: "tray.full")
                 }
                 Divider()
                 Button { showAccount = true } label: {

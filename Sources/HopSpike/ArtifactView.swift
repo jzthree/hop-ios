@@ -138,7 +138,7 @@ struct ArtifactsBrowser: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("Artifacts")
+            .navigationTitle("Views")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
