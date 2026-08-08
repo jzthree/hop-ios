@@ -1113,6 +1113,7 @@ struct TerminalScreen: UIViewRepresentable {
             uiView.getTerminal().updateFullScreen()
             uiView.setNeedsDisplay(uiView.bounds)
             uiView.applyLetterbox()
+            uiView.scheduleSettleRedraw("font")
         }
         uiView.applyTheme(light: lightTheme)
         uiView.naturalFontPt = CGFloat(fontSize)
@@ -1518,6 +1519,7 @@ struct TerminalScreen: UIViewRepresentable {
                     tv.setRemoteModes(altScreen: alternateScreen,
                                       mouseReporting: mouseReporting, mouseSgr: mouseSgr)
                     tv.feed(text: data)
+                    tv.scheduleSettleRedraw("snapshot")
                 case .presence(let list):
                     self.onPresence(list)
                     // Who is here BESIDES us. The badge needs this separately
@@ -1581,6 +1583,7 @@ struct TerminalScreen: UIViewRepresentable {
                             t.updateFullScreen()
                             tv.setNeedsDisplay(tv.bounds)
                             tv.applyLetterbox()
+                            tv.scheduleSettleRedraw("resize-ours")
                             self.onGridChange()
                         }
                         self.onSizeState(nil)
@@ -1831,6 +1834,7 @@ struct TerminalScreen: UIViewRepresentable {
                 }
                 self.wakeMark("fastPaint grid=\(t.cols)x\(t.rows) fitted=\(self.fittedCols)x\(self.fittedRows)")
                 tv.feed(text: screen)
+                tv.scheduleSettleRedraw("fastPaint")
                 Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                     .info("fast paint \(screen.utf8.count / 1024) KB (snapshot still in flight)")
             }
@@ -2241,6 +2245,7 @@ struct TerminalScreen: UIViewRepresentable {
             tv.getTerminal().updateFullScreen()
             tv.setNeedsDisplay(tv.bounds)
             tv.applyLetterbox()
+            tv.scheduleSettleRedraw("adopt-foreign")
             onGridChange()
         }
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
@@ -2293,6 +2298,10 @@ struct TerminalScreen: UIViewRepresentable {
         private var settleTask: Task<Void, Never>?
 
         func scheduleKeyboardSettleCheck() {
+            // The repaint half is unconditional: a keyboard move shifts the
+            // view under any in-flight draw whether or not we own the grid,
+            // and a quiet session leaves whatever that draw painted.
+            view?.scheduleSettleRedraw("keyboard")
             settleTask?.cancel()
             settleTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(700))
@@ -3177,8 +3186,36 @@ final class HopTermView: TerminalView {
             t.resize(cols: pin.cols, rows: pin.rows)
             t.updateFullScreen()
             setNeedsDisplay(bounds)
+            scheduleSettleRedraw("layout-pin")
         }
         applyLetterbox()
+    }
+
+    /// One more full repaint after the dust settles. The CoreGraphics
+    /// renderer draws rows from contentOffset and cell metrics, and font
+    /// changes, grid pins, snapshot replays and keyboard moves all shift
+    /// those under an in-flight draw — a draw that raced one can leave
+    /// garbled/overlapping rows sitting in the backing store, and a QUIET
+    /// session never repaints them (no output, no redraw), which is why the
+    /// artifact survives until a scroll forces exactly this pass (Jian:
+    /// "overlapping text ... scrolling fix it"). Every churn point schedules
+    /// one; the debounce means only the last survivor of a burst runs, and
+    /// one extra repaint of a settled screen costs nothing visible.
+    private var settleRedraw: DispatchWorkItem?
+    func scheduleSettleRedraw(_ reason: String) {
+        settleRedraw?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.window != nil else { return }
+            let t = self.getTerminal()
+            t.updateFullScreen()
+            self.setNeedsDisplay(self.bounds)
+            self.applyLetterbox()
+            KBLog.record("settle redraw (\(reason)) grid=\(t.cols)x\(t.rows) "
+                + "drawn=\(self.drawnCols)x\(self.drawnRows) off=\(Int(self.contentOffset.y)) "
+                + "font=\(String(format: "%.1f", self.font.pointSize))")
+        }
+        settleRedraw = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     /// Centre a grid that cannot fill this screen.
