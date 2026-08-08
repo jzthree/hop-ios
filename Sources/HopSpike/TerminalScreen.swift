@@ -2467,6 +2467,18 @@ struct TerminalScreen: UIViewRepresentable {
             if let pin = view?.pinnedGrid, pin != (cols, rows) {
                 wakeMark("fit MISMATCH pinned=\(pin.cols)x\(pin.rows) natural=\(cols)x\(rows) — re-pinning")
                 view?.pinnedGrid = (cols, rows)
+                // Apply LOCALLY too, now — the old re-pin waited for the
+                // server's active_size round trip (or the next layout pass)
+                // to actually resize the terminal, so the stuck pan stayed
+                // stuck for the gesture that triggered the heal, and forever
+                // if the socket was down.
+                if let t = view?.getTerminal(), t.cols != cols || t.rows != rows {
+                    t.resize(cols: cols, rows: rows)
+                    t.updateFullScreen()
+                    view.map { $0.setNeedsDisplay($0.bounds) }
+                    view?.applyLetterbox()
+                    onGridChange()
+                }
             }
             client.sendResize(cols: cols, rows: rows)
         }
@@ -2959,7 +2971,7 @@ final class HopTermView: TerminalView {
                 // reports: this is the moment a drag actually became a pan
                 // rather than scrollback, with everything that decided it.
                 let t = getTerminal()
-                KBLog.record("pan began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+                KBLog.record("pan began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") nat=\(naturalFit().map { "\($0.cols)x\($0.rows)" } ?? "nil")")
                 // Proven gap (device log, build 325): sizeChanged's MISMATCH
                 // re-pin only runs when SwiftTerm's OWN layout pass fires —
                 // and after a wake it can just not fire again for a long
@@ -3118,8 +3130,34 @@ final class HopTermView: TerminalView {
     /// live fittedCols/Rows describe the SCALED font, and claiming those
     /// would "take" the peer's own size — a keystroke that changes nothing.
     var naturalFontPt: CGFloat = 12
+    /// MEASURED, not modeled (device log, build 325): the analytic guess —
+    /// advance width of "0" and UIFont.lineHeight — runs smaller than
+    /// SwiftTerm's real cell metrics, so it OVERESTIMATED the fit
+    /// (claimed 80x50 where SwiftTerm draws 79x48). Every attach then
+    /// claimed a grid bigger than drawable, the server confirmed it as
+    /// ours, the pin held it, and the session sat pannable-not-scrollable
+    /// with no chip — while every self-heal that compared against the same
+    /// analytic number concluded nothing was wrong. SwiftTerm's own fit
+    /// (drawnCols/Rows, pushed in from sizeChanged) is ground truth for
+    /// what draws; the analytic path survives only as the pre-first-layout
+    /// fallback, when there is no measurement yet to trust.
     func naturalFit() -> (cols: Int, rows: Int)? {
         guard bounds.width > 10, bounds.height > 10 else { return nil }
+        if drawnCols > 1, drawnRows > 1 {
+            if abs(font.pointSize - naturalFontPt) < 0.1 {
+                // Un-scaled: what SwiftTerm measured IS the natural fit.
+                return (drawnCols, drawnRows)
+            }
+            // Auto-scaled: scale the MEASURED cell up to the natural font.
+            // bounds/drawn slightly overestimates the cell (the floor
+            // remainder is folded in), which can only round the fit DOWN —
+            // a hair of letterbox, never an undrawable claim.
+            let ratio = naturalFontPt / font.pointSize
+            let cw = bounds.width / CGFloat(drawnCols) * ratio
+            let ch = bounds.height / CGFloat(drawnRows) * ratio
+            guard cw > 1, ch > 1 else { return nil }
+            return (max(2, Int(bounds.width / cw)), max(2, Int(bounds.height / ch)))
+        }
         let f = UIFont.monospacedSystemFont(ofSize: naturalFontPt, weight: .regular)
         let cw = ("0" as NSString).size(withAttributes: [.font: f]).width
         let ch = f.lineHeight
