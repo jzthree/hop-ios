@@ -69,9 +69,21 @@ const api = async (p, init = {}) => {
 const tail = (text, lines = 18) =>
   (text || "").split("\n").filter((l) => l.trim()).slice(-lines).join("\n");
 
+// Scrubbed: this runs from the SAME cwd (hop2) as the "hop" terminal itself,
+// so hop's own cross-directory clobber guard in claude-session-hook.js never
+// catches it. If this is ever invoked (deliberately, while debugging, or by
+// any future automation) from inside a hop terminal — where HOP_SESSION is
+// set — an un-scrubbed env lets this throwaway `claude -p` conversation get
+// recorded as THAT terminal's primary one, and the next `hop restore`
+// resumes the digest's one-shot chat instead of the user's real history.
+// Measured: exactly this clobbered the "hop" session's actual weeks-long
+// conversation with a 13-line digest run.
 const run = (bin, args, input) =>
   new Promise((resolve, reject) => {
-    const p = execFile(bin, args, { maxBuffer: 32 * 1024 * 1024, timeout: 240000 },
+    const env = { ...process.env };
+    delete env.HOP_SESSION;
+    delete env.CLAUDE_CODE_SESSION_ID;
+    const p = execFile(bin, args, { maxBuffer: 32 * 1024 * 1024, timeout: 240000, env },
       (err, stdout) => (err ? reject(err) : resolve(stdout)));
     if (input) { p.stdin.write(input); p.stdin.end(); }
   });
