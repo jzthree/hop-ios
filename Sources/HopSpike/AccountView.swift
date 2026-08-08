@@ -8,6 +8,8 @@ struct AccountView: View {
     @State private var confirmSignOut = false
     @State private var bioLockOn = BioLock.shared.enabled
     @State private var copied = false
+    @State private var enrolled = false
+    @StateObject private var passkey = PasskeyAuth()
     @StateObject private var network = NetworkConditions.shared
     @StateObject private var notifier = HopNotifier.shared
     @StateObject private var push = PushRegistry.shared
@@ -85,10 +87,23 @@ struct AccountView: View {
                         })) {
                         Label("Require \(BioLock.biometryName)", systemImage: "faceid")
                     }
+                    // A passkey minted ON this phone, so Face ID sign-in owes
+                    // nothing to iCloud syncing the laptop's credential over.
+                    Button {
+                        enrolled = false
+                        Task { enrolled = await passkey.enroll(server: model.normalizedServerURL) }
+                    } label: {
+                        Label(enrolled ? "Passkey added" : "Add \(BioLock.biometryName) sign-in",
+                              systemImage: enrolled ? "checkmark.circle.fill" : "person.badge.key.fill")
+                    }
+                    .disabled(passkey.busy || enrolled)
+                    if let pkErr = passkey.error {
+                        Text(pkErr).font(.footnote).foregroundStyle(.red)
+                    }
                 } header: {
                     Text("Security")
                 } footer: {
-                    Text("Locks hop when the app leaves the screen and on launch. Your passcode is the fallback when \(BioLock.biometryName) fails; the lock screen can always sign out.")
+                    Text("Locks hop when the app leaves the screen and on launch. Your passcode is the fallback when \(BioLock.biometryName) fails; the lock screen can always sign out. Adding \(BioLock.biometryName) sign-in enrolls a passkey on this phone — the next sign-in needs no password and no code.")
                 }
                 Section {
                     Button("Sign out", role: .destructive) { confirmSignOut = true }

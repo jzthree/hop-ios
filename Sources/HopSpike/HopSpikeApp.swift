@@ -161,7 +161,7 @@ struct LoginView: View {
     @State private var totp = ""
     @State private var busy = false
     @State private var remember = true
-    @State private var passkeyShown = false
+    @StateObject private var passkey = PasskeyAuth()
     @FocusState private var focus: Field?
     enum Field { case password, totp }
 
@@ -212,14 +212,20 @@ struct LoginView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // The way in you actually want: the passkey already enrolled
-                // in hop web. Face ID instead of a password AND a 6-digit
-                // code — the daemon's /api/passkeys/login issues the same
+                // The way in you actually want: the native passkey ceremony —
+                // Face ID instead of a password AND a 6-digit code — against
+                // the daemon's /api/passkeys/login, which issues the same
                 // session cookie, so nothing downstream knows the difference.
                 // Above the fields on purpose: the password path is the
                 // fallback now, not the headline.
                 Button {
-                    passkeyShown = true
+                    Task {
+                        if await passkey.signIn(server: model.normalizedServerURL) {
+                            model.authenticated = true
+                            model.sessionExpired = false
+                            await model.refreshSessions(silent: true)
+                        }
+                    }
                 } label: {
                     Label("Sign in with \(BioLock.biometryName)",
                           systemImage: "person.badge.key.fill")
@@ -228,8 +234,14 @@ struct LoginView: View {
                         .padding(.vertical, 13)
                         .background(Color.hopPurple, in: RoundedRectangle(cornerRadius: 12))
                         .foregroundStyle(.white)
+                        .opacity(passkey.busy ? 0.6 : 1)
                 }
+                .disabled(passkey.busy)
                 .accessibilityLabel("Sign in with a passkey")
+                if let pkErr = passkey.error {
+                    Text(pkErr).font(.footnote).foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack(spacing: 8) {
                     Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
                     Text("or password").font(.caption2).foregroundStyle(.tertiary)
@@ -319,15 +331,6 @@ struct LoginView: View {
                 // leave the previous server's password sitting in the field.
                 password = ""
                 loadSavedPassword()
-            }
-            .sheet(isPresented: $passkeyShown) {
-                PasskeyLoginSheet(serverURL: model.normalizedServerURL) {
-                    // The cookie is in shared storage; from here the app is in
-                    // exactly the state a password login leaves it in.
-                    model.authenticated = true
-                    model.sessionExpired = false
-                    Task { await model.refreshSessions(silent: true) }
-                }
             }
         }
     }

@@ -39,9 +39,15 @@ gen:
 # because a locally-signed install is a development one — Release only flips it
 # to production for TestFlight, and a production token cannot be pushed to by a
 # development APNs connection.
+# $(BUILD_AUTH): with ISSUER set, development signing can mint/refresh the
+# profile through the App Store Connect API key — required whenever the
+# ENTITLEMENTS change (associated-domains did this first), because the cached
+# profile no longer matches and Xcode has no signed-in account to fix it.
+BUILD_AUTH = $(if $(ISSUER),$(ASC_AUTH),)
+
 build: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
-	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+	  -destination 'generic/platform=iOS' -allowProvisioningUpdates $(BUILD_AUTH) \
 	  -derivedDataPath build $(VERSION_FLAGS) APS_ENVIRONMENT=development build
 
 # The unoptimised build, for when something needs a debugger attached.

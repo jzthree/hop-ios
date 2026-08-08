@@ -63,6 +63,12 @@ targets:
         # or the app registers against sandbox APNs and real pushes never
         # arrive. Debug keeps development so a cabled build still works.
         aps-environment: $(APS_ENVIRONMENT)
+        # Native passkey (Face ID) sign-in. The daemon serves the matching
+        # /.well-known/apple-app-site-association naming this team+bundle;
+        # Apple's CDN cross-checks the pair. Static by nature: a passkey
+        # against any OTHER hop server needs its domain added here.
+        com.apple.developer.associated-domains:
+          - webcredentials:hop.zhoulab.io
         # RE-PARKED with the widget 2026-07-29 (second attempt): the sign-in
         # did not stick — defaults read com.apple.dt.Xcode
         # DVTDeveloperAccountManagerAppleIDLists shows an EMPTY account list
