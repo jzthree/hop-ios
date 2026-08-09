@@ -96,7 +96,15 @@ struct TerminalHostView: View {
     @State private var peerSize: String?
     @State private var links: [String] = []
     @State private var showLinks = false
-    @State private var viewsPanelShown = false
+    /// Same dev hook the Account sheet uses: a panel that can only be reached
+    /// by a gesture is a panel no screenshot check can see.
+    @State private var viewsPanelShown = {
+#if DEBUG
+        ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "views"
+#else
+        false
+#endif
+    }()
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?

@@ -1402,6 +1402,32 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
     }
 
+    // MARK: - ArtifactItem (a row in the Views list)
+
+    func testViewRowLeadsWithTheTitleWhenThereIsOne() {
+        let i = ArtifactItem(session: "Orion", name: "roc.png",
+                             title: "ROC curve: new vs baseline",
+                             path: "/view/Orion/roc.png/inline", bytes: 1, mtime: 0)
+        XCTAssertEqual(i.label, "ROC curve: new vs baseline")
+    }
+
+    func testViewRowFallsBackToADecodedFilename() {
+        // Manifest paths are percent-encoded; the row must not show %20.
+        let i = ArtifactItem(session: "Orion", name: "run%20two.pdf", title: "",
+                             path: "/view/Orion/run%20two.pdf/inline", bytes: 1, mtime: 0)
+        XCTAssertEqual(i.label, "run two.pdf")
+    }
+
+    func testViewRowGlyphKnowsTheRenderableKinds() {
+        let kinds = ["a.pdf": "doc.richtext", "b.png": "photo", "c.html": "safari",
+                     "d.md": "doc.text", "e.mp4": "play.rectangle", "f.bin": "doc"]
+        for (name, glyph) in kinds {
+            let i = ArtifactItem(session: "s", name: name, title: "", path: "/p",
+                                 bytes: 0, mtime: 0)
+            XCTAssertEqual(i.glyph, glyph, "wrong glyph for \(name)")
+        }
+    }
+
     // MARK: - ViewSummary
 
     func testViewSummaryLeadsWithTheAgentsTitle() {
