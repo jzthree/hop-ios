@@ -1402,6 +1402,30 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
     }
 
+    // MARK: - ViewSummary
+
+    func testViewSummaryLeadsWithTheAgentsTitle() {
+        let v = ViewSummary(json: ["count": 2, "latestAt": 1700.0,
+                                   "latestTitle": "ROC curve: new vs baseline",
+                                   "latestName": "roc.png", "latestPath": "/view/a/roc.png/inline"])
+        XCTAssertEqual(v?.count, 2)
+        XCTAssertEqual(v?.latestLabel, "ROC curve: new vs baseline")
+    }
+
+    func testViewSummaryFallsBackToTheFilename() {
+        // Published without --title: the filename is all there is to show.
+        let v = ViewSummary(json: ["count": 1, "latestAt": 1.0, "latestTitle": "",
+                                   "latestName": "out.pdf", "latestPath": "/view/a/out.pdf/inline"])
+        XCTAssertEqual(v?.latestLabel, "out.pdf")
+    }
+
+    func testViewSummaryIsAbsentForASessionThatPublishedNothing() {
+        // The daemon omits the key entirely rather than sending a zero, and a
+        // zero-count summary must not light a chip.
+        XCTAssertNil(ViewSummary(json: nil))
+        XCTAssertNil(ViewSummary(json: ["count": 0]))
+    }
+
     // MARK: - replayGrid
 
     func testReplayUsesThePtyGridNotTheLocalFit() {

@@ -57,14 +57,23 @@ struct ArtifactWebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
-/// One published artifact, from the manifest hop view maintains.
+/// One published view, from the manifest hop view maintains.
 struct ArtifactItem: Identifiable, Equatable {
     let session: String
     let name: String
+    /// What the agent SAID it was handing over (`hop view --title`). Empty
+    /// for anything published without one.
+    let title: String
     let path: String
     let bytes: Int
     let mtime: Double
     var id: String { path }
+
+    /// Lead with the title: "ROC curve, new model vs baseline" is the reason
+    /// to open this; "roc_curve.png" makes you open it to find out.
+    var label: String {
+        title.isEmpty ? (name.removingPercentEncoding ?? name) : title
+    }
 
     var glyph: String {
         let ext = (name as NSString).pathExtension.lowercased()
@@ -72,6 +81,8 @@ struct ArtifactItem: Identifiable, Equatable {
         case "pdf": return "doc.richtext"
         case "png", "jpg", "jpeg", "gif", "webp", "svg", "heic": return "photo"
         case "html", "htm": return "safari"
+        case "md", "markdown", "txt": return "doc.text"
+        case "mp4", "mov", "webm": return "play.rectangle"
         default: return "doc"
         }
     }
@@ -85,6 +96,10 @@ struct ArtifactsBrowser: View {
     let urlSession: URLSession
     /// internalName → display name, same mapping the briefing uses.
     var nameFor: (String) -> String
+    /// Scope to ONE session's results. A result belongs to the conversation
+    /// that produced it, and from inside that conversation the rest of the
+    /// fleet's output is noise; nil keeps the fleet-wide folder.
+    var onlySession: String? = nil
     @State private var items: [ArtifactItem] = []
     @State private var loaded = false
     @State private var viewing: URL?
@@ -103,7 +118,9 @@ struct ArtifactsBrowser: View {
                 } else {
                     List {
                         ForEach(grouped, id: \.session) { group in
-                            Section(nameFor(group.session)) {
+                            // Scoped to one session, the header would repeat
+                            // the title bar.
+                            Section(onlySession == nil ? nameFor(group.session) : "") {
                                 ForEach(group.rows) { item in
                                     Button {
                                         if let u = URL(string: serverURL)?
@@ -116,13 +133,18 @@ struct ArtifactsBrowser: View {
                                                 .foregroundStyle(Color.hopGlow)
                                                 .frame(width: 22)
                                             VStack(alignment: .leading, spacing: 1) {
-                                                Text(item.name.removingPercentEncoding ?? item.name)
+                                                Text(item.label)
                                                     .font(.subheadline)
                                                     .foregroundStyle(.primary)
-                                                    .lineLimit(1)
-                                                Text(Self.stamp(item))
+                                                    .lineLimit(2)
+                                                // The filename earns its place
+                                                // only once a title is saying
+                                                // the useful thing.
+                                                Text(item.title.isEmpty ? Self.stamp(item)
+                                                     : "\(item.name.removingPercentEncoding ?? item.name) · \(Self.stamp(item))")
                                                     .font(.caption2)
                                                     .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
                                             }
                                             Spacer()
                                             Image(systemName: "chevron.right")
@@ -138,7 +160,7 @@ struct ArtifactsBrowser: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("Views")
+            .navigationTitle(onlySession.map { "Views · \(nameFor($0))" } ?? "Views")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -172,8 +194,11 @@ struct ArtifactsBrowser: View {
     }
 
     private func load() async {
+        // /api/views is the same bytes as the legacy
+        // /assets/view/manifest.json, under a name that says what it is; the
+        // old path stays served for builds already on phones.
         guard let url = URL(string: serverURL)?
-            .appendingPathComponent("assets/view/manifest.json") else { loaded = true; return }
+            .appendingPathComponent("api/views") else { loaded = true; return }
         var req = URLRequest(url: url)
         req.timeoutInterval = 8
         req.cachePolicy = .reloadIgnoringLocalCacheData
@@ -185,7 +210,9 @@ struct ArtifactsBrowser: View {
         items = raw.compactMap { o in
             guard let s = o["session"] as? String, let n = o["name"] as? String,
                   let p = o["path"] as? String else { return nil }
-            return ArtifactItem(session: s, name: n, path: p,
+            if let only = onlySession, s != only { return nil }
+            return ArtifactItem(session: s, name: n,
+                                title: (o["title"] as? String) ?? "", path: p,
                                 bytes: (o["bytes"] as? Int) ?? 0,
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }

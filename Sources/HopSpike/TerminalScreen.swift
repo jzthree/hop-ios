@@ -96,6 +96,7 @@ struct TerminalHostView: View {
     @State private var peerSize: String?
     @State private var links: [String] = []
     @State private var showLinks = false
+    @State private var viewsPanelShown = false
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -287,6 +288,20 @@ struct TerminalHostView: View {
             }
             .sheet(item: $artifactURL) { url in
                 ArtifactSheet(url: url)
+            }
+            // Half-height by default, and the terminal stays LIVE above it:
+            // reading a result while the session it came from keeps running
+            // is the whole point of the panel over a full-screen push.
+            .sheet(isPresented: $viewsPanelShown) {
+                ArtifactsBrowser(serverURL: model.normalizedServerURL,
+                                 urlSession: .shared,
+                                 nameFor: { internalName in
+                                     model.sessions.first { $0.internalName == internalName }?.name
+                                         ?? internalName
+                                 },
+                                 onlySession: session.internalName)
+                    .presentationDetents([.fraction(0.5), .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.5)))
             }
             .overlay {
                 if let goneReason {
@@ -556,6 +571,63 @@ struct TerminalHostView: View {
     /// switching sessions is the most common reason to touch chrome at all),
     /// and the actions menu. Lives in an overlay so its appearance never
     /// changes the terminal's frame.
+    /// What this session has handed over that a terminal cannot draw.
+    ///
+    /// On the BAR, not buried in the menu: a result an agent published is the
+    /// answer to the thing you asked for, and a surface you have to remember
+    /// to go looking in is one you check after you needed it. Silent when the
+    /// session has published nothing, so it costs nothing in the common case.
+    ///
+    /// A single tap goes straight to the newest result rather than to a list
+    /// of one — that IS the deliverable most of the time. Long-press when you
+    /// want the whole list.
+    @ViewBuilder private var viewsChip: some View {
+        if let v = liveSession.views {
+            let unseen = ViewSeen.isNew(liveSession)
+            Button {
+                ViewSeen.markSeen(liveSession)
+                if let u = URL(string: model.normalizedServerURL)?
+                    .appendingPathComponent(String(v.latestPath.dropFirst())) {
+                    artifactURL = u
+                } else {
+                    viewsPanelShown = true
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: unseen ? "sparkles.rectangle.stack.fill" : "rectangle.stack")
+                        .font(.system(size: 12, weight: .semibold))
+                    if v.count > 1 {
+                        Text("\(v.count)").font(.caption2.weight(.semibold).monospacedDigit())
+                    }
+                }
+                .foregroundStyle(unseen ? Color.hopIslandBlack : Color.primary)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(unseen ? Color.hopAttention : Color.white.opacity(0.10),
+                            in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(unseen ? 0 : 0.10),
+                                                lineWidth: 0.5))
+            }
+            .accessibilityLabel(unseen
+                ? "New result: \(v.latestLabel)"
+                : "\(v.count) published view\(v.count == 1 ? "" : "s")")
+            .contextMenu {
+                Button {
+                    ViewSeen.markSeen(liveSession)
+                    viewsPanelShown = true
+                } label: { Label("All views (\(v.count))", systemImage: "tray.full") }
+            }
+            .transition(.scale.combined(with: .opacity))
+        }
+    }
+
+    /// The session as the LIST currently reports it, not the copy this screen
+    /// was opened with. Views arrive while you are sitting in the terminal —
+    /// reading the stale struct is why a freshly published result would not
+    /// appear until you left and came back.
+    private var liveSession: HopSession {
+        model.sessions.first { $0.internalName == session.internalName } ?? session
+    }
+
     private var chromeBar: some View {
         HStack(spacing: 8) {
             // The final shape, at Jian's word: TWO views — switcher and
@@ -587,6 +659,7 @@ struct TerminalHostView: View {
                 titleLabel
             }
             Spacer(minLength: 4)
+            viewsChip
             actionsMenu
         }
         .padding(.horizontal, 8)
@@ -810,6 +883,17 @@ struct TerminalHostView: View {
                 }
             }
             Section {
+                // The menu route to the same place the bar chip goes, for
+                // when you want the list rather than the newest thing — and
+                // the only route at all once the chip has been dismissed by
+                // the chrome auto-hiding.
+                Button {
+                    ViewSeen.markSeen(liveSession)
+                    viewsPanelShown = true
+                } label: {
+                    Label(liveSession.views.map { "Views (\($0.count))" } ?? "Views",
+                          systemImage: "rectangle.stack")
+                }
                 Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
                 Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
                     Label("Copy screen", systemImage: "doc.on.doc")

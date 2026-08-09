@@ -848,6 +848,54 @@ struct HopFolder: Identifiable, Equatable {
     }
 }
 
+/// A session's published results, as the sessions list reports them.
+struct ViewSummary {
+    let count: Int
+    /// Epoch seconds of the newest publish — the only number "new" needs.
+    let latestAt: Double
+    let latestTitle: String
+    let latestName: String
+    let latestPath: String
+
+    /// What to CALL the newest result. An agent that passed `--title` said
+    /// what it was handing over; without one, the filename is all there is.
+    var latestLabel: String { latestTitle.isEmpty ? latestName : latestTitle }
+
+    init?(json: [String: Any]?) {
+        guard let j = json, let c = jsonInt(j["count"]), c > 0 else { return nil }
+        count = c
+        latestAt = jsonDouble(j["latestAt"]) ?? 0
+        latestTitle = (j["latestTitle"] as? String) ?? ""
+        latestName = (j["latestName"] as? String) ?? ""
+        latestPath = (j["latestPath"] as? String) ?? ""
+    }
+}
+
+/// Which published results THIS device has already been shown.
+///
+/// Deliberately client-side, mirroring how `seenBellSeq` handles attention:
+/// the desk opening a plot must not clear the badge in your pocket. Stored
+/// as session → newest-publish timestamp already seen.
+enum ViewSeen {
+    private static let key = "seenViewAt"
+    private static var map: [String: Double] {
+        get { (UserDefaults.standard.dictionary(forKey: key) as? [String: Double]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+    static func isNew(_ s: HopSession) -> Bool {
+        guard let v = s.views else { return false }
+        return v.latestAt > (map[s.internalName] ?? 0)
+    }
+    /// Called when the human has actually been shown the list — opening a
+    /// view or its panel, never a background refresh.
+    static func markSeen(_ s: HopSession) {
+        guard let v = s.views else { return }
+        var m = map
+        m[s.internalName] = v.latestAt
+        map = m
+    }
+}
+
 struct HopSession: Identifiable {
     let name: String
     let internalName: String
@@ -881,6 +929,12 @@ struct HopSession: Identifiable {
     /// Parked AND stopped, but the daemon pre-wrote a restore plan, so opening
     /// it resumes the conversation rather than starting a new one.
     let archived: Bool
+    /// What this session has PUBLISHED — `hop view` results the terminal
+    /// cannot draw. The server states facts (how many, how recent, what the
+    /// newest is called) and never an unread count: "new" is per-device, and
+    /// a phone that has not looked is behind whether or not the desk has.
+    /// `ViewSeen` turns these facts into this device's own answer.
+    let views: ViewSummary?
     var id: String { internalName }
 
     init?(json: [String: Any], seenBellSeq: [String: Int]) {
@@ -903,6 +957,7 @@ struct HopSession: Identifiable {
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
         folderId = json["folderId"] as? String
+        views = ViewSummary(json: json["views"] as? [String: Any])
     }
 
     var shortCwd: String {
