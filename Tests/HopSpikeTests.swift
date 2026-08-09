@@ -1407,14 +1407,14 @@ final class HopSpikeTests: XCTestCase {
     func testViewRowLeadsWithTheTitleWhenThereIsOne() {
         let i = ArtifactItem(session: "Orion", name: "roc.png",
                              title: "ROC curve: new vs baseline",
-                             path: "/view/Orion/roc.png/inline", bytes: 1, mtime: 0)
+                             path: "/view/Orion/roc.png/inline", isServer: false, bytes: 1, mtime: 0)
         XCTAssertEqual(i.label, "ROC curve: new vs baseline")
     }
 
     func testViewRowFallsBackToADecodedFilename() {
         // Manifest paths are percent-encoded; the row must not show %20.
         let i = ArtifactItem(session: "Orion", name: "run%20two.pdf", title: "",
-                             path: "/view/Orion/run%20two.pdf/inline", bytes: 1, mtime: 0)
+                             path: "/view/Orion/run%20two.pdf/inline", isServer: false, bytes: 1, mtime: 0)
         XCTAssertEqual(i.label, "run two.pdf")
     }
 
@@ -1423,9 +1423,17 @@ final class HopSpikeTests: XCTestCase {
                      "d.md": "doc.text", "e.mp4": "play.rectangle", "f.bin": "doc"]
         for (name, glyph) in kinds {
             let i = ArtifactItem(session: "s", name: name, title: "", path: "/p",
-                                 bytes: 0, mtime: 0)
+                                 isServer: false, bytes: 0, mtime: 0)
             XCTAssertEqual(i.glyph, glyph, "wrong glyph for \(name)")
         }
+    }
+
+    func testAProxiedServerRowLooksLikeADoorNotADocument() {
+        let i = ArtifactItem(session: "Orion", name: "probe.html",
+                             title: "probe — live server on port 8899",
+                             path: "/s/Orion-probe/", isServer: true, bytes: 180, mtime: 0)
+        XCTAssertEqual(i.glyph, "globe")
+        XCTAssertEqual(i.label, "probe — live server on port 8899")
     }
 
     // MARK: - ViewSummary

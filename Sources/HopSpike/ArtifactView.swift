@@ -65,6 +65,10 @@ struct ArtifactItem: Identifiable, Equatable {
     /// for anything published without one.
     let title: String
     let path: String
+    /// A LIVE proxied localhost server rather than a stored file. It can stop
+    /// working when the server does, which a file never does — worth saying
+    /// on the row rather than letting a dead link look like a broken view.
+    let isServer: Bool
     let bytes: Int
     let mtime: Double
     var id: String { path }
@@ -76,6 +80,7 @@ struct ArtifactItem: Identifiable, Equatable {
     }
 
     var glyph: String {
+        if isServer { return "globe" }
         let ext = (name as NSString).pathExtension.lowercased()
         switch ext {
         case "pdf": return "doc.richtext"
@@ -130,7 +135,7 @@ struct ArtifactsBrowser: View {
                                     } label: {
                                         HStack(spacing: 10) {
                                             Image(systemName: item.glyph)
-                                                .foregroundStyle(Color.hopGlow)
+                                                .foregroundStyle(item.isServer ? Color.hopAttention : Color.hopGlow)
                                                 .frame(width: 22)
                                             VStack(alignment: .leading, spacing: 1) {
                                                 Text(item.label)
@@ -140,8 +145,12 @@ struct ArtifactsBrowser: View {
                                                 // The filename earns its place
                                                 // only once a title is saying
                                                 // the useful thing.
-                                                Text(item.title.isEmpty ? Self.stamp(item)
-                                                     : "\(item.name.removingPercentEncoding ?? item.name) · \(Self.stamp(item))")
+                                                // A server has no meaningful
+                                                // size or filename to show —
+                                                // it's a door, not a document.
+                                                Text(item.isServer ? "live server · tap to open"
+                                                     : (item.title.isEmpty ? Self.stamp(item)
+                                                        : "\(item.name.removingPercentEncoding ?? item.name) · \(Self.stamp(item))"))
                                                     .font(.caption2)
                                                     .foregroundStyle(.secondary)
                                                     .lineLimit(1)
@@ -211,8 +220,15 @@ struct ArtifactsBrowser: View {
             guard let s = o["session"] as? String, let n = o["name"] as? String,
                   let p = o["path"] as? String else { return nil }
             if let only = onlySession, s != only { return nil }
+            let server = (o["kind"] as? String) == "server"
+            // Straight to the proxy for a server: the scan found a redirect
+            // page, and bouncing the reader through it is a visible flash and
+            // a wasted round trip on a phone link.
+            let target = (o["target"] as? String) ?? ""
             return ArtifactItem(session: s, name: n,
-                                title: (o["title"] as? String) ?? "", path: p,
+                                title: (o["title"] as? String) ?? "",
+                                path: server && !target.isEmpty ? target : p,
+                                isServer: server,
                                 bytes: (o["bytes"] as? Int) ?? 0,
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }
