@@ -161,6 +161,28 @@ func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> 
     return max(1, viewHeight / CGFloat(max(1, rows)))
 }
 
+/// The grid a REPLAY must be written into.
+///
+/// A snapshot is bytes the PTY rendered for its own size — every cursor
+/// address and in-place repaint inside it assumes that row count — so the
+/// only correct target is the PTY's grid, which the server hands us as
+/// `joined`/`active_size` and we hold in `pinnedGrid`. A local fit is a
+/// measurement of THIS screen, and on iOS the two disagree on the rows axis
+/// routinely: the keyboard halves the view, so a fit measured with it up
+/// describes a screen that no longer exists by the time a reconnect replays.
+/// Writing a 48-row replay into a 24-row terminal is one defect with two
+/// faces — overlapping pages, and a session sitting at half height.
+///
+/// The fitted size is a fallback for the first attach only, before any server
+/// number has arrived; a grid of (0,0) or one degenerate axis is no answer at
+/// all and must not win over a usable pin.
+func replayGrid(pinned: (cols: Int, rows: Int)?,
+                fitted: (cols: Int, rows: Int)?) -> (cols: Int, rows: Int)? {
+    if let p = pinned, p.cols > 1, p.rows > 1 { return p }
+    if let f = fitted, f.cols > 1, f.rows > 1 { return f }
+    return nil
+}
+
 /// How far down to nudge a grid that cannot fill the viewport, so the unused
 /// space is split evenly instead of all landing under the content.
 ///

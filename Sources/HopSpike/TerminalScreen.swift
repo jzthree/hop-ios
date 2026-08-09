@@ -99,11 +99,6 @@ struct TerminalHostView: View {
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
-    /// Height of the key bar while the keyboard is up. SwiftUI's keyboard
-    /// avoidance insets for the keyboard but NOT for an inputAccessoryView, so
-    /// the terminal's frame ran on underneath the strip and autofit sized rows
-    /// for space the user cannot see — the bottom of the session, including
-    /// claude's prompt line, sat behind the keys.
     /// Set when the session is gone for good — ended, or a room the server no
     /// longer has. A red line buried in the scrollback is easy to miss when
     /// you've just tapped in expecting a live terminal.
@@ -1488,20 +1483,34 @@ struct TerminalScreen: UIViewRepresentable {
                     // This path runs on EVERY return from background.
                     tv.getTerminal().resetToInitialState()
                     tv.sawScrollback = false     // a reset terminal has none
-                    // Back to the size this screen actually fits. The fast
-                    // paint deliberately resizes the grid to the session's real
-                    // size so the pre-snapshot screen isn't wrapped into mush,
-                    // and nothing puts it back: SwiftTerm re-fits only when its
-                    // BOUNDS change, so that grid survives until the keyboard
-                    // happens to appear. A grid taller than the view has its
-                    // bottom rows outside the bounds; a shorter one leaves the
-                    // screen underfilled. Measured: usually the snapshot beats
-                    // the fast paint and this is a no-op, which is why it never
-                    // showed. On a slow link the fast paint lands first.
-                    if self.fittedCols > 1, self.fittedRows > 1,
-                       tv.getTerminal().cols != self.fittedCols
-                        || tv.getTerminal().rows != self.fittedRows {
-                        tv.getTerminal().resize(cols: self.fittedCols, rows: self.fittedRows)
+                    // Feed the replay at the PTY'S OWN grid, never at this
+                    // screen's fit. A snapshot is bytes the PTY rendered for
+                    // ITS size: every cursor address and repaint in it assumes
+                    // that row count. Writing them into a terminal of a
+                    // different height is how a Claude Code screen arrived as
+                    // two overlapping pages ("the previous page was not
+                    // completely cleaned"), and how a session came back at
+                    // half height — one defect, two faces, and iOS-only
+                    // because hop web never resizes on snapshot at all, it
+                    // just writes (App.tsx case "snapshot").
+                    //
+                    // pinnedGrid is the SERVER's number: `joined` sets it from
+                    // the PTY immediately before this snapshot, and every
+                    // active_size re-sets it. fittedCols/Rows is a LOCAL
+                    // measurement that goes stale whenever the keyboard state
+                    // differs between the last layout pass and this replay —
+                    // which is precisely why the ROWS drift while the columns
+                    // (same font, same width, no keyboard on that axis) stay
+                    // right (Jian: "the width is generally always fine, but
+                    // the height is inconsistent").
+                    if let g = replayGrid(pinned: tv.pinnedGrid,
+                                          fitted: (self.fittedCols, self.fittedRows)) {
+                        let t = tv.getTerminal()
+                        if t.cols != g.cols || t.rows != g.rows {
+                            self.wakeMark("snapshot regrid \(t.cols)x\(t.rows)→\(g.cols)x\(g.rows)"
+                                + " (fit \(self.fittedCols)x\(self.fittedRows))")
+                            t.resize(cols: g.cols, rows: g.rows)
+                        }
                     }
                     // Re-enter the modes the app is actually in. SwiftTerm keeps
                     // the buffer switch private, but a terminal takes modes as
@@ -3212,13 +3221,23 @@ final class HopTermView: TerminalView {
             guard let self, self.window != nil else { return }
             let t = self.getTerminal()
             let before = Int(self.contentOffset.y)
+            // Re-assert the PTY grid first: everything below renders what the
+            // terminal currently is, so a drifted row count would just be
+            // repainted faithfully. layoutSubviews does this too, but only
+            // when a layout pass happens to run — and the states worth
+            // healing are exactly the ones where nothing triggers one.
+            var regrid = ""
+            if let pin = self.pinnedGrid, t.cols != pin.cols || t.rows != pin.rows {
+                regrid = " regrid=\(t.cols)x\(t.rows)→\(pin.cols)x\(pin.rows)"
+                t.resize(cols: pin.cols, rows: pin.rows)
+            }
             self.resyncViewport()
             t.updateFullScreen()
             self.setNeedsDisplay(self.bounds)
             self.applyLetterbox()
             KBLog.record("settle redraw (\(reason)) grid=\(t.cols)x\(t.rows) "
                 + "drawn=\(self.drawnCols)x\(self.drawnRows) off=\(before)→\(Int(self.contentOffset.y)) "
-                + "font=\(String(format: "%.1f", self.font.pointSize))")
+                + "font=\(String(format: "%.1f", self.font.pointSize))\(regrid)")
         }
         settleRedraw = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)

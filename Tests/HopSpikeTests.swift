@@ -1402,6 +1402,36 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(letterboxOffset(viewHeight: 800, gridRows: 60, capacityRows: 40), 0)
     }
 
+    // MARK: - replayGrid
+
+    func testReplayUsesThePtyGridNotTheLocalFit() {
+        // THE HALF-HEIGHT / OVERLAPPING-PAGES BUG. The fit was measured with
+        // the keyboard up (24 rows); the PTY is 48. Feeding the replay at the
+        // fit writes a 48-row screen into a 24-row terminal — pages overlap,
+        // and the session sits at half the height it should.
+        let g = replayGrid(pinned: (cols: 80, rows: 48), fitted: (cols: 80, rows: 24))
+        XCTAssertEqual(g?.rows, 48)
+        XCTAssertEqual(g?.cols, 80)
+    }
+
+    func testReplayFallsBackToTheFitBeforeAnyServerNumber() {
+        // First attach: no pin yet, so this screen's own measurement is the
+        // only answer available.
+        let g = replayGrid(pinned: nil, fitted: (cols: 52, rows: 26))
+        XCTAssertEqual(g?.cols, 52)
+        XCTAssertEqual(g?.rows, 26)
+    }
+
+    func testReplayIgnoresADegeneratePin() {
+        // A (0,0) pin is not an answer — it must not beat a usable fit.
+        let g = replayGrid(pinned: (cols: 0, rows: 0), fitted: (cols: 52, rows: 26))
+        XCTAssertEqual(g?.rows, 26)
+    }
+
+    func testReplayHasNoAnswerWithoutEitherSize() {
+        XCTAssertNil(replayGrid(pinned: nil, fitted: (cols: 0, rows: 0)))
+    }
+
     // MARK: - resolveSessionName (hop2 e4bdd86 mirror)
 
     private func fleet(_ pairs: [(display: String, internal_: String)]) -> [HopSession] {
