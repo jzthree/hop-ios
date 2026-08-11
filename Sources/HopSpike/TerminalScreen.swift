@@ -230,11 +230,30 @@ struct TerminalHostView: View {
             .opacity(bannerVisible ? 0.82 : 1)
             .animation(.easeInOut(duration: 0.3), value: bannerVisible)
             .padding(.horizontal, 2)
-            // Rows begin just under the status text (probe-caught at 26:
-            // row zero ran straight through the clock). ~19pt reclaimed over
-            // the old safe-area start, and the band above reads as the
-            // terminal's own surface instead of dead space.
-            .padding(.top, 40)
+            // Row zero has to clear whatever is actually up there.
+            //
+            // The 40pt constant was tuned when the chrome auto-hid, so the
+            // band above the first row was empty most of the time and worth
+            // reclaiming (probe-caught at 26: row zero ran straight through
+            // the clock). Then the menu became PERSISTENT by default and grew
+            // to meet the Dynamic Island — chromeStrip tall — while this
+            // number stayed 40. Everything between sat behind an opaque bar:
+            // invisible in a busy session, where the viewport is parked at
+            // the live edge, and glaring in a NEW one, where the banner and
+            // the first prompt ARE rows 0-3 (Jian: "new sessions start so
+            // high the text is hidden by the menu button", with a sliver of
+            // it bleeding out above the bar next to the clock).
+            //
+            // Keyed on the SETTING, not on `chromeShown`: the terminal's
+            // frame decides its row count, so following the transient
+            // visibility would reshape the PTY — for every peer — each time
+            // an auto-hiding menu came and went. The setting changes about
+            // once a year, so this is a constant in practice and costs no
+            // churn. Auto-hide keeps the reclaimed band and accepts a
+            // summoned menu briefly overlaying it, which is the trade that
+            // option is asking for; landscape hides the chrome outright.
+            .padding(.top, (chromeAutoHideEnabled || landscapePhone)
+                     ? 40 : HopTermView.chromeStrip)
             // NO accessory padding: SwiftUI's keyboard avoidance already
             // clears the FULL keyboard frame INCLUDING the inputAccessoryView
             // riding on it, so the extra 46pt here was double-counted — a
