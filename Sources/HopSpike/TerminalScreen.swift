@@ -150,6 +150,7 @@ struct TerminalHostView: View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
                        fitWidth: fitWidth, autoScale: peerSize != nil, fitTick: fitTick,
+                       chromeAutoHide: chromeAutoHideEnabled, landscape: landscapePhone,
                        find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
                        onLinks: { found in
@@ -230,30 +231,12 @@ struct TerminalHostView: View {
             .opacity(bannerVisible ? 0.82 : 1)
             .animation(.easeInOut(duration: 0.3), value: bannerVisible)
             .padding(.horizontal, 2)
-            // Row zero has to clear whatever is actually up there.
-            //
-            // The 40pt constant was tuned when the chrome auto-hid, so the
-            // band above the first row was empty most of the time and worth
-            // reclaiming (probe-caught at 26: row zero ran straight through
-            // the clock). Then the menu became PERSISTENT by default and grew
-            // to meet the Dynamic Island — chromeStrip tall — while this
-            // number stayed 40. Everything between sat behind an opaque bar:
-            // invisible in a busy session, where the viewport is parked at
-            // the live edge, and glaring in a NEW one, where the banner and
-            // the first prompt ARE rows 0-3 (Jian: "new sessions start so
-            // high the text is hidden by the menu button", with a sliver of
-            // it bleeding out above the bar next to the clock).
-            //
-            // Keyed on the SETTING, not on `chromeShown`: the terminal's
-            // frame decides its row count, so following the transient
-            // visibility would reshape the PTY — for every peer — each time
-            // an auto-hiding menu came and went. The setting changes about
-            // once a year, so this is a constant in practice and costs no
-            // churn. Auto-hide keeps the reclaimed band and accepts a
-            // summoned menu briefly overlaying it, which is the trade that
-            // option is asking for; landscape hides the chrome outright.
-            .padding(.top, (chromeAutoHideEnabled || landscapePhone)
-                     ? 40 : HopTermView.chromeStrip)
+            // Rows begin just under the status text (probe-caught at 26:
+            // row zero ran straight through the clock). The band the menu
+            // covers is NOT reserved here — shrinking the frame would cost
+            // real rows off the PTY, and the terminal shifts its own content
+            // clear of the menu instead (chromeOverlap / chromeShift).
+            .padding(.top, 40)
             // NO accessory padding: SwiftUI's keyboard avoidance already
             // clears the FULL keyboard frame INCLUDING the inputAccessoryView
             // riding on it, so the extra 46pt here was double-counted — a
@@ -1077,6 +1060,10 @@ struct TerminalScreen: UIViewRepresentable {
     var autoScale = false
     /// Bumped when the room's elected size changes, so the fit font recomputes.
     var fitTick = 0
+    /// Whether the menu is standing over the terminal's top rows right now —
+    /// the terminal shifts its own content clear rather than losing the rows.
+    var chromeAutoHide = false
+    var landscape = false
     var find: FindRequest?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
@@ -1226,6 +1213,11 @@ struct TerminalScreen: UIViewRepresentable {
             uiView.scheduleSettleRedraw("font")
         }
         uiView.applyTheme(light: lightTheme)
+        // What the menu is covering, in the terminal's own coordinates: the
+        // strip it occupies, less the padding the terminal already starts
+        // below. Zero whenever the menu isn't there to cover anything.
+        uiView.chromeOverlap = (chromeAutoHide || landscape)
+            ? 0 : max(0, HopTermView.chromeStrip - 40)
         uiView.naturalFontPt = CGFloat(fontSize)
         uiView.runningAppName = model.sessions
             .first(where: { $0.internalName == room })?.runningApp ?? ""
@@ -1571,6 +1563,9 @@ struct TerminalScreen: UIViewRepresentable {
                     // live edge in any session that prints steadily.
                     DispatchQueue.main.async { [weak tv, weak self] in
                         tv?.reapplyPan()
+                        // The shift depends on how much history exists and
+                        // where the cursor sits, and output moves both.
+                        tv?.applyLetterbox()
                         // The pin fired onScroll(false) through scrolled();
                         // the restore doesn't reliably fire it back. Say the
                         // true thing ourselves or the Live pill dies the
@@ -3386,13 +3381,75 @@ final class HopTermView: TerminalView {
     /// SwiftTerm keeps fitting to the real viewport and the size we would
     /// claim on your next keystroke is still YOUR size, not the letterbox's.
     /// Getting that wrong would make typing claim the peer's grid forever.
+    /// How many points of this view's top the floating menu covers. Zero
+    /// while the menu is hidden (auto-hide, landscape) — nothing is covering
+    /// anything then, and the full height is honestly usable.
+    var chromeOverlap: CGFloat = 0 {
+        didSet { if chromeOverlap != oldValue { applyLetterbox() } }
+    }
+    private var lastLoggedShift: CGFloat = -1
+
+    /// How far to push content down so the LIVE text clears the menu.
+    ///
+    /// Jian's rule: the covered band is an overflow area, not reserved space
+    /// — "we always scroll the terminal so that the current line is below the
+    /// menu". Reserving it in the frame instead would have cost four rows off
+    /// the PTY forever, which is the wrong trade for a band that is only in
+    /// the way when a session is nearly empty.
+    ///
+    /// So HISTORY pays for the band first: a line that has already scrolled
+    /// off the top is exactly the kind of line that should sit behind a menu,
+    /// and every point of scrollback buys back a point of shift. A brand new
+    /// session has none, so it is pushed fully clear — which is the reported
+    /// bug, a fresh shell prompt drawn underneath the bar. A long-running one
+    /// has plenty and uses every point of the screen.
+    ///
+    /// Two things this must never do. It must not push the live line off the
+    /// BOTTOM to clear the top, so the shift is also capped by the room left
+    /// below the cursor — as the cursor approaches the last row the content
+    /// slides up to meet it, which reads as the screen scrolling. And it does
+    /// nothing on the alternate screen, where a full-screen app owns every
+    /// row and draws its own composer at the bottom: there is no scrollback
+    /// to pay with, and shifting would hide the very line being typed into.
+    private func chromeShift() -> CGFloat {
+        guard chromeOverlap > 0, !remoteAltScreen else { return 0 }
+        let t = getTerminal()
+        // Only a grid too TALL to draw blocks this, not `peerSizedGrid`:
+        // that reads true when a peer's grid is merely too WIDE, which is the
+        // common shape (a desk's 80 columns on a phone that draws 51) and
+        // leaves plenty of vertical room. Guarding on it skipped the shift
+        // for exactly the session this was reported against — device log:
+        // rows=24 drawn=32 cols=80, vertically roomy, horizontally not.
+        guard drawnRows <= 0 || t.rows <= drawnRows else { return 0 }
+        let unpaid = chromeOverlap - max(0, contentSize.height - bounds.height)
+        guard unpaid > 0 else { return 0 }
+        let cell = drawnCellHeight(viewHeight: bounds.height,
+                                   drawnRows: drawnRows, terminalRows: t.rows)
+        let roomBelowCursor = CGFloat(max(0, t.rows - 1 - t.buffer.y)) * cell
+        return max(0, min(unpaid, roomBelowCursor))
+    }
+
     func applyLetterbox() {
         let rows = getTerminal().rows
         let capacity = drawnRows > 0 ? drawnRows : rows
         guard capacity > 0, rows > 0, bounds.height > 1 else { return }
         let dy = letterboxOffset(viewHeight: bounds.height,
                                  gridRows: rows, capacityRows: capacity)
-        let wanted = dy > 0 ? CGAffineTransform(translationX: 0, y: dy) : .identity
+        // Whichever is further down wins rather than the sum: letterboxing
+        // already centres a short grid, and stacking a second offset on top
+        // of that would push it off the bottom of the screen.
+        let shift = max(dy, chromeShift())
+        // Into the same ring the size traces use: the shift depends on three
+        // moving numbers, and "why is the top row where it is" is otherwise
+        // unanswerable from a device.
+        if shift != lastLoggedShift {
+            lastLoggedShift = shift
+            KBLog.record("chrome shift \(Int(shift)) (letterbox \(Int(dy)), overlap "
+                + "\(Int(chromeOverlap))) grid=\(getTerminal().cols)x\(getTerminal().rows) "
+                + "drawn=\(drawnCols)x\(drawnRows) scrollback="
+                + "\(Int(max(0, contentSize.height - bounds.height)))")
+        }
+        let wanted = shift > 0 ? CGAffineTransform(translationX: 0, y: shift) : .identity
         if transform != wanted { transform = wanted }
     }
     var drawnCols = 0
