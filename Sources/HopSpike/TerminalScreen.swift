@@ -3171,8 +3171,10 @@ final class HopTermView: TerminalView {
         // an acceptable side effect of scrolling, so its pans are disabled and
         // mouse reporting with them.
         //
-        // Traded away: drag-to-extend a selection. Long-press still selects a
-        // word and opens the menu, which is how iOS does selection anyway.
+        // NOT traded away: drag-to-extend. SwiftTerm re-installs its selection
+        // pan when a selection begins (select() → enableSelectionPanGesture),
+        // and gestureRecognizerShouldBegin lets that one through while ours
+        // yield — so the handles a long-press summons can actually be moved.
         allowMouseReporting = false
         for existing in gestureRecognizers ?? [] where existing is UIPanGestureRecognizer {
             existing.isEnabled = false
@@ -3196,6 +3198,7 @@ final class HopTermView: TerminalView {
         cursorPan.maximumNumberOfTouches = 2
         cursorPan.delegate = self
         addGestureRecognizer(cursorPan)
+        self.cursorPan = cursorPan
         // The top strip belongs to the chrome: it is where anyone reaches for
         // controls, and it is the one place a tap is not meant as "give me the
         // keyboard".
@@ -3957,6 +3960,9 @@ final class HopTermView: TerminalView {
 
     private var selectHold: UILongPressGestureRecognizer?
     private var scrollPan: UIPanGestureRecognizer?
+    /// Kept so the selection-time yield below can tell OUR pans from
+    /// SwiftTerm's — identity is the only honest test there.
+    private var cursorPan: UIPanGestureRecognizer?
 
     private var selectHoldPoint: CGPoint = .zero
     private var keyboardWasUpAtHold = true
@@ -3990,6 +3996,10 @@ final class HopTermView: TerminalView {
             guard selectionActive else { return }
             showCopyChip(at: selectHoldPoint)
             // Re-offer after SwiftTerm's selection pan extends the range.
+            let pans = (gestureRecognizers ?? []).compactMap { $0 as? UIPanGestureRecognizer }
+            selectMark("pans at hold-end: " + pans.map {
+                "\($0 === scrollPan ? "scroll" : $0 === cursorPan ? "cursor" : "other")\($0.isEnabled ? "+" : "-")"
+            }.joined(separator: " "))
             for gr in gestureRecognizers ?? [] where gr is UIPanGestureRecognizer {
                 if gr !== scrollPan, gr.isEnabled, gr.view === self,
                    !(gr is UIScreenEdgePanGestureRecognizer) {
@@ -4011,6 +4021,8 @@ final class HopTermView: TerminalView {
     }
 
     @objc private func selectionPanChanged(_ g: UIPanGestureRecognizer) {
+        // .changed spams ~50 lines a drag; transitions are the story.
+        if g.state != .changed { selectMark("selPan state=\(g.state.rawValue) sel=\(selectionActive)") }
         guard g.state == .ended, selectionActive else { return }
         showCopyChip(at: g.location(in: self))
     }
@@ -4381,7 +4393,15 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // hand sideways drags to the swipe back — and was refusing the
             // very recognizer that performs it.
             if g is UIScreenEdgePanGestureRecognizer { return true }
-            guard !selectionActive else { return false }
+            // While a selection is live, the drag belongs to SwiftTerm's
+            // selection pan — the recognizer that moves the handles. This
+            // hook is the VIEW's, so it is asked about EVERY recognizer on
+            // it, and the old blanket refusal vetoed the very gesture it
+            // meant to protect: handles appeared, then every drag on them
+            // was refused (Jian: "cannot drag selection handle even though
+            // long press triggered selection mode"). Only OUR pans yield.
+            selectMark("shouldBegin pan ours=\(pan === scrollPan || pan === cursorPan) sel=\(selectionActive)")
+            if selectionActive { return pan !== scrollPan && pan !== cursorPan }
             // Panning a peer-sized grid is two-dimensional by nature; the
             // vertical-dominance rule below is for scrolling, where a sideways
             // drag belongs to the swipe back.

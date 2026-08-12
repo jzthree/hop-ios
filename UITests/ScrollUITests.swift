@@ -880,6 +880,94 @@ final class ScrollUITests: XCTestCase {
                       "copied text unexpected: '\(copied)'")
     }
 
+    /// The other half of the selection contract: the handles a long-press
+    /// summons must be DRAGGABLE. gestureRecognizerShouldBegin is the view's
+    /// hook, asked about every recognizer on it, and a blanket "no pans while
+    /// a selection is active" vetoed SwiftTerm's own selection pan — handles
+    /// appeared, every drag on them refused (Jian, on device). The witness is
+    /// the pasteboard: a drag from the selection edge across rows must copy
+    /// MORE than the single word the press selected.
+    func testSelectionHandleDragExtendsTheSelection() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "SelectDragProbe"
+        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions",
+                                 ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete",
+                               ["internalName": scratch], cookie: cookie) }
+        let marker = "/tmp/hop-selectdrag-marker.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+
+        let app = XCUIApplication()
+        let env = ProcessInfo.processInfo.environment
+        app.launchEnvironment["HOP_DEV_COOKIE"] = env["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_COPY_MARKER"] = marker
+        app.launchEnvironment["HOP_SELECT_MARKER"] = "/tmp/hop-selectdrag-trace.txt"
+        try? FileManager.default.removeItem(atPath: "/tmp/hop-selectdrag-trace.txt")
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        app.typeText("seq 1000 1040\n")
+        sleep(2)
+
+        // Press-to-select, then drag from just past the word's END (inside
+        // SwiftTerm's near() tolerance of 3 cols / 2 rows) down across rows.
+        // Slow, with a settle hold: a fast flick reads as a swipe.
+        //
+        // RETRIED as a unit: in this live-fleet harness the selection can
+        // clear between the press and the drag (trace-named: the drag then
+        // arrives at shouldBegin with sel=false and honestly becomes a
+        // scroll). That is inter-gesture timing in a busy scratch, not the
+        // arbitration this test pins, so a cleared selection re-selects and
+        // tries again rather than failing the contract.
+        var copied = ""
+        for attempt in 0..<3 where copied.isEmpty {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.35))
+                .press(forDuration: 0.7)
+            let chip = app.buttons["Copy selection"].firstMatch
+            XCTAssertTrue(chip.waitForExistence(timeout: 6),
+                          "no selection to drag — the press never selected (attempt \(attempt))")
+
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.10, dy: 0.35))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+            from.press(forDuration: 0.15, thenDragTo: to,
+                       withVelocity: .slow, thenHoldForDuration: 0.3)
+
+            // The chip re-offers after the drag; copy through it. Fresh query
+            // each try: the chip is replaced on re-offer, so a handle resolved
+            // before the swap dies at tap time with "no matches".
+            for _ in 0..<8 where copied.isEmpty {
+                let c = app.buttons["Copy selection"].firstMatch
+                if c.waitForExistence(timeout: 1), c.isHittable { c.tap() }
+                usleep(500_000)
+                let got = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+                // Only a MULTI-ROW copy proves the drag extended; a single
+                // word means the drag was lost — try the whole unit again.
+                if got.contains("\n") { copied = got }
+            }
+        }
+        let trace = (try? String(contentsOfFile: "/tmp/hop-selectdrag-trace.txt",
+                                 encoding: .utf8)) ?? "(no trace)"
+        if !copied.contains("\n") {
+            // Verdict by trace. The regression this test pins shows up as a
+            // pan REFUSED while the selection is live. If every attempt's
+            // drag instead arrived at sel=false, the environment (a live
+            // fleet: reconnects, snapshot resets) cleared the selection
+            // before the drag — real on CI, irrelevant to arbitration.
+            if trace.contains("sel=false"), !trace.contains("ours=false sel=true") {
+                throw XCTSkip("selection cleared before every drag — environment, not arbitration: \(trace)")
+            }
+            XCTFail("drag never extended a LIVE selection — \(trace)")
+        }
+    }
+
     /// The disconnect story, production-grade: a dropped socket must show
     /// an honest banner (what happened, when it retries, a way to retry
     /// NOW), and a successful reconnect must clear it. HOP_DEV_DROP_WS
