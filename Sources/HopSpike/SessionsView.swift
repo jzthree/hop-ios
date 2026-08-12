@@ -60,7 +60,15 @@ struct SessionsView: View {
         return switcherTiles
     }
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
-    @State private var showArtifacts = false
+    // Same dev hook the Account sheet uses, so a screenshot check can reach
+    // the fleet-wide list without a gesture.
+    @State private var showArtifacts = {
+#if DEBUG
+        ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "views"
+#else
+        false
+#endif
+    }()
     @State private var contentMatches: [ContentMatch] = []
     /// Rows currently on screen. Previews cost the daemon a render each, so the
     /// budget is small and fixed — this decides WHERE it is spent.
