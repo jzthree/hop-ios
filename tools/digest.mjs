@@ -69,6 +69,70 @@ const api = async (p, init = {}) => {
 const tail = (text, lines = 18) =>
   (text || "").split("\n").filter((l) => l.trim()).slice(-lines).join("\n");
 
+// WHAT IS ACTUALLY IN THE INPUT BOX.
+//
+// Claude Code renders an autocomplete SUGGESTION inside its composer, styled
+// dim, with the cursor still parked at the start of the line. A human reads
+// that instantly — wrong shade, cursor in the wrong place — but the plain
+// text preview the digest reads flattens both signals away, so edition after
+// edition reported a suggestion as a message the user had typed and left
+// unsent ("waiting to send: kick off the 558M cooldown"). It was never typed
+// by anyone.
+//
+// The distinguishing bit survives all the way to /api/sessions/screen, which
+// serves the host's parsed grid WITH its SGR intact: the suggestion arrives
+// under ESC[2m. hop's own MCP layer already splits real from ghost this way
+// (getComposerState in mcp/hop-mcp.js, via isDim()); this is the same rule
+// applied to the one surface that was still guessing from flat text.
+const PROMPT_GLYPHS = new Set(["❯", ">", "$", "»"]);
+export const composerFromScreen = (ansi) => {
+  if (!ansi) return null;
+  // Only the last few lines can be the composer, and scanning up from the
+  // bottom keeps a transcript that happens to quote a prompt out of it.
+  const lines = ansi.split("\n").slice(-16);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let dim = false, typed = "", suggestion = "", started = false, sawPrompt = false;
+    // Walk the line applying SGR as we go: ESC[2m turns dim on, and 0/22 turn
+    // it off. Cursor-motion escapes (ESC[<n>C) are column jumps the grid
+    // writes for runs of blanks — they separate words, so they become spaces.
+    const re = /\x1b\[([0-9;]*)([A-Za-z])/g;
+    const raw = lines[i];
+    let at = 0, m;
+    const emit = (text) => {
+      for (const ch of text) {
+        if (ch === "\r" || ch === "\n") continue;
+        if (!started) {
+          // A composer line opens with its prompt glyph or box edge; the text
+          // before that is frame, not content.
+          if (PROMPT_GLYPHS.has(ch)) { sawPrompt = true; started = true; continue; }
+          if (ch === "│") { started = true; continue; }
+          if (ch.trim() === "") continue;
+          return;                       // ordinary output line — not a composer
+        }
+        if (ch === "│") continue;       // right-hand box edge
+        if (dim) suggestion += ch; else typed += ch;
+      }
+    };
+    while ((m = re.exec(raw)) !== null) {
+      emit(raw.slice(at, m.index));
+      at = m.index + m[0].length;
+      if (m[2] === "m") {
+        for (const p of (m[1] || "0").split(";")) {
+          if (p === "2") dim = true;
+          else if (p === "0" || p === "" || p === "22") dim = false;
+        }
+      } else if (m[2] === "C" && started) {
+        emit(" ");                      // a column jump is whitespace
+      }
+    }
+    emit(raw.slice(at));
+    if (!started || (!sawPrompt && !typed.trim() && !suggestion.trim())) continue;
+    const clean = (s) => s.replace(/ /g, " ").replace(/\s+/g, " ").trim();
+    return { typed: clean(typed), suggestion: clean(suggestion) };
+  }
+  return null;
+};
+
 // Scrubbed: this runs from the SAME cwd (hop2) as the "hop" terminal itself,
 // so hop's own cross-directory clobber guard in claude-session-hook.js never
 // catches it. If this is ever invoked (deliberately, while debugging, or by
@@ -116,6 +180,14 @@ const main = async () => {
       const pv = await api(`/api/sessions/preview?name=${encodeURIComponent(s.internalName)}`);
       screen = tail(pv.text || "");
     } catch { /* a session that will not preview is not worth failing over */ }
+    // The SAME screen with its styling intact, which is the only place the
+    // typed/suggested distinction survives. Separate call because the preview
+    // is deliberately plain text for everything else that renders it.
+    let composer = null;
+    try {
+      const scr = await api(`/api/sessions/screen?name=${encodeURIComponent(s.internalName)}`);
+      composer = composerFromScreen(scr.data || "");
+    } catch { /* no composer reading is better than a wrong one */ }
     seen.push({
       session: s.internalName,
       name: s.displayName || s.name,
@@ -123,6 +195,14 @@ const main = async () => {
       wants_you: !!s.attention,
       idle_seconds: s.lastActivityAt
         ? Math.round(Date.now() / 1000 - s.lastActivityAt) : null,
+      // Only when there is something to say — an empty box is the normal
+      // state and does not need a line in the payload.
+      ...(composer && (composer.typed || composer.suggestion)
+        ? { input_box: {
+              ...(composer.typed ? { typed_by_user: composer.typed } : {}),
+              ...(composer.suggestion ? { autocomplete_suggestion: composer.suggestion } : {})
+            } }
+        : {}),
       screen
     });
   }
@@ -195,6 +275,19 @@ reproductions, data pipelines, and the software that carries them. Some
 sessions are their own work; most are agents working for them. Below is every live
 session — what it is for, whether it rang for attention, how long it has been
 idle, and the tail of its screen right now.
+
+READING THE INPUT BOX. Do not infer from the screen text whether someone has
+typed something and left it unsent — the screen is flat text and cannot show
+you the difference. When a session's input box has anything in it, an
+\`input_box\` field says exactly what, already disambiguated:
+- \`typed_by_user\` is real, human-entered text sitting unsent. That is worth
+  reporting: they walked away mid-sentence.
+- \`autocomplete_suggestion\` is Claude Code's own greyed-out completion,
+  offered but NOT accepted and NOT entered by anyone. It is not pending work,
+  not a decision they left open, and not worth a word in the briefing.
+No \`input_box\` field means the box is empty. Treating a suggestion as
+something the user typed has been the single most common error in these
+editions; the field exists so you never have to guess.
 
 Write the briefing they actually need before they pick up their phone. Lead
 with what they would most regret not knowing.
