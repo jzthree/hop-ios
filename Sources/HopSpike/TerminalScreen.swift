@@ -98,13 +98,16 @@ struct TerminalHostView: View {
     @State private var showLinks = false
     /// Same dev hook the Account sheet uses: a panel that can only be reached
     /// by a gesture is a panel no screenshot check can see.
-    @State private var viewsPanelShown = {
+    /// The Views list, expanded inline under the menu. Same dev hook as
+    /// before so a screenshot can still reach it.
+    @State private var viewsExpanded = {
 #if DEBUG
-        ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "views"
+        ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "viewstrip"
 #else
         false
 #endif
     }()
+    @State private var sessionViews: [ArtifactItem] = []
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -296,22 +299,15 @@ struct TerminalHostView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
-            .sheet(item: $artifactURL) { url in
+            // The VIEWER is still a sheet — a PDF or a rendered page wants the
+            // whole screen — but it takes first responder with it, and iOS
+            // does not hand the keyboard back on dismiss. Jian hit exactly
+            // that: "somehow keyboard got hidden after i interacted with the
+            // views list." Restore focus ourselves when it closes.
+            .sheet(item: $artifactURL, onDismiss: {
+                NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
+            }) { url in
                 ArtifactSheet(url: url)
-            }
-            // Half-height by default, and the terminal stays LIVE above it:
-            // reading a result while the session it came from keeps running
-            // is the whole point of the panel over a full-screen push.
-            .sheet(isPresented: $viewsPanelShown) {
-                ArtifactsBrowser(serverURL: model.normalizedServerURL,
-                                 urlSession: .shared,
-                                 nameFor: { internalName in
-                                     model.sessions.first { $0.internalName == internalName }?.name
-                                         ?? internalName
-                                 },
-                                 onlySession: session.internalName)
-                    .presentationDetents([.fraction(0.5), .large])
-                    .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.5)))
             }
             .overlay {
                 if let goneReason {
@@ -493,8 +489,19 @@ struct TerminalHostView: View {
                 // pill drew over the find bar (probe-caught: the field took
                 // typing while the pill covered it).
                 if chromeShown, !landscapePhone, !findOpen, goneReason == nil {
-                    chromeBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    VStack(spacing: 0) {
+                        chromeBar
+                        // The list lives IN the chrome, not in a sheet
+                        // (Jian). A sheet took first responder and the
+                        // keyboard did not come back when it closed; it also
+                        // covered the very session the result came from. The
+                        // chrome is already an overlay that never touches the
+                        // terminal's frame, so growing it downward costs no
+                        // rows and no PTY resize — and dismissing it cannot
+                        // lose the keyboard, because nothing ever took it.
+                        if viewsExpanded { viewsStrip }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 } else if chromeTipAnchor, !landscapePhone, goneReason == nil {
                     // An invisible anchor where the pill lives, carrying the
                     // one-time "tap here" lesson — only reachable when
@@ -581,6 +588,101 @@ struct TerminalHostView: View {
     /// switching sessions is the most common reason to touch chrome at all),
     /// and the actions menu. Lives in an overlay so its appearance never
     /// changes the terminal's frame.
+    /// The session's results, hanging off the menu that summoned them.
+    ///
+    /// Deliberately not a List: this is chrome, a handful of rows, and a
+    /// scroll view inside an overlay above a pannable terminal is a gesture
+    /// fight nobody wins. Rows open the viewer; the strip stays put behind it
+    /// so closing the viewer returns you here rather than to nothing.
+    @ViewBuilder private var viewsStrip: some View {
+        VStack(spacing: 0) {
+            ForEach(sessionViews) { item in
+                Button {
+                    if let u = URL(string: model.normalizedServerURL)?
+                        .appendingPathComponent(String(item.path.dropFirst())) {
+                        artifactURL = u
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: item.glyph)
+                            .font(.system(size: 13))
+                            .foregroundStyle(item.isServer ? Color.hopAttention : Color.hopGlow)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.label)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(item.isServer ? "live server"
+                                 : (item.name.removingPercentEncoding ?? item.name))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if item.id != sessionViews.last?.id {
+                    Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
+                }
+            }
+            if sessionViews.isEmpty {
+                Text("Nothing published yet — agents publish results with hop view.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(
+            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
+                                   style: .continuous)
+                .fill(Color.hopIslandBlack)
+        )
+        .overlay(
+            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
+                                   style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 8)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        // Load on APPEAR, not only on the tap that opened it: the strip can
+        // also come up already expanded, and a list that renders "nothing
+        // published yet" over five real results is worse than no list.
+        .task { await loadSessionViews() }
+    }
+
+    /// Read the manifest for THIS session only. Cheap enough to re-read every
+    /// time the strip opens, which is also how a result published while you
+    /// were sitting here shows up without a reconnect.
+    private func loadSessionViews() async {
+        guard let url = URL(string: model.normalizedServerURL)?
+            .appendingPathComponent("api/views") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["items"] as? [[String: Any]] else { return }
+        sessionViews = raw.compactMap { o in
+            guard let s = o["session"] as? String, s == session.internalName,
+                  let n = o["name"] as? String, let p = o["path"] as? String else { return nil }
+            let server = (o["kind"] as? String) == "server"
+            let target = (o["target"] as? String) ?? ""
+            return ArtifactItem(session: s, name: n, title: (o["title"] as? String) ?? "",
+                                path: server && !target.isEmpty ? target : p,
+                                isServer: server,
+                                bytes: (o["bytes"] as? Int) ?? 0,
+                                mtime: (o["mtime"] as? Double) ?? 0)
+        }
+    }
+
     /// What this session has handed over that a terminal cannot draw.
     ///
     /// On the BAR, not buried in the menu: a result an agent published is the
@@ -596,19 +698,14 @@ struct TerminalHostView: View {
             let unseen = ViewSeen.isNew(liveSession)
             Button {
                 ViewSeen.markSeen(liveSession)
-                // ONE result: open it, because a list of one is a wasted tap.
-                // SEVERAL: open the list. Jumping straight to the newest was
-                // the original choice and it stranded the reader — Jian: "it
-                // didn't really show up like a list, how do I go through
-                // different items?" There was no answer; the other items were
-                // only reachable through a long-press nobody would guess.
-                if v.count == 1,
-                   let u = URL(string: model.normalizedServerURL)?
-                    .appendingPathComponent(String(v.latestPath.dropFirst())) {
-                    artifactURL = u
-                } else {
-                    viewsPanelShown = true
+                // Expands the menu it sits in rather than covering the
+                // session. Always the list, even at one item: a chip that
+                // sometimes opens a document and sometimes a list is a chip
+                // you have to think about.
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    viewsExpanded.toggle()
                 }
+                if viewsExpanded { Task { await loadSessionViews() } }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: unseen ? "sparkles.rectangle.stack.fill" : "rectangle.stack")
@@ -637,7 +734,10 @@ struct TerminalHostView: View {
                 } label: { Label("Newest: \(v.latestLabel)", systemImage: "sparkles") }
                 Button {
                     ViewSeen.markSeen(liveSession)
-                    viewsPanelShown = true
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                        viewsExpanded = true
+                    }
+                    Task { await loadSessionViews() }
                 } label: { Label("All views (\(v.count))", systemImage: "tray.full") }
             }
             .transition(.scale.combined(with: .opacity))
@@ -913,7 +1013,10 @@ struct TerminalHostView: View {
                 // the chrome auto-hiding.
                 Button {
                     ViewSeen.markSeen(liveSession)
-                    viewsPanelShown = true
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                        viewsExpanded = true
+                    }
+                    Task { await loadSessionViews() }
                 } label: {
                     Label(liveSession.views.map { "Views (\($0.count))" } ?? "Views",
                           systemImage: "rectangle.stack")
@@ -1055,6 +1158,10 @@ enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboar
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
+    /// Posted when a sheet that stole first responder has closed. iOS does
+    /// not restore the terminal's keyboard on its own, so the session came
+    /// back unusable until you tapped it.
+    static let hopRefocusTerminal = Notification.Name("hopRefocusTerminal")
     static let hopCopyAll = Notification.Name("hopCopyAll")
     static let hopJumpToLive = Notification.Name("hopJumpToLive")
 }
@@ -1781,6 +1888,8 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopCopyAll, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(jumpToLive),
                                                    name: .hopJumpToLive, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(refocusTerminal),
+                                                   name: .hopRefocusTerminal, object: nil)
             #if DEBUG
             // Wake-invariant probe: HOP_DEV_FOREIGN_SIZE=100x30 makes the
             // first BACKGROUNDING adopt that grid — exactly what the daemon's
@@ -2204,6 +2313,17 @@ struct TerminalScreen: UIViewRepresentable {
             // refusing to reconnect on no evidence would be worse than the bug.
             verifyThenConnect()
         }
+
+        /// Give the keyboard back after a sheet took it.
+
+        @objc private func refocusTerminal() {
+
+            guard let v = view, v.window != nil, !v.isFirstResponder else { return }
+
+            _ = v.becomeFirstResponder()
+
+        }
+
 
         @objc func jumpToLive() {
             guard let tv = view else { return }
