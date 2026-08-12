@@ -19,7 +19,7 @@
 //
 // Scratch sessions:
 //   TOKEN=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])")
-//   curl -s -X POST https://hop.zhoulab.io/api/sessions -H "Authorization: Bearer $TOKEN" \
+//   curl -s -X POST https://$HOP_HOST/api/sessions -H "Authorization: Bearer $TOKEN" \
 //        -H 'Content-Type: application/json' -d '{"name":"scratch","type":"terminal"}'
 //   ... and delete with /api/sessions/delete {"internalName":"scratch"}
 import WebSocket from '/Users/jianzhou/Code/hop2/hay/node_modules/ws/index.js';
@@ -28,11 +28,24 @@ import fs from 'fs';
 const [room, action, ...rest] = process.argv.slice(2);
 if (!room || !action) { console.log('usage: probe.mjs <room> <action> [args]'); process.exit(1); }
 const secret = JSON.parse(fs.readFileSync(process.env.HOME + '/.hop2/.tunnel-state')).sessionSecret;
+// The server can move (a per-user subdomain once the bare domain becomes a
+// public landing page), so don't bake a hostname in. HOP_HOST overrides;
+// otherwise ask the local daemon where it says home is.
+const hopHost = process.env.HOP_HOST || (() => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(process.env.HOME + '/.hop2/.config.json'));
+    if (cfg.canonicalHost) return cfg.canonicalHost;
+  } catch (e) { /* fall through */ }
+  try {
+    return JSON.parse(fs.readFileSync(process.env.HOME + '/.hop2/.domain-config.json')).hostname;
+  } catch (e) { return null; }
+})();
+if (!hopHost) { console.error('No hop host: set HOP_HOST=<hostname>'); process.exit(1); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const cols = action === 'hold' ? Number(rest[0]) : 80;
 const rows = action === 'hold' ? Number(rest[1]) : 24;
-const ws = new WebSocket(`wss://hop.zhoulab.io/ws?room=${room}&name=probe&source=probe&cols=${cols}&rows=${rows}&replay=1&token=${secret}`);
+const ws = new WebSocket(`wss://${hopHost}/ws?room=${room}&name=probe&source=probe&cols=${cols}&rows=${rows}&replay=1&token=${secret}`);
 const send = data => ws.send(JSON.stringify({ type: 'input', data }));
 
 ws.on('open', async () => {

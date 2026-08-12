@@ -67,8 +67,17 @@ targets:
         # /.well-known/apple-app-site-association naming this team+bundle;
         # Apple's CDN cross-checks the pair. Static by nature: a passkey
         # against any OTHER hop server needs its domain added here.
+        #
+        # The wildcard covers per-user subdomains (<name>.hop.zhoulab.io), which
+        # is where an instance lives once the bare domain becomes a public
+        # landing page. WebAuthn treats each hostname as its own relying party,
+        # so without the subdomain entry a moved server has zero enrolled
+        # passkeys and no way to enroll one. Wildcards need iOS 14+ and a
+        # rebuild — entitlements ship in the binary, so this must land in a
+        # build BEFORE the server moves.
         com.apple.developer.associated-domains:
           - webcredentials:hop.zhoulab.io
+          - webcredentials:*.hop.zhoulab.io
         # RE-PARKED with the widget 2026-07-29 (second attempt): the sign-in
         # did not stick — defaults read com.apple.dt.Xcode
         # DVTDeveloperAccountManagerAppleIDLists shows an EMPTY account list

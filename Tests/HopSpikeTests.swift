@@ -1541,4 +1541,52 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(r.text, "one\ntwo\nthree\nfour\nfive\nsix")
         XCTAssertEqual(r.pt, TileTypography.floorPt)
     }
+
+    // MARK: following a server that moved
+
+    func testFollowsOnlyWhenTheServerSaysItMoved() {
+        // The daemon names a destination AND says we are not at it.
+        XCTAssertEqual(
+            AppModel.canonicalDestination(from: [
+                "canonicalUrl": "https://me.hop.example.com", "isCanonical": false
+            ]),
+            "https://me.hop.example.com")
+
+        // Already home: staying put must be the answer, or the app would
+        // loop re-pointing itself at the address it is already using.
+        XCTAssertNil(AppModel.canonicalDestination(from: [
+            "canonicalUrl": "https://me.hop.example.com", "isCanonical": true
+        ]))
+
+        // A server with no canonical host configured never moves anyone.
+        XCTAssertNil(AppModel.canonicalDestination(from: ["isCanonical": true]))
+        XCTAssertNil(AppModel.canonicalDestination(from: [
+            "canonicalUrl": "", "isCanonical": false
+        ]))
+        XCTAssertNil(AppModel.canonicalDestination(from: [:]))
+    }
+
+    func testRedeemURLMustBelongToTheNamedDestination() {
+        let dest = "https://me.hop.example.com"
+
+        XCTAssertNotNil(AppModel.acceptableRedeemURL(
+            dest + "/api/handoff/redeem?token=abc", destination: dest))
+
+        // A handoff token grants a session. Anywhere but the named
+        // destination is a credential handed to a stranger.
+        XCTAssertNil(AppModel.acceptableRedeemURL(
+            "https://evil.example.com/api/handoff/redeem?token=abc", destination: dest))
+
+        // Prefix lookalikes: "https://me.hop.example.com.evil.com" must not
+        // pass a naive hasPrefix against a destination without the slash.
+        XCTAssertNil(AppModel.acceptableRedeemURL(
+            "https://me.hop.example.com.evil.com/api/handoff/redeem?token=abc", destination: dest))
+
+        // Downgrade to plaintext would put the token on the wire in the clear.
+        XCTAssertNil(AppModel.acceptableRedeemURL(
+            "http://me.hop.example.com/api/handoff/redeem?token=abc", destination: dest))
+
+        XCTAssertNil(AppModel.acceptableRedeemURL("not a url", destination: dest))
+    }
+
 }

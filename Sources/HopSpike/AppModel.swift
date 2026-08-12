@@ -121,6 +121,108 @@ final class AppModel: ObservableObject {
             .replacingOccurrences(of: "http://", with: "ws://")
     }
 
+    // ── Following the server when it moves ────────────────────────────────
+    // A hop instance can change hostname — most often because the bare domain
+    // became a public landing page and the admin's own hop moved to a
+    // subdomain. The daemon advertises where home is at /api/instance; if we
+    // are not there, we trade our live session for a one-time handoff token
+    // and arrive already signed in. Without this a move costs the user the
+    // address, the password and a TOTP code on every device.
+    //
+    // Only ever follows the server's OWN answer, so pointing the app at some
+    // other hop instance can never be redirected somewhere unexpected.
+    @Published var didFollowMove: String?
+    /// Guards the one retry a moved instance is allowed, so a server that
+    /// keeps answering non-JSON cannot spin refresh against itself.
+    private var followingMove = false
+
+    /// Read /api/instance and decide whether to move, and where. Pure, so the
+    /// decision is testable without a network: the server must both name a
+    /// destination AND say we are not already at it.
+    nonisolated static func canonicalDestination(from obj: [String: Any]) -> String? {
+        guard let canonical = obj["canonicalUrl"] as? String, !canonical.isEmpty,
+              (obj["isCanonical"] as? Bool) == false else { return nil }
+        return canonical
+    }
+
+    /// A handoff may only be redeemed at the destination the server named.
+    /// The token grants a session, so a redeem URL pointing anywhere else —
+    /// or at a lookalike prefix like "https://evil.com" for a destination of
+    /// "https://ev" — must be refused.
+    nonisolated static func acceptableRedeemURL(_ redeem: String, destination: String) -> URL? {
+        guard redeem.hasPrefix(destination + "/"), let url = URL(string: redeem),
+              let destURL = URL(string: destination),
+              url.scheme == "https", url.host == destURL.host else { return nil }
+        return url
+    }
+
+    /// Ask the current server where it lives. Nil when it doesn't say.
+    private func canonicalHostURL() async -> String? {
+        guard let url = baseURL?.appendingPathComponent("api/instance") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return AppModel.canonicalDestination(from: obj)
+    }
+
+    /// Carry the current session to `destination`. The daemon serving both
+    /// names is one process, so the token it mints here is redeemable there;
+    /// URLSession stores the new host's cookie as it follows the redirect.
+    private func handOffSession(to destination: String) async -> Bool {
+        guard let mintURL = baseURL?.appendingPathComponent("api/handoff") else { return false }
+        var mint = URLRequest(url: mintURL)
+        mint.httpMethod = "POST"
+        mint.timeoutInterval = 10
+        guard let (data, resp) = try? await urlSession.data(for: mint),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let redeem = obj["url"] as? String,
+              // Only redeem where we were told to go, and only over TLS.
+              let redeemURL = AppModel.acceptableRedeemURL(redeem, destination: destination)
+        else { return false }
+
+        var claim = URLRequest(url: redeemURL)
+        claim.timeoutInterval = 10
+        guard let (_, claimResp) = try? await urlSession.data(for: claim),
+              let http = claimResp as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 302
+        else { return false }
+        // The redirect target is the app root; what matters is the cookie.
+        guard let destURL = URL(string: destination) else { return false }
+        return HTTPCookieStorage.shared.cookies(for: destURL)?
+            .contains(where: { $0.name == "tunnel_session" }) == true
+    }
+
+    /// One hop, at most. Returns true if the app now points somewhere new.
+    @discardableResult
+    func followServerMoveIfNeeded() async -> Bool {
+        guard let destination = await canonicalHostURL() else { return false }
+        let previous = normalizedServerURL
+
+        // Best effort: an unauthenticated app still wants the right address,
+        // it just has to sign in when it gets there.
+        let carried = await handOffSession(to: destination)
+
+        // The saved password is filed under the server string, so without
+        // this it is orphaned and the user retypes a password they never
+        // changed. Copy before switching, delete the old entry after.
+        if let saved = Keychain.read(account: previous) {
+            Keychain.save(saved, account: destination)
+            Keychain.delete(account: previous)
+        }
+
+        serverURL = destination
+        didFollowMove = destination
+        if carried {
+            sessionExpired = false
+            authenticated = true
+        }
+        return true
+    }
+
     func bootstrap() async {
         // Dev/simulator: seed the session cookie so the cookie auth path (what
         // the device uses after login) can be exercised without a TOTP code.
@@ -168,6 +270,13 @@ final class AppModel: ObservableObject {
             checkingAuth = false
         } else {
             checkingAuth = true
+        }
+        // Before the first refresh: if the instance has moved, land on the new
+        // address already signed in rather than showing a login screen (or,
+        // once the old host is a public landing page, a signup form).
+        if await followServerMoveIfNeeded() {
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "model")
+                .info("followed server move to \(self.normalizedServerURL, privacy: .public)")
         }
         await refreshSessions(silent: true)
         checkingAuth = false
@@ -298,6 +407,21 @@ final class AppModel: ObservableObject {
             HopSceneDelegate.mark("refresh status=\(http.statusCode) json=\(isJSON) hadCookie=\(hadSessionCookie)")
 #endif
             if http.statusCode == 401 || http.statusCode == 403 || (!isJSON && http.statusCode == 200) {
+                // A refusal here is also exactly what a MOVED instance looks
+                // like: once the old hostname becomes a public landing page,
+                // /api/sessions there answers with HTML, not JSON. Ask whether
+                // home has changed before concluding the session is dead —
+                // otherwise the app parks on a login screen belonging to a
+                // server that is no longer ours.
+                if !followingMove {
+                    followingMove = true
+                    let moved = await followServerMoveIfNeeded()
+                    followingMove = false
+                    if moved {
+                        await refreshSessions(silent: silent)
+                        return
+                    }
+                }
                 // Distinguish "expired" from "never signed in" by whether we
                 // actually presented a cookie, and drop the dead one so it
                 // can't keep failing quietly in the jar.
