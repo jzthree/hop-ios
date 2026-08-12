@@ -1021,6 +1021,12 @@ struct TerminalHostView: View {
                     Label(liveSession.views.map { "Views (\($0.count))" } ?? "Views",
                           systemImage: "rectangle.stack")
                 }
+                // In the SESSION, because the fault you want to report is
+                // usually on screen right now and walking to Account to
+                // report it rebuilds the view that had it.
+                Button { controlAction = .sendDiagnostics } label: {
+                    Label("Send diagnostics to hop", systemImage: "paperplane")
+                }
                 Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
                 Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
                     Label("Copy screen", systemImage: "doc.on.doc")
@@ -1154,7 +1160,7 @@ struct FindRequest: Equatable {
     let direction: Int
 }
 
-enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled, wakeCheck }
+enum ControlAction { case take, release, lock, unlock, links, claimSize, keyboardSettled, wakeCheck, sendDiagnostics }
 
 extension Notification.Name {
     static let hopCopyScreen = Notification.Name("hopCopyScreen")
@@ -2003,6 +2009,8 @@ struct TerminalScreen: UIViewRepresentable {
             case .links: onLinks(visibleLinks())
             case .keyboardSettled:
                 scheduleKeyboardSettleCheck()
+            case .sendDiagnostics:
+                sendSessionDiagnostics()
             case .wakeCheck:
                 runWakeCheck()
             case .claimSize:
@@ -2501,6 +2509,54 @@ struct TerminalScreen: UIViewRepresentable {
             tv.scheduleSettleRedraw("adopt-foreign")
             onGridChange()
         }
+        /// Hand THIS session's state to the host, from inside the session.
+        ///
+        /// The Account sheet's version was useless for the bug it was built
+        /// for: reaching it means leaving the terminal, and leaving rebuilds
+        /// the view — which HEALS a render fault, so the trace that arrives
+        /// describes a screen that has already recovered (Jian: "the very act
+        /// of returning to the main menu may have erased the problem"). This
+        /// one captures the numbers before anything has a chance to settle,
+        /// and says WHICH session, so a fault in one of twenty-three is not
+        /// an anonymous log.
+        func sendSessionDiagnostics() {
+            guard let tv = view else { return }
+            let t = tv.getTerminal()
+            let nat = tv.naturalFit()
+            let text = """
+            session: \(room)
+            grid: \(t.cols)x\(t.rows)   drawn: \(tv.drawnCols)x\(tv.drawnRows)
+            pinned: \(tv.pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")   \
+            natural: \(nat.map { "\($0.cols)x\($0.rows)" } ?? "nil")
+            elected: \(electedCols)x\(electedRows)   peerHoldsSize: \(peerHoldsSize)
+            bounds: \(Int(tv.bounds.width))x\(Int(tv.bounds.height))   \
+            content: \(Int(tv.contentSize.height))   offset: \(Int(tv.contentOffset.y))
+            font: \(String(format: "%.1f", tv.font.pointSize)) (natural \(Int(tv.naturalFontPt)))
+            altScreen: \(tv.remoteAltScreen)   chromeOverlap: \(Int(tv.chromeOverlap))
+
+            keyboard/fit trace (newest last):
+            \(KBLog.dump())
+            """
+            let label = room.replacingOccurrences(of: "[^A-Za-z0-9_-]", with: "",
+                                                  options: .regularExpression)
+            guard let url = URL(string: httpBase)?.appendingPathComponent("api/diagnostics")
+            else { return }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.timeoutInterval = 15
+            if let tok = token_, !tok.isEmpty {
+                req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["label": label, "text": text])
+            let sess = urlSession
+            Task { @MainActor [weak self] in
+                let ok = (try? await sess.data(for: req))
+                    .map { ($0.1 as? HTTPURLResponse)?.statusCode == 200 } ?? false
+                self?.onToast(ok ? "Diagnostics sent to hop" : "Could not send diagnostics")
+            }
+        }
+
         /// The wake instrument (PLAN 17), now RELEASE-visible: every
         /// size-relevant event lands in the KBLog ring (Copy diagnostics),
         /// so "wrong size when idle and back" on the real phone is one
