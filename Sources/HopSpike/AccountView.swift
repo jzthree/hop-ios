@@ -9,7 +9,26 @@ struct AccountView: View {
     @State private var bioLockOn = BioLock.shared.enabled
     @State private var copied = false
     @State private var enrolled = false
+    @State private var sent = false
+    @State private var sending = false
     @StateObject private var passkey = PasskeyAuth()
+
+    /// Hand the trace to the host. Best effort and quiet about the shape of
+    /// failure: if it doesn't land, Copy is still right there.
+    @MainActor private func sendDiagnostics() async -> Bool {
+        guard !sending, let base = URL(string: model.normalizedServerURL) else { return false }
+        sending = true
+        defer { sending = false }
+        var req = URLRequest(url: base.appendingPathComponent("api/diagnostics"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 15
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "label": "iphone", "text": diagnostics
+        ])
+        guard let (_, resp) = try? await URLSession.shared.data(for: req) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
     @StateObject private var network = NetworkConditions.shared
     @StateObject private var notifier = HopNotifier.shared
     @StateObject private var push = PushRegistry.shared
@@ -126,8 +145,21 @@ struct AccountView: View {
                         Label(copied ? "Copied" : "Copy diagnostics",
                               systemImage: copied ? "checkmark" : "doc.on.doc")
                     }
+                    // The pasteboard is the wrong pipe when the person who
+                    // needs this is an agent on the other side of the tunnel
+                    // (Jian: "there is no way for me to copy any diagnostic
+                    // log for you"). This puts it on the host, where a session
+                    // can just read it.
+                    Button {
+                        sent = false
+                        Task { sent = await sendDiagnostics() }
+                    } label: {
+                        Label(sent ? "Sent to hop" : "Send diagnostics to hop",
+                              systemImage: sent ? "checkmark.circle.fill" : "paperplane")
+                    }
+                    .disabled(sending || sent)
                 } footer: {
-                    Text("Version, server, network state and counts — paste it into a session when something looks wrong on the phone.")
+                    Text("Version, server, network state and counts. Copy pastes it here; Send puts it on the host, in ~/.hop2/diagnostics, where an agent can read it without you relaying anything.")
                 }
             }
             .navigationTitle("Account")

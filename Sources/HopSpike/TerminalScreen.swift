@@ -596,7 +596,14 @@ struct TerminalHostView: View {
             let unseen = ViewSeen.isNew(liveSession)
             Button {
                 ViewSeen.markSeen(liveSession)
-                if let u = URL(string: model.normalizedServerURL)?
+                // ONE result: open it, because a list of one is a wasted tap.
+                // SEVERAL: open the list. Jumping straight to the newest was
+                // the original choice and it stranded the reader — Jian: "it
+                // didn't really show up like a list, how do I go through
+                // different items?" There was no answer; the other items were
+                // only reachable through a long-press nobody would guess.
+                if v.count == 1,
+                   let u = URL(string: model.normalizedServerURL)?
                     .appendingPathComponent(String(v.latestPath.dropFirst())) {
                     artifactURL = u
                 } else {
@@ -621,6 +628,13 @@ struct TerminalHostView: View {
                 ? "New result: \(v.latestLabel)"
                 : "\(v.count) published view\(v.count == 1 ? "" : "s")")
             .contextMenu {
+                Button {
+                    ViewSeen.markSeen(liveSession)
+                    if let u = URL(string: model.normalizedServerURL)?
+                        .appendingPathComponent(String(v.latestPath.dropFirst())) {
+                        artifactURL = u
+                    }
+                } label: { Label("Newest: \(v.latestLabel)", systemImage: "sparkles") }
                 Button {
                     ViewSeen.markSeen(liveSession)
                     viewsPanelShown = true

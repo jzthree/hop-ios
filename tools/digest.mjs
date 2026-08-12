@@ -188,6 +188,16 @@ const main = async () => {
       const scr = await api(`/api/sessions/screen?name=${encodeURIComponent(s.internalName)}`);
       composer = composerFromScreen(scr.data || "");
     } catch { /* no composer reading is better than a wrong one */ }
+    // ANNOTATE THE SCREEN ITSELF, not just the payload beside it. Adding an
+    // input_box field was not enough on its own: the screen tail still showed
+    // the suggestion as bare text after the prompt, the model believed what
+    // it could see, and the very next edition still opened with "typed into
+    // the box and never sent" for a string nobody typed. A caveat next to
+    // contradicting evidence loses; removing the contradiction wins.
+    if (composer?.suggestion && screen.includes(composer.suggestion)) {
+      screen = screen.replace(composer.suggestion,
+        `«greyed-out autocomplete suggestion, NOT entered by anyone: ${composer.suggestion}»`);
+    }
     seen.push({
       session: s.internalName,
       name: s.displayName || s.name,
