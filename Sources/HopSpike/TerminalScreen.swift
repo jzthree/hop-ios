@@ -2606,7 +2606,20 @@ struct TerminalScreen: UIViewRepresentable {
         /// everything is consistent.
         private var settleTask: Task<Void, Never>?
 
+        /// While a keyboard transition is in flight, fits are RECORDED but not
+        /// sent. Angler's trace named why: the system reports two keyboard
+        /// heights 17pt apart (h=354 and h=371 — with and without the
+        /// assistant strip), each flip re-fit 40↔38 rows and re-claimed, and
+        /// whichever half of the pair was stale left the session ending a
+        /// strip above the keys. One PTY means every client reflowed per
+        /// flip, twice per keyboard toggle. The settle check 700ms after the
+        /// LAST frame event sends the one claim that describes where the
+        /// keyboard actually came to rest.
+        private var kbChurnAt = Date.distantPast
+        var inKeyboardChurn: Bool { Date().timeIntervalSince(kbChurnAt) < 0.7 }
+
         func scheduleKeyboardSettleCheck() {
+            kbChurnAt = Date()
             // The repaint half is unconditional: a keyboard move shifts the
             // view under any in-flight draw whether or not we own the grid,
             // and a quiet session leaves whatever that draw painted.
@@ -2745,6 +2758,13 @@ struct TerminalScreen: UIViewRepresentable {
             }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "layout")
                 .info("fit \(newCols)x\(newRows) in \(Int(source.bounds.height))pt view, accessory \(Int(source.inputAccessoryView?.bounds.height ?? 0))pt")
+            // Mid-transition fits stay local: the settle check claims the
+            // final one. Sending each intermediate is how the 38↔40 flap
+            // reflowed the PTY twice per keyboard toggle (see kbChurnAt).
+            guard !inKeyboardChurn else {
+                wakeMark("fit \(newCols)x\(newRows) deferred (kb churn)")
+                return
+            }
             reassertOwnFit(cols: newCols, rows: newRows)
         }
 
