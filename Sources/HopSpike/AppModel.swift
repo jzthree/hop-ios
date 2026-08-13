@@ -196,10 +196,29 @@ final class AppModel: ObservableObject {
             .contains(where: { $0.name == "tunnel_session" }) == true
     }
 
+    /// Never adopt an address we cannot actually reach. A canonical host can
+    /// be named before it works — DNS routed but no certificate for a
+    /// second-level subdomain is the easy way to get there — and moving to it
+    /// anyway would strand the app on a dead hostname having forgotten the
+    /// live one. Verified against the destination's own /api/instance.
+    private func destinationAnswers(_ destination: String) async -> Bool {
+        guard let url = URL(string: destination + "/api/instance") else { return false }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (_, resp) = try? await urlSession.data(for: req) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
+
     /// One hop, at most. Returns true if the app now points somewhere new.
     @discardableResult
     func followServerMoveIfNeeded() async -> Bool {
         guard let destination = await canonicalHostURL() else { return false }
+        guard await destinationAnswers(destination) else {
+            Logger(subsystem: "io.zhoulab.hop.spike", category: "model")
+                .info("canonical host is unreachable; staying put")
+            return false
+        }
         let previous = normalizedServerURL
 
         // Best effort: an unauthenticated app still wants the right address,
