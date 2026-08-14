@@ -370,7 +370,17 @@ func resolveSessionName(_ raw: String, in sessions: [HopSession]) -> String? {
 /// already left the fleet — a stale swipe must not jump somewhere random).
 func neighborSession(_ sessions: [HopSession], of current: String,
                      step: Int) -> HopSession? {
+    // Ordered by RECENCY, not list order (Jian: "swipe left and right between
+    // most recent sessions"): the sessions worth one flick are the ones
+    // something just happened in. Both switch surfaces — the pill drag and
+    // the terminal-body swipe — walk THIS ring, so they cannot disagree.
+    // Name is the tiebreak, so equally-idle sessions don't shuffle mid-swipe.
     let ring = sessions.filter { $0.live && !$0.isPort && !$0.parked }
+        .sorted { a, b in
+            a.lastActivityAt != b.lastActivityAt
+                ? a.lastActivityAt > b.lastActivityAt
+                : a.name < b.name
+        }
     guard ring.count > 1,
           let idx = ring.firstIndex(where: { $0.internalName == current }) else { return nil }
     let n = ring.count

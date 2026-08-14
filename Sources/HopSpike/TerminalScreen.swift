@@ -154,6 +154,13 @@ struct TerminalHostView: View {
                        fontSize: fontSize, lightTheme: lightTheme,
                        fitWidth: fitWidth, autoScale: peerSize != nil, fitTick: fitTick,
                        chromeAutoHide: chromeAutoHideEnabled, landscape: landscapePhone,
+                       onSessionSwipe: { phase, dx in
+                           switch phase {
+                           case .moved: switchDragMoved(dx)
+                           case .commit: switchDragEnded(dx, commit: true)
+                           case .cancel: switchDragEnded(dx, commit: false)
+                           }
+                       },
                        find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
                        onLinks: { found in
@@ -833,36 +840,49 @@ struct TerminalHostView: View {
             .onChanged { v in
                 let dx = v.translation.width
                 guard abs(dx) > abs(v.translation.height) * 2 else { return }
-                let mag = abs(dx)
-                let travel = mag <= 50 ? mag : 50 + (mag - 50) * 0.25
-                pillDragX = (dx < 0 ? -1 : 1) * min(travel, 68)
-                let target = mag > 50
-                    ? neighborSession(model.sessions, of: session.internalName,
-                                      step: dx < 0 ? 1 : -1)
-                    : nil
-                if target?.internalName != pillPeek?.internalName {
-                    withAnimation(.easeOut(duration: 0.12)) { pillPeek = target }
-                    if target != nil {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                }
+                switchDragMoved(dx)
             }
             .onEnded { v in
-                withAnimation(.spring(duration: 0.3)) { pillDragX = 0 }
-                let landing = pillPeek
-                withAnimation(.easeOut(duration: 0.12)) { pillPeek = nil }
                 let dx = v.translation.width
-                guard abs(dx) > 50, abs(dx) > abs(v.translation.height) * 2,
-                      let next = landing ?? neighborSession(model.sessions,
-                                                            of: session.internalName,
-                                                            step: dx < 0 ? 1 : -1) else { return }
-                model.requestedSession = next.internalName
+                switchDragEnded(dx, commit: abs(dx) > 50
+                    && abs(dx) > abs(v.translation.height) * 2)
             })
         .padding(.horizontal, 5)
         // No top padding here anymore — the background above already reaches
         // y=0 on its own (ignoresSafeArea); adding frame padding at this
         // level would just push the whole shape, background included, back
         // down and reopen the gap this exists to close.
+    }
+
+    /// ONE switch implementation for both surfaces — the pill drag and the
+    /// terminal-body swipe land here, so thresholds, peek and haptics cannot
+    /// drift apart. dx is horizontal finger travel; the peek pill arms past
+    /// 50pt and the switch itself is the caller's commit verdict.
+    private func switchDragMoved(_ dx: CGFloat) {
+        let mag = abs(dx)
+        let travel = mag <= 50 ? mag : 50 + (mag - 50) * 0.25
+        pillDragX = (dx < 0 ? -1 : 1) * min(travel, 68)
+        let target = mag > 50
+            ? neighborSession(model.sessions, of: session.internalName,
+                              step: dx < 0 ? 1 : -1)
+            : nil
+        if target?.internalName != pillPeek?.internalName {
+            withAnimation(.easeOut(duration: 0.12)) { pillPeek = target }
+            if target != nil {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+        }
+    }
+
+    private func switchDragEnded(_ dx: CGFloat, commit: Bool) {
+        withAnimation(.spring(duration: 0.3)) { pillDragX = 0 }
+        let landing = pillPeek
+        withAnimation(.easeOut(duration: 0.12)) { pillPeek = nil }
+        guard commit,
+              let next = landing ?? neighborSession(model.sessions,
+                                                    of: session.internalName,
+                                                    step: dx < 0 ? 1 : -1) else { return }
+        model.requestedSession = next.internalName
     }
 
     /// One open path for every link, tapped or menu-picked: the user's own
@@ -1191,6 +1211,7 @@ struct TerminalScreen: UIViewRepresentable {
     /// the terminal shifts its own content clear rather than losing the rows.
     var chromeAutoHide = false
     var landscape = false
+    var onSessionSwipe: (HopTermView.SwipePhase, CGFloat) -> Void = { _, _ in }
     var find: FindRequest?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
@@ -1259,6 +1280,7 @@ struct TerminalScreen: UIViewRepresentable {
                                              action: #selector(Coordinator.handlePinch(_:)))
         tv.addGestureRecognizer(pinch)
         context.coordinator.themeIsLight = lightTheme
+        tv.onSessionSwipe = onSessionSwipe
         context.coordinator.attach(view: tv)
         _ = tv.becomeFirstResponder()
         return tv
@@ -3219,6 +3241,18 @@ final class HopTermView: TerminalView {
         cursorPan.delegate = self
         addGestureRecognizer(cursorPan)
         self.cursorPan = cursorPan
+        // Swipe between recent sessions on the BODY, not only the pill
+        // (Jian: "swipe left and right between most recent sessions when not
+        // in panning mode"). Horizontal single-finger drags were unclaimed
+        // until now — vertical dominance owns scrolling, pan mode owns both
+        // axes — so this moves into an empty slot rather than contesting one:
+        // it begins only for decisively horizontal drags, never in pan mode,
+        // never during a selection, never in the chrome strip.
+        let switchPan = UIPanGestureRecognizer(target: self, action: #selector(handleSwitchPan))
+        switchPan.maximumNumberOfTouches = 1
+        switchPan.delegate = self
+        addGestureRecognizer(switchPan)
+        self.switchPan = switchPan
         // The top strip belongs to the chrome: it is where anyone reaches for
         // controls, and it is the one place a tap is not meant as "give me the
         // keyboard".
@@ -3983,6 +4017,27 @@ final class HopTermView: TerminalView {
     /// Kept so the selection-time yield below can tell OUR pans from
     /// SwiftTerm's — identity is the only honest test there.
     private var cursorPan: UIPanGestureRecognizer?
+    private var switchPan: UIPanGestureRecognizer?
+
+    /// The body swipe's report to SwiftUI, which owns the peek pill and the
+    /// actual switch. dx is raw finger travel; the callback shapes it.
+    enum SwipePhase { case moved, commit, cancel }
+    var onSessionSwipe: ((SwipePhase, CGFloat) -> Void)?
+
+    @objc private func handleSwitchPan(_ g: UIPanGestureRecognizer) {
+        let dx = g.translation(in: self).x
+        switch g.state {
+        case .changed:
+            onSessionSwipe?(.moved, dx)
+        case .ended:
+            // Distance OR a flick: a fast short swipe is the common gesture.
+            let commit = abs(dx) > 60 || abs(g.velocity(in: self).x) > 600
+            onSessionSwipe?(commit ? .commit : .cancel, dx)
+        case .cancelled, .failed:
+            onSessionSwipe?(.cancel, dx)
+        default: break
+        }
+    }
 
     private var selectHoldPoint: CGPoint = .zero
     private var keyboardWasUpAtHold = true
@@ -4421,7 +4476,16 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // was refused (Jian: "cannot drag selection handle even though
             // long press triggered selection mode"). Only OUR pans yield.
             selectMark("shouldBegin pan ours=\(pan === scrollPan || pan === cursorPan) sel=\(selectionActive)")
-            if selectionActive { return pan !== scrollPan && pan !== cursorPan }
+            if selectionActive { return pan !== scrollPan && pan !== cursorPan && pan !== switchPan }
+            if pan === switchPan {
+                // Not in pan mode (there, horizontal drags move the grid —
+                // Jian scoped the gesture to "when not in panning mode"),
+                // not in the chrome strip (the pill's own swipe lives
+                // there), and only when the drag is decisively sideways.
+                guard !peerSizedGrid, !inChromeStrip(pan) else { return false }
+                let v = pan.velocity(in: self)
+                return abs(v.x) > abs(v.y) * 1.5
+            }
             // Panning a peer-sized grid is two-dimensional by nature; the
             // vertical-dominance rule below is for scrolling, where a sideways
             // drag belongs to the swipe back.

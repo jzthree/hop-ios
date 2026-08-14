@@ -1229,6 +1229,22 @@ final class HopSpikeTests: XCTestCase {
                                        of: "a", step: 1)?.internalName, "c")
     }
 
+    func testNeighborSessionWalksByRecencyNotListOrder() {
+        // The swipe is "between most recent sessions" (Jian): one flick from
+        // the busiest session lands on the second-busiest, wherever the
+        // daemon happened to place it in the list.
+        func s(_ name: String, at: Double) -> HopSession {
+            HopSession(json: ["internalName": name, "name": name, "live": true,
+                              "type": "terminal", "lastActivityAt": at],
+                       seenBellSeq: [:])!
+        }
+        let fleet = [s("idle", at: 10), s("busy", at: 99), s("mid", at: 50)]
+        XCTAssertEqual(neighborSession(fleet, of: "busy", step: 1)?.internalName, "mid")
+        XCTAssertEqual(neighborSession(fleet, of: "mid", step: 1)?.internalName, "idle")
+        XCTAssertEqual(neighborSession(fleet, of: "busy", step: -1)?.internalName, "idle",
+                       "backwards wraps to the ring's far end")
+    }
+
     func testMeaningfulTailIndicesAgreeWithTheStringVersion() {
         // The indices are the contract between the plain screen and its
         // colour report: mapping them back must reproduce meaningfulTail.
