@@ -159,6 +159,82 @@ const run = (bin, args, input) =>
 // number is treated as a timer, because real results arrive as new lines
 // around the number, not as an in-place digit swap.
 const STATE_PATH = path.join(os.homedir(), ".hop2/hop-digest-state.json");
+
+// ── What the READER has not seen ─────────────────────────────────────────
+// The screen tail is what is happening NOW; it says nothing about what
+// happened while the user was away. The daemon witnesses every attach, so
+// each session carries lastUserSeenAt — and for sessions the user has been
+// away from, the briefing reads the CONVERSATION since that moment straight
+// from the Claude transcript. That is the difference between "what changed
+// this hour" and "what you have not seen", which is the briefing's real job.
+const UNSEEN_PER_SESSION_BYTES = 8_000;
+const UNSEEN_TOTAL_BYTES = 120_000;
+const UNSEEN_MAX_WINDOW_MS = 24 * 3600 * 1000; // never-seen sessions: last day
+const TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024; // read at most this much file
+
+const transcriptPathFor = (internalName) => {
+  try {
+    const rec = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), ".hop2/claude-sessions", `${internalName}.json`), "utf8"));
+    if (!rec?.sessionId || !rec?.cwd) return null;
+    const configDir = rec.configDir || path.join(os.homedir(), ".claude");
+    const encoded = rec.cwd.replace(/[^A-Za-z0-9]/g, "-");
+    const file = path.join(configDir, "projects", encoded, `${rec.sessionId}.jsonl`);
+    return fs.existsSync(file) ? file : null;
+  } catch { return null; }
+};
+
+const textOf = (content) => {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.filter((c) => c?.type === "text" && typeof c.text === "string")
+      .map((c) => c.text).join("\n");
+  }
+  return "";
+};
+
+/// The conversation since `sinceMs`, newest-biased, budgeted. Times are
+/// clock-only (HH:MM) — the reader knows what day it is.
+const unseenTranscript = (internalName, sinceMs, budget) => {
+  const file = transcriptPathFor(internalName);
+  if (!file) return null;
+  let raw;
+  try {
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, "r");
+    const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+    const buf = Buffer.alloc(size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+    raw = buf.toString("utf8");
+  } catch { return null; }
+  const lines = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; } // tail may cut a line
+    const at = Date.parse(rec.timestamp || "");
+    if (!Number.isFinite(at) || at <= sinceMs) continue;
+    if (rec.type !== "user" && rec.type !== "assistant") continue;
+    const text = textOf(rec.message?.content).trim();
+    if (!text) continue;
+    const hh = new Date(at);
+    const clock = `${String(hh.getHours()).padStart(2, "0")}:${String(hh.getMinutes()).padStart(2, "0")}`;
+    const role = rec.type === "user" ? "user" : "agent";
+    // Per-message cap: one giant paste must not spend the session's budget.
+    lines.push(`[${clock}] ${role}: ${text.length > 600 ? text.slice(0, 600) + "…" : text}`);
+  }
+  if (lines.length === 0) return null;
+  // Newest-biased: keep whole lines from the END until the budget is spent.
+  const kept = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    bytes += lines[i].length + 1;
+    if (bytes > budget) { kept.push(`«${i + 1} earlier exchanges beyond the budget»`); break; }
+    kept.push(lines[i]);
+  }
+  return kept.reverse().join("\n");
+};
 const normalise = (t) => t.replace(/[0-9]+/g, "#").replace(/\s+/g, " ");
 const tailHash = (t) => crypto.createHash("sha1").update(normalise(t)).digest("hex");
 const loadState = () => {
@@ -205,6 +281,11 @@ const main = async () => {
       wants_you: !!s.attention,
       idle_seconds: s.lastActivityAt
         ? Math.round(Date.now() / 1000 - s.lastActivityAt) : null,
+      // The reader's coverage state, from the daemon's attach witness.
+      user_is_looking_now: s.userAttached === true,
+      user_last_looked_seconds_ago: s.lastUserSeenAt
+        ? Math.round((Date.now() - s.lastUserSeenAt) / 1000) : null,
+      _lastSeenMs: s.lastUserSeenAt || 0,
       // Only when there is something to say — an empty box is the normal
       // state and does not need a line in the payload.
       ...(composer && (composer.typed || composer.suggestion)
@@ -227,6 +308,30 @@ const main = async () => {
   const changed = seen.filter((s) =>
     hashes[s.session] !== state.sessions?.[s.session] || (s.wants_you && !state.rangBefore?.[s.session]));
   const unchanged = seen.filter((s) => !changed.includes(s)).map((s) => s.name);
+
+  // Attach what the user has NOT seen to every changed session they are not
+  // watching right now: the conversation since their last look (or the last
+  // day, for sessions never opened). Most recently active first, until the
+  // global budget is spent — and when it runs out, the payload says so
+  // instead of silently posing as complete.
+  let unseenBudget = UNSEEN_TOTAL_BYTES;
+  const byRecency = [...changed].sort((a, b) => (b.idle_seconds ?? 1e9) < (a.idle_seconds ?? 1e9) ? 1 : -1);
+  for (const s of byRecency) {
+    if (s.user_is_looking_now) continue;
+    if (unseenBudget <= 0) { s.unseen_since_user_looked = "«omitted: unseen budget exhausted this edition»"; continue; }
+    const since = Math.max(s._lastSeenMs, Date.now() - UNSEEN_MAX_WINDOW_MS);
+    const extract = unseenTranscript(s.session, since, Math.min(UNSEEN_PER_SESSION_BYTES, unseenBudget));
+    if (extract) {
+      s.unseen_since_user_looked = extract;
+      unseenBudget -= extract.length;
+    }
+  }
+  for (const s of seen) delete s._lastSeenMs;
+  if (process.env.DIGEST_DEBUG) {
+    console.error("[unseen] " + changed.map((s) =>
+      `${s.session}=${s.unseen_since_user_looked ? s.unseen_since_user_looked.length + "B" : (s.user_is_looking_now ? "watching" : "none")}`
+    ).join(" "));
+  }
   const saveState = () => {
     fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
     fs.writeFileSync(STATE_PATH, JSON.stringify({
@@ -298,6 +403,20 @@ you the difference. When a session's input box has anything in it, an
 No \`input_box\` field means the box is empty. Treating a suggestion as
 something the user typed has been the single most common error in these
 editions; the field exists so you never have to guess.
+
+WHAT THE READER HAS AND HAS NOT SEEN. hop witnesses every time the user
+opens a session, and each session below carries that state:
+- \`user_is_looking_now\`: they have it open right this moment. They need no
+  retelling of anything on that screen.
+- \`user_last_looked_seconds_ago\`: how far behind the reader is on that
+  session (null = they have never opened it).
+- \`unseen_since_user_looked\`: the CONVERSATION in that session since they
+  last had it open — everything on this list happened without them. This is
+  your primary material. The screen shows only the present moment; a result
+  that appeared and scrolled away three hours ago lives here and nowhere
+  else. Weight stories by what the reader has not seen, not by what is
+  currently on glass — and if they have been away from a session for a day,
+  assume they know nothing past their last look.
 
 Write the briefing they actually need before they pick up their phone. Lead
 with what they would most regret not knowing.
