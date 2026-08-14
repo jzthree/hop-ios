@@ -1476,6 +1476,40 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(ViewSummary(json: ["count": 0]))
     }
 
+    // MARK: - scaledFit (the half-screen convict)
+
+    func testStaleDrawnNumbersAreScaledToTheCurrentBounds() {
+        // The Accessibility-fork trace, verbatim: 28 rows were measured in a
+        // transient 344pt keyboard frame; the view settled at 572pt; reading
+        // the record raw re-claimed 28 rows — half the screen. The measured
+        // cell (344/28 ≈ 12.3pt) against 572pt says ~46: honest, and a hair
+        // UNDER the true 47, which is letterbox, not an undrawable claim.
+        let fit = scaledFit(bounds: CGSize(width: 398, height: 572),
+                            measuredAt: CGSize(width: 398, height: 344),
+                            drawnCols: 62, drawnRows: 28)
+        XCTAssertEqual(fit?.cols, 62)
+        XCTAssertEqual(fit?.rows, 46)
+    }
+
+    func testFreshDrawnNumbersPassThroughExactly() {
+        // Measured here, at this size, at the natural font: SwiftTerm's own
+        // numbers are ground truth and must not be re-derived (re-deriving is
+        // how the analytic 80x50-vs-79x48 overclaim happened in build 325).
+        let fit = scaledFit(bounds: CGSize(width: 398, height: 480),
+                            measuredAt: CGSize(width: 398, height: 480),
+                            drawnCols: 62, drawnRows: 40)
+        XCTAssertEqual(fit?.cols, 62)
+        XCTAssertEqual(fit?.rows, 40)
+    }
+
+    func testScaledFitWithNoMeasurementBaseUsesCurrentBounds() {
+        // Before the first sizeChanged there is no measuredAt; the current
+        // bounds are the only base there is.
+        let fit = scaledFit(bounds: CGSize(width: 398, height: 480),
+                            measuredAt: .zero, drawnCols: 62, drawnRows: 40)
+        XCTAssertEqual(fit?.rows, 40)
+    }
+
     // MARK: - replayGrid
 
     func testReplayUsesThePtyGridNotTheLocalFit() {

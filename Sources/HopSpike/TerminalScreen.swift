@@ -1659,6 +1659,14 @@ struct TerminalScreen: UIViewRepresentable {
 
         func attach(view: HopTermView) {
             self.view = view
+            // The synchronous half of the keyboard-churn window (see
+            // noteKeyboardChurn). Re-registering on a re-attach is harmless
+            // only if the old registration goes first.
+            NotificationCenter.default.removeObserver(
+                self, name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(noteKeyboardChurn),
+                name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
             // Taps do NOT claim any more (Jian, revising his own rule:
             // "still only keystroke should"). A tap focuses and scrolls; it
             // is not a statement about whose screen this session belongs to.
@@ -2279,8 +2287,14 @@ struct TerminalScreen: UIViewRepresentable {
             v.setNeedsLayout()
             v.layoutIfNeeded()
             let t = v.getTerminal()
-            let cols = fittedCols, rows = fittedRows
-            guard cols > 1, rows > 1 else { return false }
+            // naturalFit, NOT the raw fittedCols/Rows: the record can
+            // describe a viewport that no longer exists, and the layout pass
+            // above does not refresh it when the fit equals the size the
+            // terminal already has. The settle check once "healed" a healthy
+            // 62x47 grid down to a stale 28-row fit exactly this way —
+            // that re-assert IS the half-screen bug.
+            guard let nat = v.naturalFit(), nat.cols > 1, nat.rows > 1 else { return false }
+            let cols = nat.cols, rows = nat.rows
             guard t.cols != cols || t.rows != rows else {
                 wakeMark("\(reason) ok \(cols)x\(rows)")
                 return false
@@ -2639,6 +2653,12 @@ struct TerminalScreen: UIViewRepresentable {
         /// keyboard actually came to rest.
         private var kbChurnAt = Date.distantPast
         var inKeyboardChurn: Bool { Date().timeIntervalSince(kbChurnAt) < 0.7 }
+        /// Stamped DIRECTLY from the keyboard notification, not through the
+        /// SwiftUI controlAction round trip: that detour costs a couple of
+        /// frames, and the trace shows a fit arriving 2ms after the keyboard
+        /// frame — inside the churn, outside the late-opened window. It was
+        /// the one fit that mattered.
+        @objc func noteKeyboardChurn() { kbChurnAt = Date() }
 
         func scheduleKeyboardSettleCheck() {
             kbChurnAt = Date()
@@ -2744,6 +2764,11 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
+            // The bounds this measurement DESCRIBES. SwiftTerm reports a fit
+            // only when it changes the terminal size, so these numbers can
+            // outlive the viewport they were measured in — the reader must
+            // know when that has happened (see scaledFit).
+            view?.drawnBounds = source.bounds.size
             view?.applyLetterbox()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
@@ -3523,19 +3548,19 @@ final class HopTermView: TerminalView {
     func naturalFit() -> (cols: Int, rows: Int)? {
         guard bounds.width > 10, bounds.height > 10 else { return nil }
         if drawnCols > 1, drawnRows > 1 {
-            if abs(font.pointSize - naturalFontPt) < 0.1 {
-                // Un-scaled: what SwiftTerm measured IS the natural fit.
-                return (drawnCols, drawnRows)
-            }
-            // Auto-scaled: scale the MEASURED cell up to the natural font.
-            // bounds/drawn slightly overestimates the cell (the floor
-            // remainder is folded in), which can only round the fit DOWN —
-            // a hair of letterbox, never an undrawable claim.
-            let ratio = naturalFontPt / font.pointSize
-            let cw = bounds.width / CGFloat(drawnCols) * ratio
-            let ch = bounds.height / CGFloat(drawnRows) * ratio
-            guard cw > 1, ch > 1 else { return nil }
-            return (max(2, Int(bounds.width / cw)), max(2, Int(bounds.height / ch)))
+            // Through scaledFit, ALWAYS: the drawn numbers are only exact for
+            // the bounds they were measured in, and sizeChanged does not fire
+            // again when a bounds change lands back on the grid the terminal
+            // already has. Reading them raw at new bounds is how a transient
+            // 344pt keyboard frame's 28 rows got re-asserted against a 572pt
+            // view (the half-screen bug, trace-convicted). The measured cell
+            // scaled to current bounds rounds DOWN at worst — letterbox,
+            // never an undrawable claim.
+            let scaled = abs(font.pointSize - naturalFontPt) < 0.1
+                ? 1 : naturalFontPt / font.pointSize
+            return scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                             drawnCols: drawnCols, drawnRows: drawnRows,
+                             fontRatio: scaled)
         }
         let f = UIFont.monospacedSystemFont(ofSize: naturalFontPt, weight: .regular)
         let cw = ("0" as NSString).size(withAttributes: [.font: f]).width
@@ -3700,6 +3725,10 @@ final class HopTermView: TerminalView {
         if transform != wanted { transform = wanted }
     }
     var drawnCols = 0
+    /// The bounds drawnCols/drawnRows were measured IN — stale drawn numbers
+    /// read against new bounds are how the settle check once re-claimed half
+    /// a screen (Accessibility-fork trace, 2026-08-14).
+    var drawnBounds: CGSize = .zero
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins
     /// the viewport to the live edge on every feed — fine when reading live,

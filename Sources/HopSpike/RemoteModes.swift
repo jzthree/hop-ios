@@ -161,6 +161,36 @@ func drawnCellHeight(viewHeight: CGFloat, drawnRows: Int, terminalRows: Int) -> 
     return max(1, viewHeight / CGFloat(max(1, rows)))
 }
 
+/// The fit for the CURRENT bounds, from a cell measured at possibly OLD
+/// bounds.
+///
+/// SwiftTerm reports its fit only when the fit CHANGES the terminal size —
+/// so after a bounds change that lands back on the grid the terminal already
+/// has, the recorded drawn dimensions still describe the old viewport.
+/// Trace-convicted (Accessibility-fork, 2026-08-14): a transient 344pt
+/// keyboard frame measured 28 rows, the view settled at 572pt, the terminal
+/// was already at the server's healthy 47 — so no new measurement ever
+/// fired, and the settle check trusted the stale 28 over the healthy 47 and
+/// re-claimed HALF THE SCREEN.
+///
+/// The cell is real — height-at-measurement over rows-at-measurement — so
+/// dividing the CURRENT bounds by it is measurement-based, not modeled, and
+/// integer floor can only round DOWN: a row of letterbox at worst, never an
+/// undrawable claim (the failure mode that made analytic fits untrustworthy).
+func scaledFit(bounds: CGSize, measuredAt: CGSize, drawnCols: Int, drawnRows: Int,
+               fontRatio: CGFloat = 1) -> (cols: Int, rows: Int)? {
+    guard bounds.width > 10, bounds.height > 10, drawnCols > 1, drawnRows > 1 else { return nil }
+    let base = (measuredAt.width > 10 && measuredAt.height > 10) ? measuredAt : bounds
+    let cw = base.width / CGFloat(drawnCols) * fontRatio
+    let ch = base.height / CGFloat(drawnRows) * fontRatio
+    guard cw > 1, ch > 1 else { return nil }
+    // Measured HERE at THIS size and font: the drawn numbers are exact.
+    if fontRatio == 1, abs(base.width - bounds.width) < 2, abs(base.height - bounds.height) < 2 {
+        return (drawnCols, drawnRows)
+    }
+    return (max(2, Int(bounds.width / cw)), max(2, Int(bounds.height / ch)))
+}
+
 /// The grid a REPLAY must be written into.
 ///
 /// A snapshot is bytes the PTY rendered for its own size — every cursor
