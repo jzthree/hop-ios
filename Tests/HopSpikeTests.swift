@@ -1510,6 +1510,21 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(fit?.rows, 40)
     }
 
+    func testEuropaTraceCapacityRestoresScrollingOverPanning() {
+        // The day-after regression (Europa, 2026-08-15): the half-screen fix
+        // claimed a healthy 62x46 grid, but pan-vs-scroll still compared it
+        // to the raw drawn 62x28 from the dead 344pt viewport — "too big to
+        // draw" — and pan mode swallowed claude's wheel gestures. Capacity
+        // in CURRENT bounds says 46 rows fit, so the grid draws and scroll
+        // stays scroll.
+        let cap = scaledFit(bounds: CGSize(width: 398, height: 572),
+                            measuredAt: CGSize(width: 398, height: 344),
+                            drawnCols: 62, drawnRows: 28)
+        XCTAssertNotNil(cap)
+        XCTAssertGreaterThanOrEqual(cap!.rows, 46, "grid 62x46 must count as drawable")
+        XCTAssertGreaterThanOrEqual(cap!.cols, 62)
+    }
+
     // MARK: - replayGrid
 
     func testReplayUsesThePtyGridNotTheLocalFit() {

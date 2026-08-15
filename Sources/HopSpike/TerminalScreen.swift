@@ -2561,7 +2561,7 @@ struct TerminalScreen: UIViewRepresentable {
             let nat = tv.naturalFit()
             let text = """
             session: \(room)
-            grid: \(t.cols)x\(t.rows)   drawn: \(tv.drawnCols)x\(tv.drawnRows)
+            grid: \(t.cols)x\(t.rows)   drawn: \(tv.drawnCols)x\(tv.drawnRows)   cap: \(tv.capCols)x\(tv.capRows)
             pinned: \(tv.pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")   \
             natural: \(nat.map { "\($0.cols)x\($0.rows)" } ?? "nil")
             elected: \(electedCols)x\(electedRows)   peerHoldsSize: \(peerHoldsSize)
@@ -3054,8 +3054,8 @@ final class HopTermView: TerminalView {
         let x = locInView.x - bounds.origin.x
         let y = locInView.y - bounds.origin.y
         let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                    drawnRows: drawnRows, terminalRows: t.rows)
-        let cellW = bounds.width / CGFloat(max(1, drawnCols > 0 ? drawnCols : t.cols))
+                                    drawnRows: capRows, terminalRows: t.rows)
+        let cellW = bounds.width / CGFloat(max(1, capCols > 0 ? capCols : t.cols))
         let row = Int(y / max(1, cellH))
         let col = Int(x / max(1, cellW))
         guard row >= 0, row < t.rows, col >= 0, col < t.cols else { return nil }
@@ -3129,8 +3129,8 @@ final class HopTermView: TerminalView {
         let x = loc.x - bounds.origin.x
         let y = loc.y - bounds.origin.y
         let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                    drawnRows: drawnRows, terminalRows: t.rows)
-        let cellW = bounds.width / CGFloat(max(1, drawnCols))
+                                    drawnRows: capRows, terminalRows: t.rows)
+        let cellW = bounds.width / CGFloat(max(1, capCols))
         let row = min(t.rows, Int(y / max(1, cellH)) + 1)
         let col = min(t.cols, Int(x / max(1, cellW)) + 1)
         onUserIntent?()
@@ -3200,9 +3200,9 @@ final class HopTermView: TerminalView {
             cursorPanX += t.x
             cursorPanY += t.y
             let term = getTerminal()
-            let cellW = max(6, bounds.width / CGFloat(max(1, drawnCols > 0 ? drawnCols : term.cols)))
+            let cellW = max(6, bounds.width / CGFloat(max(1, capCols > 0 ? capCols : term.cols)))
             let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                        drawnRows: drawnRows, terminalRows: term.rows)
+                                        drawnRows: capRows, terminalRows: term.rows)
             // Horizontal wins outright while it dominates: a composer line is
             // what you are usually editing, and letting a few points of
             // vertical drift fire ↑ would walk you out of it into history.
@@ -3453,7 +3453,7 @@ final class HopTermView: TerminalView {
     private func applyScrollDebt() {
         let terminal = getTerminal()
         let cell = drawnCellHeight(viewHeight: bounds.height,
-                                   drawnRows: drawnRows, terminalRows: terminal.rows)
+                                   drawnRows: capRows, terminalRows: terminal.rows)
         let log = Self.log
 
         if gestureSink == nil { gestureSink = sink }   // momentum-only entry
@@ -3692,18 +3692,18 @@ final class HopTermView: TerminalView {
         // leaves plenty of vertical room. Guarding on it skipped the shift
         // for exactly the session this was reported against — device log:
         // rows=24 drawn=32 cols=80, vertically roomy, horizontally not.
-        guard drawnRows <= 0 || t.rows <= drawnRows else { return 0 }
+        guard capRows <= 0 || t.rows <= capRows else { return 0 }
         let unpaid = chromeOverlap - max(0, contentSize.height - bounds.height)
         guard unpaid > 0 else { return 0 }
         let cell = drawnCellHeight(viewHeight: bounds.height,
-                                   drawnRows: drawnRows, terminalRows: t.rows)
+                                   drawnRows: capRows, terminalRows: t.rows)
         let roomBelowCursor = CGFloat(max(0, t.rows - 1 - t.buffer.y)) * cell
         return max(0, min(unpaid, roomBelowCursor))
     }
 
     func applyLetterbox() {
         let rows = getTerminal().rows
-        let capacity = drawnRows > 0 ? drawnRows : rows
+        let capacity = capRows > 0 ? capRows : rows
         guard capacity > 0, rows > 0, bounds.height > 1 else { return }
         let dy = letterboxOffset(viewHeight: bounds.height,
                                  gridRows: rows, capacityRows: capacity)
@@ -3729,6 +3729,23 @@ final class HopTermView: TerminalView {
     /// read against new bounds are how the settle check once re-claimed half
     /// a screen (Accessibility-fork trace, 2026-08-14).
     var drawnBounds: CGSize = .zero
+
+    /// What the CURRENT bounds can draw — every geometry decision reads
+    /// THIS, never drawnCols/drawnRows raw. The day after the half-screen
+    /// fix, the same stale record broke scrolling instead (Europa trace:
+    /// grid 62x46, drawn 62x28): peerSizedGrid compared the healthy grid
+    /// against a measurement from a 344pt viewport, read "too big to draw",
+    /// and PAN MODE swallowed the wheel gestures claude should have gotten.
+    /// No font ratio here: a font change re-fits and refreshes the
+    /// measurement, so the cell is current by construction.
+    var capCols: Int {
+        scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                  drawnCols: drawnCols, drawnRows: drawnRows)?.cols ?? drawnCols
+    }
+    var capRows: Int {
+        scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                  drawnCols: drawnCols, drawnRows: drawnRows)?.rows ?? drawnRows
+    }
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins
     /// the viewport to the live edge on every feed — fine when reading live,
@@ -3771,8 +3788,9 @@ final class HopTermView: TerminalView {
     /// scrollback come back the moment the grid fits again.
     var peerSizedGrid: Bool {
         guard drawnRows > 0, drawnCols > 0 else { return false }
+        let capC = capCols, capR = capRows
         let t = getTerminal()
-        return t.rows > drawnRows || t.cols > drawnCols
+        return t.rows > capR || t.cols > capC
     }
 
     /// Where the user has panned to, as an offset from the position SwiftTerm
@@ -3796,9 +3814,9 @@ final class HopTermView: TerminalView {
     private func ensureGridContentSize() {
         guard drawnCols > 0, drawnRows > 0 else { return }
         let t = getTerminal()
-        let cellW = bounds.width / CGFloat(drawnCols)
+        let cellW = bounds.width / CGFloat(capCols)
         let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                    drawnRows: drawnRows, terminalRows: t.rows)
+                                    drawnRows: capRows, terminalRows: t.rows)
         let gridW = cellW * CGFloat(t.cols)
         let liveBottom = (CGFloat(t.buffer.yDisp) + CGFloat(t.rows)) * cellH
         if contentSize.width < gridW || contentSize.height < liveBottom {
@@ -3816,7 +3834,7 @@ final class HopTermView: TerminalView {
                         y: min(max(0, contentOffset.y + dy), maxY))
         contentOffset = p
         let cell = drawnCellHeight(viewHeight: bounds.height,
-                                   drawnRows: drawnRows, terminalRows: getTerminal().rows)
+                                   drawnRows: capRows, terminalRows: getTerminal().rows)
         let liveTop = CGFloat(getTerminal().buffer.yDisp) * cell
         panExtra = CGPoint(x: p.x, y: max(0, p.y - liveTop))
     }
