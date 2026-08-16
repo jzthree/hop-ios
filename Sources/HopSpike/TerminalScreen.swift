@@ -1782,7 +1782,17 @@ struct TerminalScreen: UIViewRepresentable {
                     // screen a tap is how you reach the keyboard, and turning
                     // taps into clicks at the app is a behaviour change worth
                     // deciding on a device, not guessing at here.
-                    if alternateScreen { tv.feed(text: "\u{1b}[?1049h") }
+                    // ?1049h alone is NOT enough: SwiftTerm "clears" the alt
+                    // buffer on entry via fillViewportRows, which early-returns
+                    // when lines exist — a real clear only happens on ?1049l
+                    // EXIT, and resetToInitialState deliberately keeps the alt
+                    // buffer (clearAlt: false). So after a wake, re-entering
+                    // landed the replay on the PRE-SLEEP screen, and every
+                    // cell the snapshot didn't repaint showed the old text
+                    // (Jian: "text mixed up after coming back from
+                    // background"; Europa trace, sizes all healthy). ED2+home
+                    // scrubs the canvas the protocol's own way.
+                    if alternateScreen { tv.feed(text: "\u{1b}[?1049h\u{1b}[2J\u{1b}[H") }
                     if cursorHidden { tv.feed(text: "\u{1b}[?25l") }
                     // Mouse reporting is NOT fed into the terminal — it is
                     // recorded beside it. The scroll code needs to know whether

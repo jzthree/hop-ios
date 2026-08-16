@@ -1,4 +1,5 @@
 import XCTest
+import SwiftTerm
 @testable import HopSpike
 
 // Regression cover for the pure logic behind the UI. Every case here is one
@@ -1525,6 +1526,30 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cap!.cols, 62)
     }
 
+    // MARK: - the alt-buffer wake trap (SwiftTerm behavior, pinned)
+
+    func testAltBufferSurvivesResetUnlessScrubbed() {
+        // Documents the SwiftTerm chain behind "text mixed up after coming
+        // back from background": resetToInitialState keeps the alt buffer
+        // (clearAlt: false), and ?1049h re-entry "clears" it with
+        // fillViewportRows, which early-returns when lines exist. If a
+        // library upgrade fixes this upstream, this test says so and the
+        // ED2 scrub in the snapshot handler can retire.
+        let t = Terminal(delegate: MuteTerminalDelegate(), options: TerminalOptions(cols: 20, rows: 4))
+        t.feed(text: "\u{1b}[?1049h")            // enter alt screen
+        t.feed(text: "OLDTEXT")                    // pre-sleep content
+        t.resetToInitialState()                    // the wake reset
+        t.feed(text: "\u{1b}[?1049h")            // plain re-enter
+        let stale = t.getLine(row: 0)?.translateToString(trimRight: true) ?? ""
+        XCTAssertEqual(stale, "OLDTEXT",
+                       "SwiftTerm now clears the alt buffer — the ED2 scrub can retire")
+        // The workaround the snapshot handler ships: scrub on entry.
+        t.resetToInitialState()
+        t.feed(text: "\u{1b}[?1049h\u{1b}[2J\u{1b}[H")
+        let scrubbed = t.getLine(row: 0)?.translateToString(trimRight: true) ?? ""
+        XCTAssertEqual(scrubbed, "", "ED2+home must leave a clean canvas for the replay")
+    }
+
     // MARK: - replayGrid
 
     func testReplayUsesThePtyGridNotTheLocalFit() {
@@ -1654,4 +1679,9 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(AppModel.acceptableRedeemURL("not a url", destination: dest))
     }
 
+}
+
+/// Headless SwiftTerm needs a delegate; the trap test needs none of it.
+final class MuteTerminalDelegate: TerminalDelegate {
+    func send(source: Terminal, data: ArraySlice<UInt8>) {}
 }
