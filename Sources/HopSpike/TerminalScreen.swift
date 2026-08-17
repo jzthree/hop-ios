@@ -528,6 +528,16 @@ struct TerminalHostView: View {
                 // meant becoming active while the first connect was still in
                 // flight tore it down and started over — and every connect
                 // pulls a fresh snapshot, up to 1.5 MB, on someone's cellular.
+                // A swipe interrupted by the app suspending never delivers
+                // its onEnded, and the peek title it left behind is a
+                // PREVIEW of a session you never switched to. Jian, on
+                // device: "room" came back from the background wearing
+                // "lightscope"'s name — the ring's nearest neighbor, frozen
+                // mid-drag. The peek dies with the foreground, both ways.
+                if phase != .active {
+                    pillPeek = nil
+                    pillDragX = 0
+                }
                 if phase == .active, status == .closed { reconnectToken += 1 }
                 if phase == .active, retryAt != nil { retryAt = Date() }   // wake: trying now
                 // A LIVE-looking socket can be half-open after idle: the
@@ -913,7 +923,7 @@ struct TerminalHostView: View {
                 .fill(status == .live ? Color.green : status == .connecting ? Color.yellow : Color.red)
                 .frame(width: 8, height: 8)
                 .sonar(when: status == .connecting, color: .yellow)
-            Text(renamedTitle ?? session.name)
+            Text(renamedTitle ?? liveSession.name)
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
             if lockedByOther {
