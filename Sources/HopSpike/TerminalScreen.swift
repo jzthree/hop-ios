@@ -633,7 +633,48 @@ struct TerminalHostView: View {
     /// fight nobody wins. Rows open the viewer; the strip stays put behind it
     /// so closing the viewer returns you here rather than to nothing.
     @ViewBuilder private var viewsStrip: some View {
-        VStack(spacing: 0) {
+        // BOUNDED and LAZY, whatever the list's size. The first version was a
+        // plain VStack of every row: a session with a long publish history
+        // built a screen-covering, gesture-laden layout inside the top
+        // overlay — every touch below the bar landed on strip rows, nothing
+        // could close it, and the session was unreachable (Jian: "when the
+        // view list is too large... the UI becomes unresponsive"). The strip
+        // now owns at most ~6 rows of height and scrolls within itself; the
+        // bar above stays tappable by construction.
+        Group {
+            if sessionViews.isEmpty {
+                Text("Nothing published yet — agents publish results with hop view.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        stripRows
+                    }
+                }
+                .frame(height: min(CGFloat(sessionViews.count) * 50, 300))
+            }
+        }
+        .background(
+            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
+                                   style: .continuous)
+                .fill(Color.hopIslandBlack)
+        )
+        .overlay(
+            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
+                                   style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 8)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        // Load on APPEAR, not only on the tap that opened it: the strip can
+        // also come up already expanded, and a list that renders "nothing
+        // published yet" over five real results is worse than no list.
+        .task { await loadSessionViews() }
+    }
+
+    @ViewBuilder private var stripRows: some View {
             ForEach(sessionViews) { item in
                 ZStack(alignment: .trailing) {
                 if !item.isServer {
@@ -737,29 +778,6 @@ struct TerminalHostView: View {
                     Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
                 }
             }
-            if sessionViews.isEmpty {
-                Text("Nothing published yet — agents publish results with hop view.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .background(
-            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
-                                   style: .continuous)
-                .fill(Color.hopIslandBlack)
-        )
-        .overlay(
-            UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
-                                   style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-        )
-        .padding(.horizontal, 8)
-        .transition(.opacity.combined(with: .move(edge: .top)))
-        // Load on APPEAR, not only on the tap that opened it: the strip can
-        // also come up already expanded, and a list that renders "nothing
-        // published yet" over five real results is worse than no list.
-        .task { await loadSessionViews() }
     }
 
     private func stripDelete(_ item: ArtifactItem) async {
