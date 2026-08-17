@@ -85,6 +85,8 @@ struct TerminalHostView: View {
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
+    /// Last bell-driven views refresh — the throttle for bellNudgesViews().
+    @State private var lastBellRefresh = Date.distantPast
     @State private var viewers: [HayClient.Viewer] = []
     /// Presence minus this phone — what the company badge shows.
     @State private var otherViewers: [HayClient.Viewer] = []
@@ -147,6 +149,21 @@ struct TerminalHostView: View {
         UserDefaults.standard.set(fontSize, forKey: "termFontSize")
     }
 
+    /// A bell in the live stream is `hop view`'s publish signal (among other
+    /// things), so treat it as "the fleet summary just went stale": refresh
+    /// the session list — which feeds the views chip's count and its unseen
+    /// state — and the open strip if it's showing. Throttled, because agents
+    /// can ring for reasons that arrive in bursts, and one refresh answers
+    /// all of them.
+    private func bellNudgesViews() {
+        guard Date().timeIntervalSince(lastBellRefresh) > 2 else { return }
+        lastBellRefresh = Date()
+        Task {
+            await model.refreshSessions(silent: true)
+            if viewsExpanded { await loadSessionViews() }
+        }
+    }
+
     /// Split out of `body` for the same reason SessionsView is: the whole
     /// chain in one expression blows the SwiftUI type-checker's budget.
     private var screen: some View {
@@ -163,6 +180,7 @@ struct TerminalHostView: View {
                        },
                        find: findRequest, reconnectToken: reconnectToken,
                        onToast: { toast = $0 },
+                       onBell: { bellNudgesViews() },
                        onLinks: { found in
                            links = found
                            if found.isEmpty { toast = "No links on screen" } else { showLinks = true }
@@ -1225,6 +1243,7 @@ struct TerminalScreen: UIViewRepresentable {
     var find: FindRequest?
     var reconnectToken = 0
     var onToast: (String) -> Void = { _ in }
+    var onBell: () -> Void = {}
     var onLinks: ([String]) -> Void = { _ in }
     var onFontChange: (Double) -> Void = { _ in }
     var onRenamed: (String) -> Void = { _ in }
@@ -1253,6 +1272,7 @@ struct TerminalScreen: UIViewRepresentable {
                     onSizeState: onSizeState) { status = $0 }
         c.onRetryState = onRetryState
         c.onOthers = onOthers
+        c.onBell = onBell
         return c
     }
 
@@ -1632,6 +1652,12 @@ struct TerminalScreen: UIViewRepresentable {
         /// Presence minus ourselves — set after construction, like
         /// onRetryState, to keep the init signature from growing again.
         var onOthers: ([HayClient.Viewer]) -> Void = { _ in }
+        /// The BEL that just rang in this live stream, beyond the haptic.
+        /// `hop view` rings it at the moment of publish, so this is the push
+        /// signal that lets the views chip light NOW instead of whenever the
+        /// next session poll happens to run. Set after construction, same
+        /// pattern as onOthers.
+        var onBell: () -> Void = {}
         private var ctrlArmed = false
         private var altArmed = false
         private var lastReconnectToken = 0
@@ -2943,6 +2969,7 @@ struct TerminalScreen: UIViewRepresentable {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            onBell()
         }
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
     }

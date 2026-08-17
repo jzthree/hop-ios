@@ -1,21 +1,48 @@
 import SwiftUI
 import WebKit
+import AVKit
 
 // The in-app viewer for `hop view` artifacts — HTML, PDFs, images published
 // by an agent behind hop's auth. Safari cannot open these (it has no hop
 // session); this sheet carries the app's own cookie into a WKWebView, whose
 // engine renders all three natively. Any link that points at the user's own
-// hop server routes here instead of leaving the app.
+// hop server routes here instead of leaving the app. Video and audio go to
+// a native AVPlayer instead — see ArtifactPlayerView for why.
+
+/// The artifact's real file name. Views URLs end in a literal `/inline`
+/// segment (it keeps the extension out of the URL for edge caches), so the
+/// name that carries the extension is the component BEFORE the last one.
+private func artifactFileName(_ url: URL) -> String {
+    let parts = url.pathComponents
+    let raw = (parts.last == "inline" && parts.count >= 2) ? parts[parts.count - 2]
+        : url.lastPathComponent
+    return raw.removingPercentEncoding ?? raw
+}
+
 struct ArtifactSheet: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
 
+    private var fileName: String { artifactFileName(url) }
+    /// Containers AVPlayer actually decodes. webm deliberately stays in the
+    /// web view — AVFoundation has no VP8/VP9, and a black native player is
+    /// strictly worse than whatever WebKit can do with it.
+    private var isNativeMedia: Bool {
+        ["mp4", "m4v", "mov", "m4a", "mp3", "aac", "wav", "flac"]
+            .contains((fileName as NSString).pathExtension.lowercased())
+    }
+
     var body: some View {
         NavigationStack {
-            ArtifactWebView(url: url)
-                .ignoresSafeArea(edges: .bottom)
-                .navigationTitle(url.lastPathComponent.removingPercentEncoding
-                                 ?? url.lastPathComponent)
+            Group {
+                if isNativeMedia {
+                    ArtifactPlayerView(url: url)
+                } else {
+                    ArtifactWebView(url: url)
+                }
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle(fileName)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -26,6 +53,31 @@ struct ArtifactSheet: View {
                     }
                 }
         }
+    }
+}
+
+/// Native playback for published video/audio. WKWebView could render these,
+/// but AVPlayer gives scrubbing, fullscreen, AirPlay — and honest HDR: an
+/// HLG/PQ test cut published for review renders with EDR here, which is the
+/// entire point of publishing one. The session cookie rides on the asset via
+/// AVURLAssetHTTPCookiesKey, exactly as the web view carries it, because the
+/// media stack makes its own requests and inherits nothing from SwiftUI.
+struct ArtifactPlayerView: View {
+    let url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .background(Color.black)
+            .task {
+                guard player == nil else { return }
+                let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+                let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+                let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                player = fresh
+                fresh.play()
+            }
+            .onDisappear { player?.pause() }
     }
 }
 
