@@ -113,6 +113,12 @@ struct TerminalHostView: View {
     /// The one strip row whose delete is revealed (swipe left). One at a
     /// time, like every list on the platform.
     @State private var stripOpenDelete: String?
+    /// The row currently UNDER a finger, and how far it has been dragged —
+    /// the swipe must move with the hand. The first version classified only
+    /// on release: nothing moved during the drag, and from a device that is
+    /// indistinguishable from the feature not existing (Jian: "the swipe to
+    /// delete option is still not implemented").
+    @State private var stripDrag: (path: String, x: CGFloat)?
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -764,24 +770,39 @@ struct TerminalHostView: View {
                 }
                 .buttonStyle(.plain)
                 .background(Color.hopIslandBlack)
-                .offset(x: stripOpenDelete == item.path ? -76 : 0)
-                // Swipe left: reveal the delete; keep pulling: delete
-                // outright — the platform's own list gesture, hand-rolled
-                // because the strip is chrome, not a List (Jian: "we should
-                // be able to swipe left and right to do something to the
-                // views, like delete"). Servers have nothing to delete.
-                .simultaneousGesture(DragGesture(minimumDistance: 22)
-                    .onEnded { v in
-                        guard !item.isServer,
-                              abs(v.translation.width) > abs(v.translation.height) * 1.5
-                        else { return }
+                .offset(x: stripDrag?.path == item.path
+                        ? stripDrag!.x
+                        : (stripOpenDelete == item.path ? -76 : 0))
+                // Swipe left: the row FOLLOWS the finger, the trash reveals
+                // behind it, and a long pull deletes on release — the
+                // platform's own list gesture, hand-rolled because the strip
+                // is chrome, not a List. Live tracking, not
+                // classify-on-release: a swipe with no motion under the hand
+                // reads as a feature that does not exist. Engages only on a
+                // decisively-horizontal leftward start, so the ScrollView
+                // keeps clean vertical scrolls. Servers have nothing to
+                // delete.
+                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                    .onChanged { v in
+                        guard !item.isServer else { return }
+                        let dx = v.translation.width
+                        if stripDrag?.path != item.path {
+                            guard dx < -8, abs(dx) > abs(v.translation.height) * 1.4
+                            else { return }
+                        }
+                        let base: CGFloat = stripOpenDelete == item.path ? -76 : 0
+                        stripDrag = (item.path, min(0, max(-150, base + dx)))
+                    }
+                    .onEnded { _ in
+                        guard let d = stripDrag, d.path == item.path else { return }
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            if v.translation.width < -130 {
+                            stripDrag = nil
+                            if d.x < -110 {
                                 stripOpenDelete = nil
                                 Task { await stripDelete(item) }
-                            } else if v.translation.width < -30 {
+                            } else if d.x < -40 {
                                 stripOpenDelete = item.path
-                            } else if stripOpenDelete == item.path {
+                            } else {
                                 stripOpenDelete = nil
                             }
                         }
