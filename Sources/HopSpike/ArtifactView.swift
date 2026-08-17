@@ -214,6 +214,18 @@ struct ArtifactsBrowser: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
+                                    // Swipe-to-delete, the platform's own
+                                    // gesture (Jian: "we should be able to
+                                    // swipe to do something to the views").
+                                    // Servers are doors, not files — nothing
+                                    // to delete, so no action to offer.
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        if !item.isServer {
+                                            Button(role: .destructive) {
+                                                Task { await remove(item) }
+                                            } label: { Label("Delete", systemImage: "trash") }
+                                        }
+                                    }
                                     // Retraction, from the reading side. The
                                     // publisher has --rm; the human staring
                                     // at a stale or mistaken result had no

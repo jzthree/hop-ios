@@ -110,6 +110,9 @@ struct TerminalHostView: View {
 #endif
     }()
     @State private var sessionViews: [ArtifactItem] = []
+    /// The one strip row whose delete is revealed (swipe left). One at a
+    /// time, like every list on the platform.
+    @State private var stripOpenDelete: String?
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -632,7 +635,34 @@ struct TerminalHostView: View {
     @ViewBuilder private var viewsStrip: some View {
         VStack(spacing: 0) {
             ForEach(sessionViews) { item in
+                ZStack(alignment: .trailing) {
+                if !item.isServer {
+                    // The reveal target a left swipe uncovers. Behind the
+                    // row, so the row's own slide is the whole animation.
+                    Button {
+                        withAnimation { stripOpenDelete = nil }
+                        Task { await stripDelete(item) }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 72)
+                            .frame(maxHeight: .infinity)
+                            .background(Color.red.opacity(0.88))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete \(item.label)")
+                }
                 Button {
+                    // A tap while the delete is out just closes it — the
+                    // platform's own list behavior.
+                    if stripOpenDelete == item.path {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            stripOpenDelete = nil
+                        }
+                        return
+                    }
                     if let u = URL(string: model.normalizedServerURL)?
                         .appendingPathComponent(String(item.path.dropFirst())) {
                         artifactURL = u
@@ -663,10 +693,30 @@ struct TerminalHostView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                // Long-press to retract. The strip is chrome, not a List, so
-                // swipe rows aren't available here — the full browser has
-                // them. Same rule as everywhere: servers' rows die with the
-                // server and can't be deleted from the reading side.
+                .background(Color.hopIslandBlack)
+                .offset(x: stripOpenDelete == item.path ? -76 : 0)
+                // Swipe left: reveal the delete; keep pulling: delete
+                // outright — the platform's own list gesture, hand-rolled
+                // because the strip is chrome, not a List (Jian: "we should
+                // be able to swipe left and right to do something to the
+                // views, like delete"). Servers have nothing to delete.
+                .simultaneousGesture(DragGesture(minimumDistance: 22)
+                    .onEnded { v in
+                        guard !item.isServer,
+                              abs(v.translation.width) > abs(v.translation.height) * 1.5
+                        else { return }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            if v.translation.width < -130 {
+                                stripOpenDelete = nil
+                                Task { await stripDelete(item) }
+                            } else if v.translation.width < -30 {
+                                stripOpenDelete = item.path
+                            } else if stripOpenDelete == item.path {
+                                stripOpenDelete = nil
+                            }
+                        }
+                    })
+                // Long-press stays as the second door to the same delete.
                 .contextMenu {
                     if !item.isServer {
                         Button(role: .destructive) {
@@ -681,6 +731,8 @@ struct TerminalHostView: View {
                         } label: { Label("Delete view", systemImage: "trash") }
                     }
                 }
+                }
+                .clipped()
                 if item.id != sessionViews.last?.id {
                     Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
                 }
@@ -708,6 +760,15 @@ struct TerminalHostView: View {
         // also come up already expanded, and a list that renders "nothing
         // published yet" over five real results is worse than no list.
         .task { await loadSessionViews() }
+    }
+
+    private func stripDelete(_ item: ArtifactItem) async {
+        if await deleteArtifact(serverURL: model.normalizedServerURL,
+                                urlSession: model.urlSession,
+                                session: item.session, name: item.name) {
+            withAnimation { sessionViews.removeAll { $0.id == item.id } }
+            await model.refreshSessions(silent: true)
+        }
     }
 
     /// Read the manifest for THIS session only. Cheap enough to re-read every
@@ -814,28 +875,53 @@ struct TerminalHostView: View {
             // menu, not the reverse (removing the button stranded him).
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 34, height: 34)
+                    .font(.system(size: 17, weight: .semibold))
+                    // 56x44, not 34x34: Apple's floor is 44pt and this is the
+                    // single most-tapped control on the screen (Jian: "I often
+                    // have to try several times"). The extra width also
+                    // catches taps drifting toward the screen edge, where the
+                    // edge-swipe zone used to eat them.
+                    .frame(width: 56, height: 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Back to sessions")
             // Mid-swipe the title becomes the DESTINATION: past the commit
             // threshold you read the name you will land on, not the one you
             // are leaving. Release inside the threshold and nothing happens.
-            if let peek = pillPeek {
-                HStack(spacing: 7) {
-                    Image(systemName: pillDragX < 0 ? "arrow.right" : "arrow.left")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.hopGlow)
-                    Text(peek.name)
-                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                        .lineLimit(1)
+            // The drag lives on the TITLE REGION (title + slack), not the
+            // whole bar: with the gesture bar-wide, every slightly-moving
+            // tap on the back chevron or the menu entered drag arbitration
+            // first — the "have to try several times" bug. The body swipe
+            // already covers the whole terminal, so the pill surface losing
+            // its ends costs nothing.
+            HStack(spacing: 0) {
+                if let peek = pillPeek {
+                    HStack(spacing: 7) {
+                        Image(systemName: pillDragX < 0 ? "arrow.right" : "arrow.left")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.hopGlow)
+                        Text(peek.name)
+                            .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity)
+                } else {
+                    titleLabel
                 }
-                .transition(.opacity)
-            } else {
-                titleLabel
+                Spacer(minLength: 4)
             }
-            Spacer(minLength: 4)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 25)
+                .onChanged { v in
+                    let dx = v.translation.width
+                    guard abs(dx) > abs(v.translation.height) * 2 else { return }
+                    switchDragMoved(dx)
+                }
+                .onEnded { v in
+                    let dx = v.translation.width
+                    switchDragEnded(dx, commit: abs(dx) > 50
+                        && abs(dx) > abs(v.translation.height) * 2)
+                })
             viewsChip
             actionsMenu
         }
@@ -882,17 +968,6 @@ struct TerminalHostView: View {
         // until it had already fired, which made it both undiscoverable and
         // blind about where it was going.
         .offset(x: pillDragX)
-        .gesture(DragGesture(minimumDistance: 25)
-            .onChanged { v in
-                let dx = v.translation.width
-                guard abs(dx) > abs(v.translation.height) * 2 else { return }
-                switchDragMoved(dx)
-            }
-            .onEnded { v in
-                let dx = v.translation.width
-                switchDragEnded(dx, commit: abs(dx) > 50
-                    && abs(dx) > abs(v.translation.height) * 2)
-            })
         .padding(.horizontal, 5)
         // No top padding here anymore — the background above already reaches
         // y=0 on its own (ignoresSafeArea); adding frame padding at this
