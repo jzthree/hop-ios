@@ -1382,8 +1382,14 @@ extension ScrollUITests {
         ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 8), "strip rows never rendered")
 
-        // ...CLOSE on a second chip tap (the reported impossibility #1)...
+        // ...CLOSE on a second chip tap (the reported impossibility #1) —
+        // and PROVE the strip left, not merely that something still responds
+        // (Jian: "clicking on the view button twice should collapse it too").
         chip.tap()
+        let rowGone = NSPredicate(format: "exists == false")
+        let vanish = XCTNSPredicateExpectation(predicate: rowGone, object: row)
+        XCTAssertEqual(XCTWaiter().wait(for: [vanish], timeout: 5), .completed,
+                       "second chip tap did not collapse the views list")
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 5),
                       "UI unresponsive after closing the strip")
 
