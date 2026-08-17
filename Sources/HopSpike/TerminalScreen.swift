@@ -100,6 +100,11 @@ struct TerminalHostView: View {
     @State private var showLinks = false
     /// Same dev hook the Account sheet uses: a panel that can only be reached
     /// by a gesture is a panel no screenshot check can see.
+    /// Where the chrome ACTUALLY sits in the window — 0 in the normal
+    /// world, negative when keyboard avoidance has dragged the view up
+    /// under the island. The offset above compensates by exactly that.
+    @State private var chromeGlobalY: CGFloat = 0
+
     /// The Views list, expanded inline under the menu. Same dev hook as
     /// before so a screenshot can still reach it.
     @State private var viewsExpanded = {
@@ -529,6 +534,29 @@ struct TerminalHostView: View {
                         // lose the keyboard, because nothing ever took it.
                         if viewsExpanded { viewsStrip }
                     }
+                    // The bar's touch targets are position-critical: iOS
+                    // keyboard avoidance sometimes shifts the WHOLE view up
+                    // (trace-witnessed: topInWindow=-28), and on hardware
+                    // that slides the chevron and chip under the Dynamic
+                    // Island's touch-dead zone — the strip below still
+                    // scrolls, the bar goes dead (Jian: "I can scroll the
+                    // view list, but I can do nothing else"). The simulator
+                    // has no dead island, which is why every test passed.
+                    // Measure where the chrome actually IS and push it back
+                    // below the island when the view has been dragged up.
+                    .background(GeometryReader { g in
+                        Color.clear
+                            .onAppear { chromeGlobalY = g.frame(in: .global).minY }
+                            .onChange(of: g.frame(in: .global).minY) { _, y in
+                                if abs(y - chromeGlobalY) > 0.5 {
+                                    chromeGlobalY = y
+                                    if y < -0.5 {
+                                        KBLog.record("chrome shifted off-screen: globalY=\(Int(y)) — compensating")
+                                    }
+                                }
+                            }
+                    })
+                    .offset(y: max(0, -chromeGlobalY))
                     .transition(.move(edge: .top).combined(with: .opacity))
                 } else if chromeTipAnchor, !landscapePhone, goneReason == nil {
                     // An invisible anchor where the pill lives, carrying the
@@ -654,6 +682,24 @@ struct TerminalHostView: View {
                     }
                 }
                 .frame(height: min(CGFloat(sessionViews.count) * 50, 300))
+                // The strip carries its OWN way out, at its bottom edge —
+                // never occluded by the island, never dependent on the bar
+                // above being tappable. Born from the day the bar went dead
+                // and the list could scroll but not close.
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                        viewsExpanded = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close views")
             }
         }
         .background(
