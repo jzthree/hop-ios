@@ -214,6 +214,25 @@ struct ArtifactsBrowser: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
+                                    // Retraction, from the reading side. The
+                                    // publisher has --rm; the human staring
+                                    // at a stale or mistaken result had no
+                                    // way to clear it. Servers are excluded —
+                                    // their row dies with the server.
+                                    .swipeActions(edge: .trailing) {
+                                        if !item.isServer {
+                                            Button(role: .destructive) {
+                                                Task { await remove(item) }
+                                            } label: { Label("Delete", systemImage: "trash") }
+                                        }
+                                    }
+                                    .contextMenu {
+                                        if !item.isServer {
+                                            Button(role: .destructive) {
+                                                Task { await remove(item) }
+                                            } label: { Label("Delete view", systemImage: "trash") }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -254,6 +273,13 @@ struct ArtifactsBrowser: View {
         return "\(time) · \(size)"
     }
 
+    private func remove(_ item: ArtifactItem) async {
+        if await deleteArtifact(serverURL: serverURL, urlSession: urlSession,
+                                session: item.session, name: item.name) {
+            withAnimation { items.removeAll { $0.id == item.id } }
+        }
+    }
+
     private func load() async {
         // /api/views is the same bytes as the legacy
         // /assets/view/manifest.json, under a name that says what it is; the
@@ -285,6 +311,24 @@ struct ArtifactsBrowser: View {
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }
     }
+}
+
+/// Unpublish one view — the daemon's DELETE /api/views, the same call the
+/// web wall uses. Copies only: the source file the agent published from is
+/// not hop's to delete, and a live server row is refused server-side.
+func deleteArtifact(serverURL: String, urlSession: URLSession,
+                    session: String, name: String) async -> Bool {
+    guard let url = URL(string: serverURL)?.appendingPathComponent("api/views")
+    else { return false }
+    var req = URLRequest(url: url)
+    req.httpMethod = "DELETE"
+    req.timeoutInterval = 8
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+        "session": session, "name": name,
+    ])
+    guard let (_, resp) = try? await urlSession.data(for: req) else { return false }
+    return (resp as? HTTPURLResponse)?.statusCode == 200
 }
 
 /// Does this link point at the user's own hop server? Those open in-app —

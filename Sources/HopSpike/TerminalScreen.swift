@@ -663,6 +663,24 @@ struct TerminalHostView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // Long-press to retract. The strip is chrome, not a List, so
+                // swipe rows aren't available here — the full browser has
+                // them. Same rule as everywhere: servers' rows die with the
+                // server and can't be deleted from the reading side.
+                .contextMenu {
+                    if !item.isServer {
+                        Button(role: .destructive) {
+                            Task {
+                                if await deleteArtifact(serverURL: model.normalizedServerURL,
+                                                        urlSession: model.urlSession,
+                                                        session: item.session, name: item.name) {
+                                    withAnimation { sessionViews.removeAll { $0.id == item.id } }
+                                    await model.refreshSessions(silent: true)
+                                }
+                            }
+                        } label: { Label("Delete view", systemImage: "trash") }
+                    }
+                }
                 if item.id != sessionViews.last?.id {
                     Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
                 }
