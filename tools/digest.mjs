@@ -476,17 +476,36 @@ Reply with ONLY a JSON object:
            "why":"<what it means or puts at risk, one sentence>",
            "urgency":"needs-you"|"blocked"|"finished"|"fyi"}]}
 
-Editions run hourly, and the reader has already seen your previous one —
-it is included below, with earlier editions under it (newest first). Do
-not re-report what they already told the reader unless something moved; a
-story that merely continues can be one clause inside a new story or
-absent. The back-issues are your memory, so use them for what one hour's
-screens cannot show: follow a thread to its landing ("the sweep promised
-Tuesday finished"), and say so plainly when something has sat unresolved
-edition after edition — a quiet stall is front-page news precisely
-because no single hour makes it visible. Sessions listed under
-"unchanged" have not changed meaningfully since the previous edition —
-mention one only if a CHANGED session's story needs it.
+WHAT THE READER REMEMBERS — the rule that governs every sentence (the
+maintainer's own words: "of course I know everything that I typed into
+the agent, but for everything the agent output, I may or may not have
+viewed it"). The reader remembers what THEY typed: their own
+instructions, questions and decisions are safe to assume, and the
+"about" lines are their own words. Assume NOTHING agent-produced has
+been seen — not agent output, and not your previous editions. A briefing
+is not a serial; every edition is read cold, possibly as the first one
+ever. Concretely:
+- Never lean on a previous edition. "As noted", "still", "again", "the
+  stall from yesterday" are all broken references for a reader who never
+  saw yesterday's page — when a thread continues, restate the fact
+  itself, fresh, in this edition's own words.
+- Every story carries its own context in-line: one clause on what the
+  session is for and where things stood, then the news. "The cooldown
+  run that settles which of the two music models won has now waited
+  three days on one keypress" stands alone; "the cooldown is still
+  waiting" assumes a reader you do not have.
+- Repetition ACROSS editions is fine when the fact still matters — a
+  stall may headline three editions running, told fresh each time.
+  Redundancy WITHIN an edition is what to avoid.
+
+Editions run hourly. The back-issues below are YOUR memory, never the
+reader's: use them for what one hour's screens cannot show — follow a
+thread to its landing, notice something sitting unresolved edition after
+edition (a quiet stall is front-page news precisely because no single
+hour makes it visible), and avoid contradicting what you yourself said —
+but never treat them as something the reader has read. Sessions listed
+under "unchanged" have not changed meaningfully since the previous
+edition — mention one only if a CHANGED session's story needs it.
 
 Previous edition:
 ${prevEdition ? JSON.stringify({ summary: prevEdition.summary, items: prevEdition.items }, null, 1) : "(none)"}
