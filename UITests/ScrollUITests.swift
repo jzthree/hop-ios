@@ -1353,3 +1353,58 @@ final class ScrollUITests: XCTestCase {
     }
 
 }
+
+extension ScrollUITests {
+    /// Jian's freeze: open the views list in the room session (14 items,
+    /// mostly large videos), then CLOSE it and GO BACK. Asserts the exact
+    /// two things he reports as impossible.
+    func testViewsListOpensClosesAndBackWorksInRoom() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = "room"
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+
+        // Open the views list via the chip (label depends on unseen state).
+        let chip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'published view' OR label BEGINSWITH 'New result'")
+        ).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "views chip missing in room")
+        chip.tap()
+
+        // The list must render its rows...
+        let row = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'growth-room' OR label CONTAINS 'hdr' OR label CONTAINS 'sdr'")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 8), "strip rows never rendered")
+
+        // ...CLOSE on a second chip tap (the reported impossibility #1)...
+        chip.tap()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 5),
+                      "UI unresponsive after closing the strip")
+
+        // ...and BACK must still leave the session (impossibility #2).
+        let back = app.buttons["Back to sessions"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "back button unreachable")
+        back.tap()
+        // The switcher's real landmarks (failure-screenshot-verified): the
+        // briefing card and the filter field — not the imagined ones the
+        // first draft looked for while the switcher sat fully rendered.
+        let left = app.staticTexts["Briefing"].waitForExistence(timeout: 8)
+            || app.textFields["Filter sessions"].waitForExistence(timeout: 4)
+            || app.searchFields.firstMatch.waitForExistence(timeout: 4)
+        if !left {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(
+                to: URL(fileURLWithPath: "/tmp/views-freeze.png"))
+            let tree = app.descendants(matching: .any).allElementsBoundByIndex.prefix(40)
+                .map { "\($0.elementType.rawValue) '\($0.identifier)' '\($0.label.prefix(40))'" }
+                .joined(separator: "\n")
+            try? tree.write(toFile: "/tmp/views-freeze-tree.txt", atomically: true, encoding: .utf8)
+        }
+        XCTAssertTrue(left, "back tap did not leave the session")
+    }
+}
