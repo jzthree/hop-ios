@@ -101,6 +101,10 @@ struct TerminalHostView: View {
     @State private var showLinks = false
     /// Same dev hook the Account sheet uses: a panel that can only be reached
     /// by a gesture is a panel no screenshot check can see.
+    /// The chrome overlay's rendered height, handed to the terminal so its
+    /// "is this touch on the chrome" test tracks the expanded strip.
+    @State private var chromeHeightNow: CGFloat = 0
+
     /// The Views list, expanded inline under the menu. Same dev hook as
     /// before so a screenshot can still reach it.
     @State private var viewsExpanded = {
@@ -185,6 +189,7 @@ struct TerminalHostView: View {
                        fontSize: fontSize, lightTheme: lightTheme,
                        fitWidth: fitWidth, autoScale: peerSize != nil, fitTick: fitTick,
                        chromeAutoHide: chromeAutoHideEnabled, landscape: landscapePhone,
+                       chromeHeightNow: chromeShown && !landscapePhone ? chromeHeightNow : 0,
                        onSessionSwipe: { phase, dx in
                            switch phase {
                            case .moved: switchDragMoved(dx)
@@ -555,6 +560,15 @@ struct TerminalHostView: View {
                         // lose the keyboard, because nothing ever took it.
                         if viewsExpanded { viewsStrip }
                     }
+                    // SIZE only, never position (see the scar below): the
+                    // overlay's height is stable through its own move-in
+                    // transition, and the terminal needs it to know how much
+                    // of its top is covered by chrome right now.
+                    .background(GeometryReader { g in
+                        Color.clear
+                            .onAppear { chromeHeightNow = g.size.height }
+                            .onChange(of: g.size.height) { _, h in chromeHeightNow = h }
+                    })
                     // NO self-measurement here, as a scar: a GeometryReader
                     // on this view once fed an offset meant to keep the bar
                     // out of the island's dead zone — but this view ENTERS by
@@ -1445,6 +1459,7 @@ struct TerminalScreen: UIViewRepresentable {
     /// the terminal shifts its own content clear rather than losing the rows.
     var chromeAutoHide = false
     var landscape = false
+    var chromeHeightNow: CGFloat = 0
     var onSessionSwipe: (HopTermView.SwipePhase, CGFloat) -> Void = { _, _ in }
     var find: FindRequest?
     var reconnectToken = 0
@@ -1608,6 +1623,7 @@ struct TerminalScreen: UIViewRepresentable {
         // below. Zero whenever the menu isn't there to cover anything.
         uiView.chromeOverlap = (chromeAutoHide || landscape)
             ? 0 : max(0, HopTermView.chromeStrip - 40)
+        uiView.chromeHeightNow = chromeHeightNow
         uiView.naturalFontPt = CGFloat(fontSize)
         uiView.runningAppName = model.sessions
             .first(where: { $0.internalName == room })?.runningApp ?? ""
@@ -3302,6 +3318,15 @@ final class HopTermView: TerminalView {
     /// entirely inside the status area (probe-caught: the summon tap fell
     /// through to the keyboard).
     static var chromeStrip: CGFloat { windowTopInset() + 46 }
+    /// How tall the chrome overlay actually is RIGHT NOW — the bar alone, or
+    /// bar + expanded Views strip. Set by the host. Everything that asks "is
+    /// this touch on the chrome" must use this, not the bar-only constant:
+    /// with the strip open, a tap on the back button was ALSO counted as a
+    /// body tap by the terminal underneath, which collapsed the strip on the
+    /// same touch and re-laid the overlay out from under the button (Jian:
+    /// "the back button is disabled when the view list is expanded").
+    var chromeHeightNow: CGFloat = 0
+    var chromeReach: CGFloat { max(Self.chromeStrip, chromeHeightNow) }
 
     /// A link was tapped directly on the grid.
     var onOpenLink: ((String) -> Void)?
@@ -3366,11 +3391,11 @@ final class HopTermView: TerminalView {
     /// window test only ever ADDS reachable area.
     private func inChromeStrip(_ g: UIGestureRecognizer) -> Bool {
         logIfShiftedOffScreen()
-        if g.location(in: self).y - bounds.origin.y < Self.chromeStrip { return true }
+        if g.location(in: self).y - bounds.origin.y < chromeReach { return true }
         guard let window else { return false }
         let onScreen = convert(bounds, to: window).intersection(window.bounds)
         guard !onScreen.isNull else { return false }
-        return g.location(in: window).y - onScreen.minY < Self.chromeStrip
+        return g.location(in: window).y - onScreen.minY < chromeReach
     }
 
     @objc private func handleClickTap(_ g: UITapGestureRecognizer) {
@@ -4846,7 +4871,8 @@ extension HopTermView: UIGestureRecognizerDelegate {
         // probe-proven) and becomeFirstResponder fires only when unfocused.
         // Brakes, strip taps and mouse clicks returned above; pans never
         // reach this line.
-        if let tap = g as? UITapGestureRecognizer, tap.numberOfTapsRequired == 1 {
+        if let tap = g as? UITapGestureRecognizer, tap.numberOfTapsRequired == 1,
+           !inChromeStrip(tap) {
             onUserIntent?()
         }
         return super.gestureRecognizerShouldBegin(g)

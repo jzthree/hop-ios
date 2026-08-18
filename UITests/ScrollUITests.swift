@@ -1388,6 +1388,25 @@ extension ScrollUITests {
         ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 8), "strip rows never rendered")
 
+        // WHILE EXPANDED, the bar must still work — the ⋯ menu here, and
+        // back below after collapse. The first version of this test
+        // collapsed first and never caught the bar going dead under an open
+        // strip (Jian: "the back button is disabled when the view list is
+        // expanded"). Open the menu, then dismiss it, without touching the
+        // strip.
+        let menu = app.buttons["Terminal actions"].firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "menu button missing while strip open")
+        menu.tap()
+        let menuItem = app.buttons["Copy screen"].firstMatch
+        XCTAssertTrue(menuItem.waitForExistence(timeout: 5),
+                      "menu did not open while the views strip was expanded — bar is dead")
+        // Dismiss the menu through an item with no chrome side effects
+        // (Copy screen), not a body tap — a body tap is itself a collapse
+        // now, by design, and Find would take the top edge.
+        menuItem.tap()
+        sleep(1)
+        XCTAssertTrue(row.exists, "using the menu must not collapse the strip")
+
         // ...CLOSE on a second chip tap (the reported impossibility #1) —
         // and PROVE the strip left, not merely that something still responds
         // (Jian: "clicking on the view button twice should collapse it too").
