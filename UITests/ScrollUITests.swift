@@ -1376,9 +1376,15 @@ extension ScrollUITests {
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "views chip missing in room")
         chip.tap()
 
-        // The list must render its rows...
+        // The list must render its rows. Matched on the "live server"
+        // caption every hop-port row carries, not on file names: room's files
+        // rotate (14 reel videos → 3 write-ups took the old hard-coded names
+        // with them), but its attached workspace server is a fixture of the
+        // session itself. (A runner-owned sentinel was tried and is
+        // impossible: the iOS test process is sandboxed off the host's
+        // ~/.hop2, and the daemon has no upload endpoint by design.)
         let row = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS 'growth-room' OR label CONTAINS 'hdr' OR label CONTAINS 'sdr'")
+            NSPredicate(format: "label CONTAINS 'live server' OR label CONTAINS[c] '.md'")
         ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 8), "strip rows never rendered")
 

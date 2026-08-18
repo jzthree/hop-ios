@@ -119,6 +119,10 @@ struct TerminalHostView: View {
     /// indistinguishable from the feature not existing (Jian: "the swipe to
     /// delete option is still not implemented").
     @State private var stripDrag: (path: String, x: CGFloat)?
+    /// When the current touch on a row began. onEnded's own `time` is the
+    /// END, so a hold and a tap look identical there; a tap is brief from
+    /// its START, and this is what makes "long press should not open" true.
+    @State private var stripTouchBegan: Date?
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -213,6 +217,16 @@ struct TerminalHostView: View {
                            // The lesson's completion: summoning donates the
                            // event, and the tip never shows again.
                            Task { await ChromeSummonTip.chromeSummoned.donate() }
+                       },
+                       onBodyTap: {
+                           // Tapping the session below is the natural "done
+                           // with the list" (Jian: "user should be able to
+                           // collapse it by tapping elsewhere").
+                           if viewsExpanded {
+                               withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                   viewsExpanded = false
+                               }
+                           }
                        },
                        onBackSwipe: { dismiss() },
                        onOpenLink: { link in openLinkSmart(link) },
@@ -675,20 +689,27 @@ struct TerminalHostView: View {
                 // never occluded by the island, never dependent on the bar
                 // above being tappable. Born from the day the bar went dead
                 // and the list could scroll but not close.
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                        viewsExpanded = false
-                    }
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close views")
+                // Tap it, or DRAG it upward — a grab-handle that only taps
+                // is a handle that lies about what it is (Jian: "…or drag
+                // up the collapse button").
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .contentShape(Rectangle())
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Close views")
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onEnded { v in
+                            let dx = v.translation.width, dy = v.translation.height
+                            let tapped = hypot(dx, dy) < 8
+                            let draggedUp = dy < -20 && abs(dy) > abs(dx)
+                            guard tapped || draggedUp else { return }
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                viewsExpanded = false
+                            }
+                        })
             }
         }
         .background(
@@ -730,98 +751,98 @@ struct TerminalHostView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Delete \(item.label)")
                 }
-                Button {
-                    // A tap while the delete is out just closes it — the
-                    // platform's own list behavior.
-                    if stripOpenDelete == item.path {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            stripOpenDelete = nil
-                        }
-                        return
+                // ONE ARBITER per row — a plain view under a single gesture
+                // that decides tap / swipe / hold ITSELF. The last version
+                // was a Button plus a simultaneous DragGesture plus a
+                // contextMenu, and SwiftUI arbitrated among them: a swipe
+                // released still fired the Button (Jian: "swipe and release
+                // opens rather than leaving a chance to delete"), and a
+                // long-press opened the menu AND the viewer. Nothing races
+                // now, because nothing else is listening.
+                HStack(spacing: 10) {
+                    Image(systemName: item.glyph)
+                        .font(.system(size: 13))
+                        .foregroundStyle(item.isServer ? Color.hopAttention : Color.hopGlow)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.label)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(item.isServer ? "live server"
+                             : (item.name.removingPercentEncoding ?? item.name))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    if let u = URL(string: model.normalizedServerURL)?
-                        .appendingPathComponent(String(item.path.dropFirst())) {
-                        artifactURL = u
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: item.glyph)
-                            .font(.system(size: 13))
-                            .foregroundStyle(item.isServer ? Color.hopAttention : Color.hopGlow)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.label)
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                            Text(item.isServer ? "live server"
-                                 : (item.name.removingPercentEncoding ?? item.name))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2).foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .contentShape(Rectangle())
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
                 .background(Color.hopIslandBlack)
                 .offset(x: stripDrag?.path == item.path
                         ? stripDrag!.x
                         : (stripOpenDelete == item.path ? -76 : 0))
-                // Swipe left: the row FOLLOWS the finger, the trash reveals
-                // behind it, and a long pull deletes on release — the
-                // platform's own list gesture, hand-rolled because the strip
-                // is chrome, not a List. Live tracking, not
-                // classify-on-release: a swipe with no motion under the hand
-                // reads as a feature that does not exist. Engages only on a
-                // decisively-horizontal leftward start, so the ScrollView
-                // keeps clean vertical scrolls. Servers have nothing to
-                // delete.
-                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                .accessibilityElement(children: .contain)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Opens. Swipe left to delete.")
+                .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { v in
+                        if stripTouchBegan == nil { stripTouchBegan = v.time }
+                        // Track a leftward horizontal drag as a swipe. A
+                        // rightward or vertical drag is not ours (the
+                        // ScrollView scrolls; a right-swipe just closes an
+                        // open trash below).
                         guard !item.isServer else { return }
-                        let dx = v.translation.width
+                        let dx = v.translation.width, dy = v.translation.height
                         if stripDrag?.path != item.path {
-                            guard dx < -8, abs(dx) > abs(v.translation.height) * 1.4
-                            else { return }
+                            guard dx < -10, abs(dx) > abs(dy) * 1.4 else { return }
                         }
                         let base: CGFloat = stripOpenDelete == item.path ? -76 : 0
                         stripDrag = (item.path, min(0, max(-150, base + dx)))
                     }
-                    .onEnded { _ in
-                        guard let d = stripDrag, d.path == item.path else { return }
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            stripDrag = nil
-                            if d.x < -110 {
-                                stripOpenDelete = nil
-                                Task { await stripDelete(item) }
-                            } else if d.x < -40 {
-                                stripOpenDelete = item.path
-                            } else {
-                                stripOpenDelete = nil
-                            }
-                        }
-                    })
-                // Long-press stays as the second door to the same delete.
-                .contextMenu {
-                    if !item.isServer {
-                        Button(role: .destructive) {
-                            Task {
-                                if await deleteArtifact(serverURL: model.normalizedServerURL,
-                                                        urlSession: model.urlSession,
-                                                        session: item.session, name: item.name) {
-                                    withAnimation { sessionViews.removeAll { $0.id == item.id } }
-                                    await model.refreshSessions(silent: true)
+                    .onEnded { v in
+                        let began = stripTouchBegan ?? v.time
+                        stripTouchBegan = nil
+                        let dx = v.translation.width, dy = v.translation.height
+                        let moved = hypot(dx, dy)
+                        if let d = stripDrag, d.path == item.path {
+                            // A swipe ends as a swipe: park, delete, or
+                            // snap back — never open.
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                stripDrag = nil
+                                if d.x < -110 {
+                                    stripOpenDelete = nil
+                                    Task { await stripDelete(item) }
+                                } else if d.x < -40 {
+                                    stripOpenDelete = item.path
+                                } else {
+                                    stripOpenDelete = nil
                                 }
                             }
-                        } label: { Label("Delete view", systemImage: "trash") }
-                    }
-                }
+                            return
+                        }
+                        // Anything that moved is a scroll or a stray drag,
+                        // not a tap — and a hold is not a tap either
+                        // (Jian: "long press should not open"). Only a
+                        // clean, brief touch opens.
+                        guard moved < 8, v.time.timeIntervalSince(began) < 0.45 else { return }
+                        if stripOpenDelete != nil {
+                            // Any tap while a trash is out just closes it —
+                            // the platform's own list behavior.
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                stripOpenDelete = nil
+                            }
+                            return
+                        }
+                        if let u = URL(string: model.normalizedServerURL)?
+                            .appendingPathComponent(String(item.path.dropFirst())) {
+                            artifactURL = u
+                        }
+                    })
                 }
                 .clipped()
                 if item.id != sessionViews.last?.id {
@@ -1415,6 +1436,10 @@ struct TerminalScreen: UIViewRepresentable {
     @Binding var control: ControlAction?
     var onScroll: (Bool) -> Void = { _ in }
     var onChromeTap: () -> Void = {}
+    /// Any approved single tap on the terminal BODY. The host uses it to
+    /// dismiss transient chrome (the Views strip): tapping the session is
+    /// the most natural "I'm done with the list" there is.
+    var onBodyTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
     var onOpenLink: (String) -> Void = { _ in }
     var onFitRefresh: () -> Void = {}
@@ -1432,6 +1457,7 @@ struct TerminalScreen: UIViewRepresentable {
                     onPresence: onPresence, onCollab: onCollab, onScroll: onScroll,
                     onSizeState: onSizeState) { status = $0 }
         c.onRetryState = onRetryState
+        c.onBodyTap = onBodyTap
         c.onOthers = onOthers
         c.onBell = onBell
         return c
@@ -1563,6 +1589,7 @@ struct TerminalScreen: UIViewRepresentable {
             .first(where: { $0.internalName == room })?.runningApp ?? ""
 
         context.coordinator.themeIsLight = lightTheme
+        context.coordinator.onBodyTap = onBodyTap
         // Only on a new request. Re-running whenever anything else updated
         // meant the list's background refresh yanked the view back to the
         // match every few seconds while you were trying to read around it.
@@ -1805,6 +1832,7 @@ struct TerminalScreen: UIViewRepresentable {
         private let onToast: (String) -> Void
         private let onLinks: ([String]) -> Void
         private let onFontChange: (Double) -> Void
+        var onBodyTap: () -> Void = {}
         private let onRenamed: (String) -> Void
         private let onGone: (String) -> Void
         private let onPresence: ([HayClient.Viewer]) -> Void
@@ -1867,7 +1895,7 @@ struct TerminalScreen: UIViewRepresentable {
             // Taps do NOT claim any more (Jian, revising his own rule:
             // "still only keystroke should"). A tap focuses and scrolls; it
             // is not a statement about whose screen this session belongs to.
-            view.onUserIntent = { }
+            view.onUserIntent = { [weak self] in self?.onBodyTap() }
             client.onEvent = { [weak self] event in
                 guard let self, let tv = self.view else { return }
                 switch event {
