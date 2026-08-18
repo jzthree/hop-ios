@@ -3039,11 +3039,25 @@ struct TerminalScreen: UIViewRepresentable {
             fittedRows = newRows
             view?.drawnRows = newRows
             view?.drawnCols = newCols
-            // The bounds this measurement DESCRIBES. SwiftTerm reports a fit
-            // only when it changes the terminal size, so these numbers can
-            // outlive the viewport they were measured in — the reader must
-            // know when that has happened (see scaledFit).
+            // The bounds AND FONT this measurement DESCRIBES. SwiftTerm
+            // reports a fit only when it changes the terminal size, so these
+            // numbers can outlive both the viewport AND the font size they
+            // were measured in (see scaledFit). Recording only the bounds was
+            // not enough: a transient font (auto-scale reacting to a default
+            // 80x25 mid-keyboard-animation) measured 64x19 at the FULL
+            // bounds, so naturalFit saw measuredAt==bounds and trusted 19
+            // rows as exact — locking in half the screen even after the font
+            // corrected back to natural, because no new sizeChanged fired.
             view?.drawnBounds = source.bounds.size
+            view?.drawnFontPt = source.font.pointSize
+            // Loud when a measurement was taken at a font far from natural —
+            // the upstream cause of a font-mismatched half-height. Its
+            // presence in a future trace confirms this heal is engaging.
+            if let tv = view, tv.naturalFontPt > 0.1,
+               abs(source.font.pointSize - tv.naturalFontPt) > 3 {
+                KBLog.record("fit \(newCols)x\(newRows) measured at OFF-natural font "
+                    + "\(String(format: "%.1f", source.font.pointSize)) (natural \(Int(tv.naturalFontPt))) — will rescale")
+            }
             view?.applyLetterbox()
             // Observer mode's convergence: a font change refits the terminal
             // locally, and if fewer columns fit than the room elected, the
@@ -3841,8 +3855,13 @@ final class HopTermView: TerminalView {
             // view (the half-screen bug, trace-convicted). The measured cell
             // scaled to current bounds rounds DOWN at worst — letterbox,
             // never an undrawable claim.
-            let scaled = abs(font.pointSize - naturalFontPt) < 0.1
-                ? 1 : naturalFontPt / font.pointSize
+            // Ratio against the font the measurement WAS TAKEN AT, not the
+            // live font: those differ exactly when a transient font produced
+            // a bad measurement that outlived it. Fall back to the live font
+            // only before the first measurement recorded one.
+            let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
+            let scaled = abs(measuredFont - naturalFontPt) < 0.1
+                ? 1 : naturalFontPt / measuredFont
             return scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
                              drawnCols: drawnCols, drawnRows: drawnRows,
                              fontRatio: scaled)
@@ -4014,6 +4033,11 @@ final class HopTermView: TerminalView {
     /// read against new bounds are how the settle check once re-claimed half
     /// a screen (Accessibility-fork trace, 2026-08-14).
     var drawnBounds: CGSize = .zero
+    /// The FONT the measurement was taken at — the second half of the same
+    /// staleness (2026-08-18 trace). naturalFit rescales by the ratio of the
+    /// natural font to THIS, not to the live font, so a 64x19 measured at a
+    /// transient large font correctly reads as ~40 rows at natural size.
+    var drawnFontPt: CGFloat = 0
 
     /// What the CURRENT bounds can draw — every geometry decision reads
     /// THIS, never drawnCols/drawnRows raw. The day after the half-screen
@@ -4023,13 +4047,17 @@ final class HopTermView: TerminalView {
     /// and PAN MODE swallowed the wheel gestures claude should have gotten.
     /// No font ratio here: a font change re-fits and refreshes the
     /// measurement, so the cell is current by construction.
+    private var measuredFontRatio: CGFloat {
+        let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
+        return abs(measuredFont - naturalFontPt) < 0.1 ? 1 : naturalFontPt / measuredFont
+    }
     var capCols: Int {
-        scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
-                  drawnCols: drawnCols, drawnRows: drawnRows)?.cols ?? drawnCols
+        scaledFit(bounds: bounds.size, measuredAt: drawnBounds, drawnCols: drawnCols,
+                  drawnRows: drawnRows, fontRatio: measuredFontRatio)?.cols ?? drawnCols
     }
     var capRows: Int {
-        scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
-                  drawnCols: drawnCols, drawnRows: drawnRows)?.rows ?? drawnRows
+        scaledFit(bounds: bounds.size, measuredAt: drawnBounds, drawnCols: drawnCols,
+                  drawnRows: drawnRows, fontRatio: measuredFontRatio)?.rows ?? drawnRows
     }
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins

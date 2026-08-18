@@ -1540,6 +1540,31 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cap!.cols, 62)
     }
 
+    func testFontMismatchedMeasurementRescalesToNatural() {
+        // The 2026-08-18 half-height: a transient LARGE font measured 64x19
+        // at the full 398x480 bounds (cell 25pt), then the font corrected to
+        // the natural 10pt but no new sizeChanged fired. Rescaling by the
+        // measurement's font (20pt) to natural (10pt) — ratio 0.5 — must
+        // recover ~38 rows, not leave 19. measuredAt == bounds here, so the
+        // ONLY thing that skips the "exact" shortcut is the font ratio.
+        let fit = scaledFit(bounds: CGSize(width: 398, height: 480),
+                            measuredAt: CGSize(width: 398, height: 480),
+                            drawnCols: 64, drawnRows: 19, fontRatio: 0.5)
+        XCTAssertNotNil(fit)
+        XCTAssertGreaterThanOrEqual(fit!.rows, 36, "a font-mismatched 19-row measurement must rescale up")
+        XCTAssertGreaterThanOrEqual(fit!.cols, 120)
+    }
+
+    func testFontMatchedMeasurementStaysExact() {
+        // Ratio 1 (font unchanged since measurement): trust SwiftTerm's own
+        // numbers verbatim — re-deriving is the analytic overclaim bug.
+        let fit = scaledFit(bounds: CGSize(width: 398, height: 480),
+                            measuredAt: CGSize(width: 398, height: 480),
+                            drawnCols: 64, drawnRows: 40, fontRatio: 1)
+        XCTAssertEqual(fit?.rows, 40)
+        XCTAssertEqual(fit?.cols, 64)
+    }
+
     // MARK: - the alt-buffer wake trap (SwiftTerm behavior, pinned)
 
     func testAltBufferSurvivesResetUnlessScrubbed() {
