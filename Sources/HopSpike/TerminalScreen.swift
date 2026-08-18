@@ -80,6 +80,7 @@ struct TerminalHostView: View {
     /// session you would land on, so the swipe is never blind.
     @State private var pillDragX: CGFloat = 0
     /// An artifact link (hop view) being shown in-app.
+    @State private var artifactViewing: ArtifactViewing?
     @State private var artifactURL: URL?
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
@@ -352,7 +353,12 @@ struct TerminalHostView: View {
             // does not hand the keyboard back on dismiss. Jian hit exactly
             // that: "somehow keyboard got hidden after i interacted with the
             // views list." Restore focus ourselves when it closes.
-            .sheet(item: $artifactURL, onDismiss: {
+            .fullScreenCover(item: $artifactViewing, onDismiss: {
+                NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
+            }) { v in
+                ArtifactSheet(viewing: v)
+            }
+            .fullScreenCover(item: $artifactURL, onDismiss: {
                 NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
             }) { url in
                 ArtifactSheet(url: url)
@@ -762,14 +768,16 @@ struct TerminalHostView: View {
                 HStack(spacing: 10) {
                     Image(systemName: item.glyph)
                         .font(.system(size: 13))
-                        .foregroundStyle(item.isServer ? Color.hopAttention : Color.hopGlow)
+                        .foregroundStyle(item.isServer
+                                         ? (item.serverLive ? Color.hopAttention : Color.secondary)
+                                         : Color.hopGlow)
                         .frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.label)
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                        Text(item.isServer ? "live server"
+                        Text(item.isServer ? (item.serverLive ? "live server" : "server gone")
                              : (item.name.removingPercentEncoding ?? item.name))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -838,9 +846,9 @@ struct TerminalHostView: View {
                             }
                             return
                         }
-                        if let u = URL(string: model.normalizedServerURL)?
-                            .appendingPathComponent(String(item.path.dropFirst())) {
-                            artifactURL = u
+                        if let i = sessionViews.firstIndex(where: { $0.id == item.id }) {
+                            artifactViewing = ArtifactViewing(items: sessionViews, index: i,
+                                                              serverURL: model.normalizedServerURL)
                         }
                     })
                 }
@@ -849,6 +857,18 @@ struct TerminalHostView: View {
                     Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
                 }
             }
+    }
+
+    /// Dev hook, same family as HOP_DEV_SHEET: HOP_DEV_VIEWER=<index> opens
+    /// the viewer on that row as soon as the strip's list lands, so a
+    /// screenshot check can reach a surface that otherwise needs a tap.
+    private func openViewerIfRequested() {
+#if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["HOP_DEV_VIEWER"],
+              let i = Int(raw), sessionViews.indices.contains(i), artifactViewing == nil else { return }
+        artifactViewing = ArtifactViewing(items: sessionViews, index: i,
+                                          serverURL: model.normalizedServerURL)
+#endif
     }
 
     private func stripDelete(_ item: ArtifactItem) async {
@@ -881,9 +901,11 @@ struct TerminalHostView: View {
             return ArtifactItem(session: s, name: n, title: (o["title"] as? String) ?? "",
                                 path: server && !target.isEmpty ? target : p,
                                 isServer: server,
+                                serverLive: (o["live"] as? Bool) ?? true,
                                 bytes: (o["bytes"] as? Int) ?? 0,
                                 mtime: (o["mtime"] as? Double) ?? 0)
         }
+        openViewerIfRequested()
     }
 
     /// What this session has handed over that a terminal cannot draw.
@@ -930,8 +952,10 @@ struct TerminalHostView: View {
             .contextMenu {
                 Button {
                     ViewSeen.markSeen(liveSession)
-                    if let u = URL(string: model.normalizedServerURL)?
-                        .appendingPathComponent(String(v.latestPath.dropFirst())) {
+                    // Same URL-as-string rule as the viewer: manifest
+                    // paths are already paths, and appendingPathComponent
+                    // would encode their slashes.
+                    if let u = URL(string: model.normalizedServerURL + v.latestPath) {
                         artifactURL = u
                     }
                 } label: { Label("Newest: \(v.latestLabel)", systemImage: "sparkles") }
