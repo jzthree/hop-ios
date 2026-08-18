@@ -764,12 +764,12 @@ final class HopSpikeTests: XCTestCase {
         create.name = scratch
         _ = try await create.perform()
         defer { Task { @MainActor in
-            if let dead = model.sessions.first(where: { $0.internalName == scratch }) {
+            if let dead = byName(model, scratch) {
                 _ = await model.killSession(dead)
             }
         } }
         await model.refreshSessions(silent: true)
-        let made = model.sessions.first { $0.internalName == scratch || $0.name == scratch }
+        let made = byName(model, scratch)
         let entity = try XCTUnwrap(made.map {
             SessionEntity(id: $0.internalName, name: $0.name, tagline: "")
         }, "NewSessionIntent did not create the session")
@@ -799,14 +799,14 @@ final class HopSpikeTests: XCTestCase {
         let model = AppModel.shared
         let scratch = "OriginProbe"
         let created = await model.createSession(name: scratch, cwd: "/tmp")
-        XCTAssertTrue(created)
+        XCTAssertTrue(created, "create refused: \(model.actionError ?? "no error") — server \(model.normalizedServerURL)")
         defer { Task { @MainActor in
-            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+            if let s = byName(model, scratch) {
                 _ = await model.killSession(s)
             }
         } }
         await model.refreshSessions(silent: true)
-        let made = try XCTUnwrap(model.sessions.first { $0.internalName == scratch })
+        let made = try XCTUnwrap(byName(model, scratch))
         XCTAssertEqual(made.createdBy, "user",
                        "a phone-created session filed as \(made.createdBy) — the actor declaration is broken")
     }
@@ -846,9 +846,9 @@ final class HopSpikeTests: XCTestCase {
         let scratch = "FolderProbe"
         let folderName = "ProbeFolder"
         let created = await model.createSession(name: scratch, cwd: "/tmp")
-        XCTAssertTrue(created)
+        XCTAssertTrue(created, "create refused: \(model.actionError ?? "no error") — server \(model.normalizedServerURL)")
         defer { Task { @MainActor in
-            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+            if let s = byName(model, scratch) {
                 _ = await model.killSession(s)
             }
             if let f = model.folders.first(where: { $0.name == folderName }) {
@@ -858,13 +858,14 @@ final class HopSpikeTests: XCTestCase {
         let made = await model.createFolder(named: folderName)
         XCTAssertTrue(made, "folder create refused: \(model.actionError ?? "?")")
         let folder = try XCTUnwrap(model.folders.first { $0.name == folderName })
-        let moved = await model.moveSession(scratch, toFolder: folder.id)
+        let sid = try XCTUnwrap(byName(model, scratch)).internalName
+        let moved = await model.moveSession(sid, toFolder: folder.id)
         XCTAssertTrue(moved)
-        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.folderId,
+        XCTAssertEqual(byName(model, scratch)?.folderId,
                        folder.id, "folderId must round-trip through refresh")
-        let unfiled = await model.moveSession(scratch, toFolder: nil)
+        let unfiled = await model.moveSession(sid, toFolder: nil)
         XCTAssertTrue(unfiled)
-        XCTAssertNil(model.sessions.first { $0.internalName == scratch }?.folderId)
+        XCTAssertNil(byName(model, scratch)?.folderId)
     }
 
     /// Origin refile (web parity: "Move to user/agent sessions"): a scratch
@@ -877,19 +878,20 @@ final class HopSpikeTests: XCTestCase {
         let model = AppModel.shared
         let scratch = "OriginMoveProbe"
         let created = await model.createSession(name: scratch, cwd: "/tmp")
-        XCTAssertTrue(created)
+        XCTAssertTrue(created, "create refused: \(model.actionError ?? "no error") — server \(model.normalizedServerURL)")
         defer { Task { @MainActor in
-            if let s = model.sessions.first(where: { $0.internalName == scratch }) {
+            if let s = byName(model, scratch) {
                 _ = await model.killSession(s)
             }
         } }
-        let moved = await model.setOrigin(scratch, createdBy: "agent")
+        let sid = try XCTUnwrap(byName(model, scratch)).internalName
+        let moved = await model.setOrigin(sid, createdBy: "agent")
         XCTAssertTrue(moved, "origin move refused: \(model.actionError ?? "?")")
-        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.createdBy,
+        XCTAssertEqual(byName(model, scratch)?.createdBy,
                        "agent")
-        let back = await model.setOrigin(scratch, createdBy: "user")
+        let back = await model.setOrigin(sid, createdBy: "user")
         XCTAssertTrue(back)
-        XCTAssertEqual(model.sessions.first { $0.internalName == scratch }?.createdBy,
+        XCTAssertEqual(byName(model, scratch)?.createdBy,
                        "user")
     }
 
@@ -902,18 +904,21 @@ final class HopSpikeTests: XCTestCase {
         let model = AppModel.shared
         let scratch = "ForkProbe"
         let created = await model.createSession(name: scratch, cwd: "/tmp")
-        XCTAssertTrue(created)
+        XCTAssertTrue(created, "create refused: \(model.actionError ?? "no error") — server \(model.normalizedServerURL)")
         await model.refreshSessions(silent: true)
         defer { Task { @MainActor in
             for name in [scratch, scratch + "-fork"] {
-                if let s = model.sessions.first(where: { $0.internalName == name }) {
+                if let s = byName(model, name) {
                     _ = await model.killSession(s)
                 }
             }
             await model.refreshSessions(silent: true)
         } }
 
-        let fork = await model.forkSession(scratch)
+        // Fork by the INTERNAL name the daemon minted, not the display name
+        // the fixture chose.
+        let src = try XCTUnwrap(byName(model, scratch), "scratch never appeared in the list")
+        let fork = await model.forkSession(src.internalName)
         XCTAssertNotNil(fork, "fork refused: \(model.actionError ?? "no error")")
         guard let fork else { return }
         XCTAssertTrue(fork.hasSuffix("-fork") || fork.contains("-fork"),
@@ -921,6 +926,15 @@ final class HopSpikeTests: XCTestCase {
         let made = model.sessions.first { $0.internalName == fork }
         XCTAssertNotNil(made, "fork not in the refreshed list")
         XCTAssertEqual(made?.cwd, "/tmp", "fork must inherit the source cwd")
+    }
+
+    /// A fixture picks a DISPLAY name; the daemon mints an opaque internal
+    /// name for it (s_…). Every lookup goes through here rather than
+    /// assuming the two coincide — they stopped coinciding, and thirteen
+    /// live-daemon tests broke at once, all "Session not found".
+    @MainActor
+    private func byName(_ model: AppModel, _ name: String) -> HopSession? {
+        model.sessions.first { $0.internalName == name || $0.name == name }
     }
 
     @MainActor

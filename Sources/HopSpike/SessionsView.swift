@@ -681,6 +681,18 @@ struct SessionsView: View {
                     if let session = model.sessions.first(where: { $0.internalName == name })
                         ?? model.lastKnown[name] {
                         TerminalHostView(session: session)
+                            // IDENTITY BY SESSION. A swipe-switch replaces
+                            // path ["room"] with ["lightscope"] — the SAME
+                            // shape, one String — so NavigationStack REUSED
+                            // this view: the Coordinator's `room` is a let
+                            // captured at creation, its socket stayed on the
+                            // old PTY, and only the live title followed the
+                            // new session (Jian: "the title changes to the
+                            // other session name but the terminal content
+                            // didn't switch"). Keyed by session, a switch
+                            // tears the old terminal down and connects a
+                            // fresh one — the same lifecycle a push gets.
+                            .id(session.internalName)
                             // BOTH layers, deliberately: .toolbar(.hidden)
                             // inside the terminal screen leaks on some entry
                             // paths (deep links, post-sheet returns — a known
