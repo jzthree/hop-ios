@@ -243,8 +243,16 @@ const loadState = () => {
 
 const main = async () => {
   const list = await api("/api/sessions");
+  // The briefing is about the HUMAN's own work — what happened in the
+  // sessions the user is actually driving. Agent-created sessions (fleet
+  // workers, audit/refresh runs, anything an orchestration spawned) are the
+  // machine's own scratch space: including them buried the two sessions the
+  // user cares about under a wall of worker chatter. createdBy !== "agent"
+  // keeps user and untagged sessions (the default is user) and drops the
+  // agent bucket outright. (Origin is overridable per session with
+  // `hop session origin <name> user|agent`.)
   const sessions = (list.sessions || list).filter(
-    (s) => s.live && s.type !== "port" && !s.parked && !s.archived);
+    (s) => s.live && s.type !== "port" && !s.parked && !s.archived && s.createdBy !== "agent");
 
   const seen = [];
   for (const s of sessions) {
