@@ -16,6 +16,7 @@
 // plus its tagline and attention state. No scrollback, ever.
 
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -237,6 +238,48 @@ const unseenTranscript = (internalName, sinceMs, budget) => {
 };
 const normalise = (t) => t.replace(/[0-9]+/g, "#").replace(/\s+/g, " ");
 const tailHash = (t) => crypto.createHash("sha1").update(normalise(t)).digest("hex");
+// ── What the READER works on ──────────────────────────────────────────────
+// A briefing ranked only by what changed treats a session the user drives
+// all day and one they opened once last week as equals. hop's hook writes a
+// cumulative count of the user's OWN turns per session (.turn), and the
+// daemon witnesses each time they open one; sampled every edition and kept
+// across runs, those become a frequency: turns in the last day and week,
+// how often it was opened. That is the reader's revealed priority — what
+// they keep coming back to — and it rides into the payload as numbers plus
+// a rank, so the writer can weight stories by it instead of guessing.
+const ENGAGEMENT_KEEP_MS = 8 * 24 * 3600 * 1000;
+const readTurnCount = (internalName) => {
+  try {
+    const t = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), ".hop2/claude-sessions", `${internalName}.turn`), "utf8"));
+    return { count: Number(t.count) || 0, at: t.at ? Date.parse(t.at) : 0 };
+  } catch { return { count: 0, at: 0 }; }
+};
+/** Turns and opens over a window, from cumulative samples [{t, turns, seenAt}]. */
+export const engagementFrom = (samples, now, windowMs) => {
+  const inWindow = samples.filter((x) => now - x.t <= windowMs);
+  if (inWindow.length === 0) return { turns: 0, opens: 0 };
+  // The baseline is the newest sample OLDER than the window (the count at
+  // the window's start); with none, the oldest inside it — an under-count
+  // for a session younger than the window, never an over-count.
+  const before = samples.filter((x) => now - x.t > windowMs);
+  const base = before.length ? before[before.length - 1] : inWindow[0];
+  const last = samples[samples.length - 1];
+  const turns = Math.max(0, (last.turns || 0) - (base.turns || 0));
+  let opens = 0;
+  let prevSeen = base.seenAt || 0;
+  for (const x of inWindow) {
+    if ((x.seenAt || 0) > prevSeen) opens++;
+    prevSeen = Math.max(prevSeen, x.seenAt || 0);
+  }
+  return { turns, opens };
+};
+/** One number to rank by: today's turns weigh most, the week's and opens less, recency of the last turn breaks ties. */
+export const engagementScore = (day, week, lastTurnAt, now) => {
+  const hoursSince = lastTurnAt ? Math.max(0, (now - lastTurnAt) / 3600000) : 24 * 30;
+  return day.turns * 3 + week.turns + day.opens * 2 + week.opens * 0.5 + 6 / (1 + hoursSince / 6);
+};
+
 const loadState = () => {
   try { return JSON.parse(fs.readFileSync(STATE_PATH, "utf8")); } catch { return { sessions: {} }; }
 };
@@ -312,6 +355,25 @@ const main = async () => {
   // cadence is only affordable because a quiet hour costs nothing (Jian:
   // "suppress if truly no update").
   const state = loadState();
+  const now = Date.now();
+  const engagement = state.engagement || {};
+  const DAY = 24 * 3600 * 1000, WEEK = 7 * DAY;
+  for (const s of seen) {
+    const turn = readTurnCount(s.session);
+    const samples = (engagement[s.session] || []).filter((x) => now - x.t <= ENGAGEMENT_KEEP_MS);
+    samples.push({ t: now, turns: turn.count, seenAt: s._lastSeenMs || 0 });
+    engagement[s.session] = samples;
+    const day = engagementFrom(samples, now, DAY);
+    const week = engagementFrom(samples, now, WEEK);
+    s.your_turns_last_24h = day.turns;
+    s.your_turns_last_7d = week.turns;
+    s.times_you_opened_it_last_7d = week.opens;
+    s.your_last_turn_seconds_ago = turn.at ? Math.round((now - turn.at) / 1000) : null;
+    s._score = engagementScore(day, week, turn.at, now);
+  }
+  // Rank among the live sessions: 1 = the one the reader works in most.
+  [...seen].sort((a, b) => b._score - a._score).forEach((s, i) => { s.engagement_rank = i + 1; });
+  for (const s of seen) delete s._score;
   const hashes = Object.fromEntries(seen.map((s) => [s.session, tailHash(s.screen)]));
   const changed = seen.filter((s) =>
     hashes[s.session] !== state.sessions?.[s.session] || (s.wants_you && !state.rangBefore?.[s.session]));
@@ -344,7 +406,8 @@ const main = async () => {
     fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
     fs.writeFileSync(STATE_PATH, JSON.stringify({
       sessions: hashes,
-      rangBefore: Object.fromEntries(seen.map((s) => [s.session, !!s.wants_you]))
+      rangBefore: Object.fromEntries(seen.map((s) => [s.session, !!s.wants_you])),
+      engagement
     }, null, 1));
   };
   if (changed.length === 0) {
@@ -425,6 +488,20 @@ opens a session, and each session below carries that state:
   else. Weight stories by what the reader has not seen, not by what is
   currently on glass — and if they have been away from a session for a day,
   assume they know nothing past their last look.
+
+WHAT THE READER IS WORKING ON. Each session also says how much of the
+reader's OWN effort has gone into it lately — the turns they typed
+(\`your_turns_last_24h\`, \`your_turns_last_7d\`), how often they opened it
+(\`times_you_opened_it_last_7d\`), when they last typed into it
+(\`your_last_turn_seconds_ago\`) — and an \`engagement_rank\` across the fleet
+(1 = the session they work in most). That is their revealed priority: what
+they keep coming back to is what they care about this week, whatever a
+session's "about" line says. Weight stories by it. When two stories are of
+comparable substance, the session with the lower rank number comes first
+and gets the fuller telling; a session they have not touched in days earns
+the front page only for a result or failure that clearly matters on its
+own. Do not describe the numbers to the reader — they know what they typed —
+use them to decide what leads.
 
 Write the briefing they actually need before they pick up their phone. Lead
 with what they would most regret not knowing.
@@ -547,6 +624,19 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   // an edition stamped noon that ran at 15:42), and the archive and the
   // read-ledgers key on this value.
   digest.generated_at = new Date().toISOString();
+  // The model's urgency hierarchy stands; among items of equal urgency, the
+  // reader's own priority orders them — a stable sort, so the model's order
+  // survives wherever the ranks tie.
+  if (Array.isArray(digest.items)) {
+    const rankOf = Object.fromEntries(seen.map((s) => [s.session, s.engagement_rank || 999]));
+    const urgencyOrder = { "needs-you": 0, blocked: 1, finished: 2, fyi: 3 };
+    digest.items = digest.items
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => (urgencyOrder[a.it.urgency] ?? 9) - (urgencyOrder[b.it.urgency] ?? 9)
+        || (rankOf[a.it.session] ?? 999) - (rankOf[b.it.session] ?? 999)
+        || a.i - b.i)
+      .map((x) => x.it);
+  }
   saveState();
   // The agent judged the changes not newsworthy: keep the current edition
   // current rather than pushing an empty page over it.
@@ -575,4 +665,8 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   console.log(`${OUTS.join(", ")}: ${digest.items?.length ?? 0} items (${MODEL}), archive=${archive.length}`);
 };
 
-main().catch((e) => { console.error(String(e)); process.exit(1); });
+// Run only as a script: the pure helpers above are imported by the tests,
+// and an import must not publish an edition.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => { console.error(String(e)); process.exit(1); });
+}
