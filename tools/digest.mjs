@@ -25,7 +25,14 @@ import crypto from "node:crypto";
 const state = JSON.parse(
   fs.readFileSync(path.join(os.homedir(), ".hop2/.tunnel-state"), "utf8"));
 const BASE = `http://127.0.0.1:${state.port}`;
-const COOKIE = `tunnel_session=${state.sessionSecret}`;
+// The daemon secret as a BEARER token — the way a local hop process proves
+// itself. It was sent as a cookie, which the daemon never accepts (cookies
+// ride the public tunnel; per-device sessions replace one shared value there)
+// and which only appeared to work because a bare loopback request was let
+// through anyway. Node's fetch sends sec-fetch-mode, the daemon reads that
+// as "a browser", and from then on every hourly run landed on the login
+// page: eleven editions lost on 2026-09-15 before anyone noticed.
+const AUTH = `Bearer ${state.sessionSecret}`;
 // WHERE IT LANDS: the daemon serves files under /assets/ from whatever
 // HAY_WEB_DIR resolves to, behind the same session cookie the app already
 // holds — so the digest needs no new endpoint and no hop2 change at all.
@@ -59,7 +66,7 @@ const MODEL = process.env.DIGEST_MODEL || "opus";
 const api = async (p, init = {}) => {
   const r = await fetch(BASE + p, {
     ...init,
-    headers: { Cookie: COOKIE, "Content-Type": "application/json", ...(init.headers || {}) }
+    headers: { Authorization: AUTH, "Content-Type": "application/json", ...(init.headers || {}) }
   });
   if (!r.ok) throw new Error(`${p} -> ${r.status}`);
   return r.json();
@@ -397,6 +404,11 @@ const main = async () => {
     }
   }
   for (const s of seen) delete s._lastSeenMs;
+  // Always, not only under DIGEST_DEBUG: "why did the briefing skip X" is
+  // answered by this line, and a run that logs only its item count cannot.
+  console.log(`[${new Date().toISOString().slice(0, 16)}] changed=${changed.map((s) => s.name).join(",") || "-"}`
+    + ` looking=${seen.filter((s) => s.user_is_looking_now).map((s) => s.name).join(",") || "-"}`
+    + ` unchanged=${unchanged.length}`);
   if (process.env.DIGEST_DEBUG) {
     console.error("[unseen] " + changed.map((s) =>
       `${s.session}=${s.unseen_since_user_looked ? s.unseen_since_user_looked.length + "B" : (s.user_is_looking_now ? "watching" : "none")}`
@@ -539,10 +551,16 @@ have the patience to read it completely"). Each item is two layers:
   clause of context, the concrete facts and numbers, what it means or
   puts at risk. The cold-reader rule above applies HERE; the headline is
   too short to carry context and should not try.
-The app prints the session's name as the dateline. A front page carries
-a handful of stories chosen well — prefer a few with substance over
-coverage of everything; fold related minor updates into a sentence
-inside a bigger story when they share a project.
+The app prints the session's name as the dateline. A front page leads with
+the stories that matter, told properly — but EVERY session in the
+"meaningful updates" list that the reader is not looking at right now gets
+an item of its own, because each item is the button that opens that
+session and a session with news but no item is invisible to them. The
+minor ones are one line: a headline and a single-sentence "why", urgency
+"fyi". Never fold one session's update into another session's story; the
+reader asked why the page named one session when several had moved. Keep
+it under eight items; if more changed, the least consequential get the
+shortest lines, not silence.
 
 Write for the reader, not the wire. The screens are full of vocabulary the
 AGENTS invented — experiment IDs, issue numbers, file and branch names,
@@ -561,10 +579,9 @@ sentences — what happened, what it means, what to do — beat dense clauses
 packed with references. With only a handful of stories there is room to write
 them properly; terse is not the goal, clear is.
 
-Two real constraints. The whole page shows at once — no fold, no "more" — so
-it must fit one phone screen END TO END: with an item count around four or
-five, a one-line headline plus a short paragraph per story is the
-budget — the headline layer is where the compression lives. And each item must name
+Two real constraints. The page scrolls, but the reader scans: the two or
+three stories that matter get a headline plus a short paragraph; every
+other item is a headline plus one sentence. And each item must name
 exactly one session, because each becomes a button they tap to open it.
 
 Reply with ONLY a JSON object:
