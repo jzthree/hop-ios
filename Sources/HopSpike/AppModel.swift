@@ -254,13 +254,24 @@ final class AppModel: ObservableObject {
         // no-ops — which wiped out an entire UI suite (every test bounced to
         // login) the first time a schemeless value landed in the container.
         // Requests always normalized; the seed must too.
+        // HOP_DEV_SERVER points a debug build at another daemon — the
+        // capture rig's isolated, tunnel-less one on 127.0.0.1, so a
+        // recording never shows the real fleet. Set before the cookie is
+        // seeded: the cookie's domain comes from this URL.
+        if let devServer = ProcessInfo.processInfo.environment["HOP_DEV_SERVER"], !devServer.isEmpty {
+            serverURL = devServer
+        }
         if let devCookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"],
-           let host = URL(string: normalizedServerURL)?.host,
-           let cookie = HTTPCookie(properties: [
-               .name: "tunnel_session", .value: devCookie, .domain: host,
-               .path: "/", .secure: "TRUE"
-           ]) {
-            HTTPCookieStorage.shared.setCookie(cookie)
+           let url = URL(string: normalizedServerURL), let host = url.host {
+            // A Secure cookie is never sent over plain http; the local
+            // rig daemon is http://127.0.0.1, so mark it secure only for https.
+            var props: [HTTPCookiePropertyKey: Any] = [
+                .name: "tunnel_session", .value: devCookie, .domain: host, .path: "/"
+            ]
+            if url.scheme == "https" { props[.secure] = "TRUE" }
+            if let cookie = HTTPCookie(properties: props) {
+                HTTPCookieStorage.shared.setCookie(cookie)
+            }
         }
 #endif
         // Instant launch: paint the last known wall before the network
@@ -502,6 +513,11 @@ final class AppModel: ObservableObject {
 #endif
             sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
+            // Keep the swipe ring's frozen order current WITHOUT reshuffling it:
+            // gone sessions drop, newcomers append. A full recency re-sort only
+            // happens at a browse boundary (the list appearing), not on every
+            // poll — so neighbours stay put under a swipe (Jian).
+            reconcileSwipeOrder(fullResort: false)
             let rawFolders = (obj["folders"] as? [[String: Any]]) ?? []
             let parsedFolders = rawFolders.compactMap(HopFolder.init(json:))
             if folders != parsedFolders { folders = parsedFolders }
@@ -551,6 +567,36 @@ final class AppModel: ObservableObject {
     }
 
     // ── Session management (parity with the web session manager) ──
+    /// Upload raw bytes to the host for one session — the same
+    /// POST /api/sessions/upload the web's drag-and-drop uses. A phone has no
+    /// path Claude can read; the host does, so bytes go up and the landed
+    /// path comes back (to paste). Returns the path, or the server's reason.
+    func uploadFile(_ data: Data, filename: String,
+                    session internalName: String) async -> (path: String?, error: String?) {
+        guard let base = baseURL,
+              var comps = URLComponents(url: base.appendingPathComponent("api/sessions/upload"),
+                                        resolvingAgainstBaseURL: false) else {
+            return (nil, "No server")
+        }
+        comps.queryItems = [URLQueryItem(name: "name", value: internalName),
+                            URLQueryItem(name: "filename", value: filename)]
+        guard let url = comps.url else { return (nil, "Bad upload URL") }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.setValue("user", forHTTPHeaderField: "x-hop-actor")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        do {
+            let (body, resp) = try await urlSession.upload(for: req, from: data)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 500
+            let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+            if (200..<300).contains(code), let path = json?["path"] as? String { return (path, nil) }
+            return (nil, (json?["error"] as? String) ?? "Upload failed (\(code))")
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
     private func post(_ path: String, _ body: [String: Any]) async -> Bool {
         guard let url = baseURL?.appendingPathComponent(path) else { return false }
         var req = URLRequest(url: url)
@@ -698,6 +744,56 @@ final class AppModel: ObservableObject {
         return ok
     }
 
+    /// Frozen order for the swipe ring — recency, but held steady so the
+    /// filmstrip's neighbours don't reshuffle under a swipe every time a
+    /// session prints a line (Jian). Re-sorted by recency only at a browse
+    /// boundary (`reconcileSwipeOrder(fullResort: true)`, from the sessions
+    /// list appearing); every poll just reconciles membership (below). Plain,
+    /// not @Published: the filmstrip reads it fresh mid-swipe, and a poll-time
+    /// membership tweak must not churn the whole view tree.
+    var swipeOrder: [String] = []
+    /// The origin scope the swipe ring stays inside — set by SessionsView from
+    /// its "You / Agents / All" picker, so a swipe from a terminal never lands
+    /// on a session the browse list is currently hiding (Jian).
+    var swipeScope: SessionScope = .user
+
+    private func recencyOrderedNames(_ live: [HopSession]) -> [String] {
+        live.sorted { a, b in
+            a.lastActivityAt != b.lastActivityAt ? a.lastActivityAt > b.lastActivityAt : a.name < b.name
+        }.map(\.internalName)
+    }
+
+    /// `fullResort` (browse boundary): take a fresh recency snapshot — this is
+    /// the ONLY time neighbours are allowed to move. Otherwise: keep the frozen
+    /// order, drop sessions that are gone, append newcomers by recency at the
+    /// end. Empty order always takes a full snapshot (first run). Always scoped
+    /// to `swipeScope`, so the frozen order only ever holds in-scope sessions.
+    func reconcileSwipeOrder(fullResort: Bool) {
+        let live = sessions.filter { $0.live && !$0.isPort && !$0.parked
+                                     && matchesScope($0.createdBy, swipeScope) }
+        if fullResort || swipeOrder.isEmpty {
+            swipeOrder = recencyOrderedNames(live)
+            return
+        }
+        let liveNames = Set(live.map(\.internalName))
+        var next = swipeOrder.filter { liveNames.contains($0) }
+        let known = Set(next)
+        for name in recencyOrderedNames(live) where !known.contains(name) { next.append(name) }
+        swipeOrder = next
+    }
+
+    /// Arm/disarm "alert me when the agent finishes a turn" for one session.
+    /// Server-owned (like park), so the choice holds on every client; the
+    /// finish arrives as a bellSeq bump the existing notifier turns into an
+    /// alert. Best-effort refresh so the toggle reflects the new state at once.
+    @discardableResult
+    func setNotifyOnFinish(_ s: HopSession, on: Bool) async -> Bool {
+        let ok = await post("api/sessions/notify",
+                            ["internalName": s.internalName, "notifyOnFinish": on])
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
+
     /// Opening a parked session IS unparking it — the same rule hop's own
     /// switcher follows. You went looking for it and opened it, so it is back
     /// in the working set, on every client rather than just this one.
@@ -710,14 +806,21 @@ final class AppModel: ObservableObject {
     /// Fork: a NEW session in the source's cwd; a recorded claude source
     /// resumes its history under a fresh conversation id (hop2 f6e6852).
     /// Returns the fork's internalName so the caller can open it.
-    func forkSession(_ internalName: String) async -> String? {
+    /// Fork (same tool) or, with `target` naming the OTHER tool, hand the
+    /// conversation off: the daemon extracts it to a document the new agent
+    /// reads first — a context handoff, not a resume (hop2 b81b17a). One
+    /// call either way; the daemon knows what a session really runs better
+    /// than the process name here does. Returns the new session's name.
+    func forkSession(_ internalName: String, target: String? = nil) async -> String? {
         guard let url = baseURL?.appendingPathComponent("api/sessions/fork") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("user", forHTTPHeaderField: "x-hop-actor")   // same declaration as post()
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["internalName": internalName])
+        var body: [String: Any] = ["internalName": internalName]
+        if let target { body["target"] = target }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         actionError = nil
         do {
             let (data, resp) = try await urlSession.data(for: req)
@@ -1037,6 +1140,46 @@ enum ViewSeen {
         m[s.internalName] = v.latestAt
         map = m
     }
+
+    // Per-ITEM seen, keyed session/name → the newest mtime this device has
+    // opened. The session marks above light the CHIP; these light individual
+    // ROWS in the list, and — because they compare mtime — also catch an
+    // UPDATED view (same name, republished newer) you have not reopened.
+    private static let itemKey = "seenViewItemAt"
+    private static var itemMap: [String: Double] {
+        get { (UserDefaults.standard.dictionary(forKey: itemKey) as? [String: Double]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: itemKey) }
+    }
+    enum ItemState { case seen, unseen, updated }
+    static func itemState(_ item: ArtifactItem) -> ItemState {
+        guard let seen = itemMap[item.session + "/" + item.name] else { return .unseen }
+        return item.mtime > seen ? .updated : .seen
+    }
+    /// The chip's truth: any NON-server item not yet seen at its current
+    /// version (server-managed pages never count). Orange until this is
+    /// false — not until the strip was merely opened.
+    static func anyUnseen(_ items: [ArtifactItem]) -> Bool {
+        items.contains { !$0.isServer && itemState($0) != .seen }
+    }
+    static func unseenCount(_ items: [ArtifactItem]) -> Int {
+        items.filter { !$0.isServer && itemState($0) != .seen }.count
+    }
+    static func markAllSeen(_ items: [ArtifactItem]) {
+        var m = itemMap
+        for item in items where !item.session.isEmpty && !item.name.isEmpty {
+            let k = item.session + "/" + item.name
+            m[k] = max(m[k] ?? 0, item.mtime)
+        }
+        itemMap = m
+    }
+    static func markItemSeen(_ item: ArtifactItem) {
+        // Server rows have no meaningful mtime; only file views version.
+        guard !item.session.isEmpty, !item.name.isEmpty else { return }
+        let k = item.session + "/" + item.name
+        var m = itemMap
+        m[k] = max(m[k] ?? 0, item.mtime)
+        itemMap = m
+    }
 }
 
 struct HopSession: Identifiable {
@@ -1078,6 +1221,35 @@ struct HopSession: Identifiable {
     /// a phone that has not looked is behind whether or not the desk has.
     /// `ViewSeen` turns these facts into this device's own answer.
     let views: ViewSummary?
+    /// Armed to alert this device when the agent finishes a turn (opt-in, set
+    /// from the terminal's ⋯ menu). Server-owned so it's the same on every
+    /// client; the finish itself arrives as a bellSeq bump.
+    let notifyOnFinish: Bool
+    /// What the agent is asking the human right now, if anything (permission,
+    /// a question, a plan to approve) — the daemon passes the Claude/Codex
+    /// hook's message through so the notification can say it. `askAt` is the
+    /// server's ms timestamp; a stale ask (long answered) is not re-shown.
+    let askMessage: String?
+    let askAt: Double?
+    /// Why it wants you, from the daemon: "ask" / "finished" / "view" / "bell".
+    let attentionReason: String
+    let attentionNote: String
+    /// The one line the list shows next to the amber dot.
+    var attentionLabel: String? {
+        guard attention else { return nil }
+        switch attentionReason {
+        case "ask": return attentionNote.isEmpty ? "asking" : "asking: \(attentionNote)"
+        case "finished": return "finished"
+        case "view": return attentionNote.isEmpty ? "published a view" : "published: \(attentionNote)"
+        case "working": return "still working — pinged"
+        default: return "rang the bell"
+        }
+    }
+    var freshAsk: String? {
+        guard let m = askMessage, !m.isEmpty, let at = askAt,
+              Date().timeIntervalSince1970 - at / 1000 < 900 else { return nil }
+        return m
+    }
     var id: String { internalName }
 
     init?(json: [String: Any], seenBellSeq: [String: Int]) {
@@ -1097,6 +1269,11 @@ struct HopSession: Identifiable {
         // sending false, so a missing key means "no".
         parked = (json["parked"] as? Bool) ?? false
         archived = (json["archived"] as? Bool) ?? false
+        notifyOnFinish = (json["notifyOnFinish"] as? Bool) ?? false
+        askMessage = json["askMessage"] as? String
+        askAt = (json["askAt"] as? NSNumber)?.doubleValue
+        attentionReason = (json["attentionReason"] as? String) ?? ""
+        attentionNote = (json["attentionNote"] as? String) ?? ""
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
         folderId = json["folderId"] as? String
