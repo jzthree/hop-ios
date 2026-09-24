@@ -18,14 +18,57 @@ final class WallCapture: XCTestCase {
         if let server = env["HOP_DEV_SERVER"], !server.isEmpty { app.launchEnvironment["HOP_DEV_SERVER"] = server }
         app.launchArguments += ["-hop-ui-testing"]
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
-        app.launch()
 
+        let flow = env["HOP_CAPTURE_FLOW"] ?? "tour"
+        if flow == "views" {
+            // The Views folder over the wall (HOP_DEV_SHEET=views opens it at
+            // launch): the published report is a row; tap it; read it; back.
+            app.launchEnvironment["HOP_DEV_SHEET"] = "views"
+            app.launch()
+            let row = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", env["HOP_CAPTURE_VIEW"] ?? "Benchmark report")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 30), "the published report never appeared in Views")
+            sleep(3)
+            row.tap()
+            XCTAssertTrue(app.buttons["Back"].firstMatch.waitForExistence(timeout: 20), "the viewer did not open")
+            sleep(7)
+            app.buttons["Back"].firstMatch.tap()
+            sleep(2)
+            return
+        }
         let open = env["HOP_CAPTURE_OPEN"] ?? "Aurora"
+        if flow == "handoff" {
+            // Straight into the conversation (HOP_DEV_OPEN): the hand-off is
+            // the shot, not the wall. ⋯ → Hand off → Continue in Codex…; the
+            // app lands in the new session as codex starts reading the
+            // transcript; back on the wall, the new card sits beside its source.
+            app.launchEnvironment["HOP_DEV_OPEN"] = open
+            app.launch()
+            XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 30), "the terminal did not open")
+            sleep(3)
+            if app.buttons["hide keyboard"].firstMatch.exists { app.buttons["hide keyboard"].firstMatch.tap(); sleep(1) }
+            let menu = app.buttons["Terminal actions"].firstMatch
+            XCTAssertTrue(menu.waitForExistence(timeout: 5))
+            menu.tap()
+            let handoff = app.buttons["Hand off"].firstMatch
+            XCTAssertTrue(handoff.waitForExistence(timeout: 5), "no Hand off in the menu")
+            sleep(1)
+            handoff.tap()
+            let codex = app.buttons["Continue in Codex…"].firstMatch
+            XCTAssertTrue(codex.waitForExistence(timeout: 5), "no Continue in Codex")
+            sleep(1)
+            codex.tap()
+            sleep(14)
+            let back = app.buttons["Back to sessions"].firstMatch
+            if back.waitForExistence(timeout: 3) { back.tap() }
+            sleep(4)
+            return
+        }
+        app.launch()
         // The wall: give the briefing and the tiles a moment to paint. A row
         // is a NavigationLink whose accessibility label is its spoken summary,
         // which starts with the session's name.
         let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH %@", open)).firstMatch
+            .matching(NSPredicate(format: "label CONTAINS %@", open)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30), "the wall never showed \(open)")
         sleep(4)
         // A slow scroll down and back — the wall breathing under a thumb.
