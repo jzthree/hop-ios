@@ -14,8 +14,30 @@ struct SessionTile: View {
     let session: HopSession
     let screen: ScreenPreview?
 
+    // Attention (a question) first; then the agent's phase — working blue,
+    // finished-and-unread green, read quiet; then plain liveness.
     private var dotColor: Color {
-        session.attention ? .hopAttention : session.live ? .hopLive : .hopDead
+        if session.attention { return .hopAttention }
+        if let tint = phaseTint(session.phase) { return tint }
+        return session.live ? .hopLive : .hopDead
+    }
+    /// The ring's colour when the card has something to say: amber for a
+    /// question, blue for work in flight, green for a finished turn nobody
+    /// has read. A read session and a plain shell keep the hairline.
+    private var ringColor: Color? {
+        if session.attention { return .hopAttention }
+        switch session.phase {
+        case .working: return .hopWorking
+        case .doneUnread: return .hopLive
+        default: return nil
+        }
+    }
+
+    /// The ring: the state colour fading downward, or the plain hairline.
+    private var ringGradient: LinearGradient {
+        guard let ring = ringColor else { return Color.hopHairline }
+        return LinearGradient(colors: [ring.opacity(0.85), ring.opacity(0.4)],
+                              startPoint: .top, endPoint: .bottom)
     }
 
     var body: some View {
@@ -30,18 +52,16 @@ struct SessionTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(session.attention
-                              ? LinearGradient(colors: [Color.hopAttention.opacity(0.85),
-                                                        Color.hopAttention.opacity(0.4)],
-                                               startPoint: .top, endPoint: .bottom)
-                              : Color.hopHairline,
-                              lineWidth: session.attention ? 1.5 : 1)
+                .strokeBorder(ringGradient, lineWidth: ringColor == nil ? 1 : 1.5)
                 .allowsHitTesting(false)
         )
         // One shadow for the whole card, not one per glyph.
         .compositingGroup()
-        .shadow(color: session.attention ? Color.hopAttention.opacity(0.30) : .black.opacity(0.5),
-                radius: session.attention ? 10 : 7, y: 4)
+        .shadow(color: ringColor.map { $0.opacity(0.30) } ?? Color.hopShadow,
+                radius: ringColor == nil ? 7 : 10, y: 4)
+        // A finished-and-read session steps back a little, so the unread
+        // ones are what the eye lands on.
+        .opacity(session.phase == .doneRead && !session.attention ? 0.88 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 14))
         // One utterance, same words as the list row. Without this VoiceOver
         // walks every rendered terminal line in the thumbnail.
@@ -51,7 +71,7 @@ struct SessionTile: View {
     }
 
     private var hairline: some View {
-        Color.white.opacity(0.06).frame(height: 0.66)
+        Color.hopLine(0.06).frame(height: 0.66)
     }
 
     private var header: some View {
@@ -61,9 +81,11 @@ struct SessionTile: View {
                 .frame(width: 6, height: 6)
                 .shadow(color: dotColor.opacity(0.9), radius: 3)
                 // Busy = producing output right now; attention owns its own
-                // signal, so the sonar only rings for quiet-but-working.
-                .sonar(when: session.busy && session.live && !session.attention,
-                       color: .hopLive)
+                // signal, so the sonar only rings for quiet-but-working. An
+                // agent mid-turn rings in its own blue for the whole turn.
+                .sonar(when: !session.attention && session.live
+                            && (session.phase == .working || (session.phase == nil && session.busy)),
+                       color: session.phase == .working ? .hopWorking : .hopLive)
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
                 .lineLimit(1)
@@ -94,7 +116,8 @@ struct SessionTile: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(session.attention ? Color.hopAttention.opacity(0.12) : .clear)
+        .background(session.attention ? Color.hopAttention.opacity(0.12)
+                    : ringColor.map { $0.opacity(0.10) } ?? .clear)
     }
 
     @ViewBuilder

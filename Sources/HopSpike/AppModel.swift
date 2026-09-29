@@ -744,6 +744,16 @@ final class AppModel: ObservableObject {
         return ok
     }
 
+    /// Stop & park (desktop's "Stop & park (resumable)"): the daemon stops
+    /// the process, parks the session, and pre-writes the resume command, so
+    /// opening it later picks the conversation back up. Surfaces the daemon's
+    /// error (e.g. a port session) through actionError.
+    func archiveSession(_ s: HopSession) async -> Bool {
+        let ok = await post("api/sessions/archive", ["internalName": s.internalName])
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
+
     /// Frozen order for the swipe ring — recency, but held steady so the
     /// filmstrip's neighbours don't reshuffle under a swipe every time a
     /// session prints a line (Jian). Re-sorted by recency only at a browse
@@ -1234,6 +1244,23 @@ struct HopSession: Identifiable {
     /// Why it wants you, from the daemon: "ask" / "finished" / "view" / "bell".
     let attentionReason: String
     let attentionNote: String
+    /// The daemon's verdict on an agent session: "working" (a turn in
+    /// flight) or "done" (the last turn finished); nil for plain shells.
+    /// `turnSeen` says whether a human has opened the session since the
+    /// turn ended — the daemon's own seen witness, so the phone and the desk
+    /// agree on what has been read.
+    let agentPhase: String?
+    let turnSeen: Bool
+    /// The wall's three agent colours. Attention (a question) is drawn on top
+    /// of these by the views; it is not folded in here.
+    enum Phase { case working, doneUnread, doneRead }
+    var phase: Phase? {
+        switch agentPhase {
+        case "working": return .working
+        case "done": return turnSeen ? .doneRead : .doneUnread
+        default: return nil
+        }
+    }
     /// The one line the list shows next to the amber dot.
     var attentionLabel: String? {
         guard attention else { return nil }
@@ -1274,6 +1301,8 @@ struct HopSession: Identifiable {
         askAt = (json["askAt"] as? NSNumber)?.doubleValue
         attentionReason = (json["attentionReason"] as? String) ?? ""
         attentionNote = (json["attentionNote"] as? String) ?? ""
+        agentPhase = json["agentPhase"] as? String
+        turnSeen = (json["turnSeen"] as? Bool) ?? true
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
         folderId = json["folderId"] as? String

@@ -17,6 +17,8 @@ struct SessionsView: View {
 
     @State private var path: [String] = []
     @State private var filter = ProcessInfo.processInfo.environment["HOP_DEV_FILTER"] ?? ""
+    /// The Parked section starts folded, like the desktop's "▸ parked · N".
+    @State private var parkedOpen = false
     @State private var scope: SessionScope = {
         switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
         case "all": return .all
@@ -191,6 +193,42 @@ struct SessionsView: View {
         }
     }
 
+    /// Fork (same tool) plus the cross-tool handoffs — "Continue in Codex…"
+    /// / "Continue in Claude…" — minus the tool the session is visibly
+    /// running. The daemon extracts the conversation to a document the new
+    /// agent reads first (context handoff, not a resume; hop2 b81b17a) and
+    /// decides what a session REALLY runs; a wrong guess comes back as its
+    /// error through actionError. Shared by the row swipe menu and the tile
+    /// context menu.
+    @ViewBuilder
+    private func forkVerbs(_ session: HopSession) -> some View {
+        Button {
+            Task {
+                if let fork = await model.forkSession(session.internalName) {
+                    model.requestedSession = fork
+                }
+            }
+        } label: { Label("Fork session", systemImage: "arrow.triangle.branch") }
+        if session.runningApp != "codex" {
+            Button {
+                Task {
+                    if let fork = await model.forkSession(session.internalName, target: "codex") {
+                        model.requestedSession = fork
+                    }
+                }
+            } label: { Label("Continue in Codex…", systemImage: "arrow.right.doc.on.clipboard") }
+        }
+        if session.runningApp != "claude" {
+            Button {
+                Task {
+                    if let fork = await model.forkSession(session.internalName, target: "claude") {
+                        model.requestedSession = fork
+                    }
+                }
+            } label: { Label("Continue in Claude…", systemImage: "arrow.right.doc.on.clipboard") }
+        }
+    }
+
     /// "Move to ▸": Jian's folders, Unfiled, New folder…. The daemon owns
     /// the structure; this is the web drag's POST wearing a native menu.
     @ViewBuilder
@@ -257,16 +295,8 @@ struct SessionsView: View {
                 }
             }
             // A copy to try something in, while the original runs untouched —
-            // claude forks continue the conversation under a fresh id.
-            Button {
-                Task {
-                    if let fork = await model.forkSession(session.internalName) {
-                        model.requestedSession = fork
-                    }
-                }
-            } label: {
-                Label("Fork session", systemImage: "arrow.triangle.branch")
-            }
+            // or the same conversation handed to the other tool.
+            forkVerbs(session)
             moveToMenu(session)
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
@@ -274,6 +304,13 @@ struct SessionsView: View {
                 Task { _ = await model.setParked(session, parked: true) }
             } label: {
                 Label("Park", systemImage: "moon.zzz")
+            }
+            // Desktop's "Stop & park (resumable)": frees the process, keeps
+            // the conversation — opening it later resumes.
+            if session.live {
+                Button {
+                    Task { _ = await model.archiveSession(session) }
+                } label: { Label("Stop & park", systemImage: "stop.circle") }
             }
             Button(role: .destructive) { killTarget = session } label: {
                 Label("Kill", systemImage: "xmark.circle")
@@ -427,6 +464,15 @@ struct SessionsView: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 6, trailing: 10))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+                    // Swipe the briefing away, not just the ✕ (Jian). Same
+                    // effect as Dismiss — it's kept, reachable again via the
+                    // toolbar's "Show briefing" until a newer edition lands.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) { digestDismissed = d.generatedAt }
+                        } label: { Label("Archive", systemImage: "archivebox") }
+                        .tint(Color.hopGlow)
+                    }
                 }
             }
             if showTiles {
@@ -474,15 +520,7 @@ struct SessionsView: View {
                                         Label("Share screen…", systemImage: "square.and.arrow.up")
                                     }
                                 }
-                                Button {
-                                    Task {
-                                        if let fork = await model.forkSession(session.internalName) {
-                                            model.requestedSession = fork
-                                        }
-                                    }
-                                } label: {
-                                    Label("Fork session", systemImage: "arrow.triangle.branch")
-                                }
+                                forkVerbs(session)
                                 moveToMenu(session)
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                                 Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
@@ -490,6 +528,11 @@ struct SessionsView: View {
                                     Task { _ = await model.setParked(session, parked: true) }
                                 } label: {
                                     Label("Park", systemImage: "moon.zzz")
+                                }
+                                if session.live {
+                                    Button {
+                                        Task { _ = await model.archiveSession(session) }
+                                    } label: { Label("Stop & park", systemImage: "stop.circle") }
                                 }
                                 Button(role: .destructive) { killTarget = session } label: {
                                     Label("Kill", systemImage: "xmark.circle")
@@ -519,6 +562,34 @@ struct SessionsView: View {
                     if !section.label.isEmpty { Text(section.label) }
                 }
             }
+            }
+            // Desktop parity: the web wall's collapsible "parked · N" at the
+            // bottom. Parked sessions used to be reachable on the phone ONLY
+            // by searching for a name you had to remember (Jian: "can iOS
+            // support archived/hidden sessions too?"). Browse-only — a search
+            // already lists them inline. Opening one unparks it (the existing
+            // rule); swipe to Unpark without opening.
+            if filter.isEmpty && !parkedInScope.isEmpty {
+                Section {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { parkedOpen.toggle() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: parkedOpen ? "chevron.down" : "chevron.right")
+                                .font(.caption.weight(.semibold))
+                            Text("Parked · \(parkedInScope.count)")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                        }
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("parked section")
+                    if parkedOpen {
+                        ForEach(parkedInScope) { parkedRow($0) }
+                    }
+                }
             }
             if !inScopeMatches.isEmpty || outOfScopeMatches > 0 {
                 Section {
@@ -570,6 +641,90 @@ struct SessionsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .contentMargins(.horizontal, 6, for: .scrollContent)
         .listSectionSpacing(14)
+    }
+
+    /// Parked sessions in the current You / Agents / All scope — the same
+    /// scoping the wall above uses, so the section never shows what the
+    /// picker is hiding.
+    private var parkedInScope: [HopSession] {
+        model.sessions
+            .filter { !$0.isPort && $0.parked && matchesScope($0.createdBy, scope) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func parkedRow(_ session: HopSession) -> some View {
+        NavigationLink(value: session.internalName) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.name)
+                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                        .lineLimit(1)
+                    if !session.tagline.isEmpty {
+                        Text(session.tagline)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                // Same two words as the desktop chip: still running, or
+                // stopped-but-resumable (archived).
+                Text(session.live ? "PARKED" : "STOPPED")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.18), in: Capsule())
+                    .foregroundStyle(.secondary)
+            }
+            .opacity(0.8)
+        }
+        .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                Task { _ = await model.setParked(session, parked: false) }
+            } label: {
+                Label("Unpark", systemImage: "sun.max")
+            }
+            .tint(.hopPurple)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { killTarget = session } label: {
+                Label("Kill", systemImage: "xmark.circle")
+            }
+        }
+        .contextMenu {
+            Button {
+                Task { _ = await model.setParked(session, parked: false) }
+            } label: { Label("Unpark", systemImage: "sun.max") }
+            Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive) { killTarget = session } label: {
+                Label("Kill", systemImage: "xmark.circle")
+            }
+        }
+    }
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search sessions by name", text: $filter)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+            if !filter.isEmpty {
+                Button { filter = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(Color.hopRaised, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .background(.bar)   // opaque: the list scrolls under it
     }
 
     @ToolbarContentBuilder
@@ -668,7 +823,19 @@ struct SessionsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             listView
-                .searchable(text: $filter, prompt: "Filter sessions")
+                // ALWAYS visible, not pull-to-reveal: with an inline title the
+                // default search bar hides until you drag the list down, so the
+                // one thing you open hop to do — find a session by name, the
+                // way `hop` on the desktop drops you straight into a search —
+                // was invisible on arrival (Jian: "i dont find where i can
+                // search the session name"). Pin it under the title.
+                // Our own row, not `.searchable(.navigationBarDrawer(.always))`:
+                // the system search bar animated on every navigation and
+                // list refresh — "bounces to the left, comes back, bounces
+                // left again" (Jian) — for a field that has never needed to
+                // move. A plain field pinned under the bar cannot animate.
+                .safeAreaInset(edge: .top, spacing: 0) { searchRow }
+                .scrollDismissesKeyboard(.immediately)
                 .navigationTitle("hop")
                 // Inline, not large: the large title spent ~50pt of the first
                 // screen writing the app's own name. This is a terminal app —
@@ -840,6 +1007,20 @@ struct SessionsView: View {
                 }
                 .task(id: scenePhase) { await pollSessions() }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
+                // The browse boundary: whenever the list is showing (launch, or
+                // back from a terminal), take a fresh recency snapshot for the
+                // swipe ring. Between these — while you swipe terminal→terminal —
+                // the order stays frozen, so neighbours never move under you.
+                .onChange(of: path.isEmpty, initial: true) { _, onList in
+                    if onList { model.reconcileSwipeOrder(fullResort: true) }
+                }
+                // The swipe ring stays inside the browsing scope: push it to
+                // the model and re-freeze so a swipe from a terminal never
+                // crosses into a scope the list is hiding (Jian).
+                .onChange(of: scope, initial: true) { _, s in
+                    model.swipeScope = s
+                    model.reconcileSwipeOrder(fullResort: true)
+                }
                 .task { await openPendingSession() }
                 .task {
                     // Once the list is up, not at launch: asking before there's
@@ -966,9 +1147,15 @@ struct SessionsView: View {
         guard let want = model.requestedSession ?? notifier.pendingOpen
                 ?? ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
         var target: String?
-        for _ in 0..<25 {
-            // Same folding contract as the warm doors (hop2 e4bdd86).
-            if let hit = resolveSessionName(want, in: model.sessions) {
+        for _ in 0..<40 {
+            // Same folding contract as the warm doors (hop2 e4bdd86) — but
+            // against a LIVE list only. The launch cache is hearsay: a name
+            // deleted and re-created since (the daemon mints a fresh internal
+            // id each time) resolved here to the STALE id, attached to it,
+            // and the reconnect verify then rightly found it gone — "Session
+            // ended while the app was away" on a session that was very much
+            // alive (caught by the select-copy UITest's scratch session).
+            if model.liveListSeen, let hit = resolveSessionName(want, in: model.sessions) {
                 target = hit
                 break
             }
@@ -1107,6 +1294,15 @@ struct SessionRow: View {
                     Circle().fill(Color.hopAttention.opacity(0.22)).frame(width: 22, height: 22)
                     Circle().fill(Color.hopAttention).frame(width: 11, height: 11)
                         .shadow(color: Color.hopAttention.opacity(0.9), radius: 3.5)
+                } else if let tint = phaseTint(session.phase) {
+                    // The agent's phase: working blue (ringing), finished and
+                    // unread green, read quiet — same three as the web wall.
+                    Circle()
+                        .fill(tint)
+                        .shadow(color: session.phase == .doneRead ? .clear : tint.opacity(0.7),
+                                radius: 2.5)
+                        .frame(width: 9, height: 9)
+                        .sonar(when: session.phase == .working && session.live, color: .hopWorking)
                 } else {
                     Circle()
                         .fill(session.live ? Color.hopLive : Color.secondary.opacity(0.35))
@@ -1152,6 +1348,16 @@ struct SessionRow: View {
                     Text(session.relativeTime)
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
+                }
+                // WHY it wants you — "finished" (Codex rings at every turn end),
+                // "asking: …", "published: …" — so an amber dot never sends
+                // you hunting a screen for a question that isn't there.
+                if let why = session.attentionLabel {
+                    Text(why)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.hopAttention)
+                        .lineLimit(1)
+                        .accessibilityLabel("Attention: \(why)")
                 }
                 if !session.tagline.isEmpty {
                     Text(session.tagline).font(.caption2).foregroundStyle(.secondary).lineLimit(1)

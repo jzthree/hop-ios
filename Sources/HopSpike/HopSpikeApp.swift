@@ -2,42 +2,116 @@ import CoreSpotlight
 import SwiftUI
 import UIKit
 
+extension UIColor {
+    /// A colour with two faces, resolved per trait collection. The whole
+    /// "light UI to pair with the light terminal" feature is this one
+    /// function applied to the palette: every surface below names its dark
+    /// value and its light value, and UIKit/SwiftUI re-resolve on the flip.
+    static func hop(dark: UInt32, light: UInt32,
+                    darkAlpha: CGFloat = 1, lightAlpha: CGFloat = 1) -> UIColor {
+        UIColor { trait in
+            trait.userInterfaceStyle == .light
+                ? UIColor(hex: light, alpha: lightAlpha)
+                : UIColor(hex: dark, alpha: darkAlpha)
+        }
+    }
+
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(red: CGFloat((hex >> 16) & 0xff) / 255,
+                  green: CGFloat((hex >> 8) & 0xff) / 255,
+                  blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+    }
+
+    /// One surface palette instead of ad-hoc greys. The base is the
+    /// terminal's own background (#0d1117 dark / #ffffff light — the two
+    /// TerminalTheme papers), and the raised tones are the values that go
+    /// with each, so chrome reads as the same material as the terminal
+    /// rather than three unrelated tones sitting next to each other.
+    static let hopSurface = hop(dark: 0x0d1117, light: 0xffffff)   // terminal, page
+    static let hopRaised = hop(dark: 0x161b22, light: 0xf2f3f5)    // nav bar, key bar
+    static let hopKey = hop(dark: 0x272e38, light: 0xe3e6eb)       // key caps
+    static let hopKeyArmed = hop(dark: 0x9d7bf5, light: 0x7c3aed)  // armed modifier
+    static let hopArmedInk = hop(dark: 0x000000, light: 0xffffff) // ink on it
+    /// Card material: a slightly lifted top tone falling to the page's own
+    /// tone under a hairline. Dark surfaces read as SHAPES only when lit
+    /// from above; in the light a card is paper lifting off a grey page.
+    static let hopCardTop = hop(dark: 0x1a212c, light: 0xffffff)
+    static let hopCardBottom = hop(dark: 0x10151c, light: 0xf3f4f7)
+    /// The chrome pill. Dark: the Dynamic Island's own black, so the pill
+    /// reads as an extension of the bezel rather than another floating
+    /// glass panel. Light: the island stays black hardware, and a black
+    /// pill on white paper would be the heaviest thing on screen — the pill
+    /// takes the raised tone instead and lets its hairline draw it.
+    static let hopPill = hop(dark: 0x000000, light: 0xf2f3f5)
+    /// A sunken input well (the reply composer).
+    static let hopWell = hop(dark: 0x090b10, light: 0xeceef2)
+    /// Tile ink — what colourless preview text renders as.
+    static let hopInk = hop(dark: 0xe6edf3, light: 0x1f2328)
+    /// Attention. Amber rather than red: red in a list of agent sessions
+    /// reads as "something failed", and a session wanting you usually
+    /// hasn't. Each state tone is a shade deeper on white, where the
+    /// dark-tuned values wash out.
+    static let hopAttention = hop(dark: 0xf0a53a, light: 0xd4841a)
+    static let hopLive = hop(dark: 0x35d47a, light: 0x1f9e5b)
+    static let hopDead = hop(dark: 0xd95a6b, light: 0xc9414f)
+    /// An agent mid-turn. Blue: green is "finished, waiting for you" and
+    /// amber is "asking you", so work-in-progress needs a hue of its own.
+    static let hopWorking = hop(dark: 0x5aa7e0, light: 0x2b7bc4)
+    /// One card shadow: heavy in the dark (lift is the only cue), a
+    /// whisper in the light (paper barely floats).
+    static let hopShadow = hop(dark: 0x000000, light: 0x000000,
+                               darkAlpha: 0.5, lightAlpha: 0.12)
+
+    /// The cap "lights" under the finger: a step toward the paper's
+    /// opposite — toward white in the dark, toward black in the light.
+    /// Physical keys brighten when pressed, and dimming reads as disabled.
+    var hopPressed: UIColor {
+        UIColor { trait in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            self.resolvedColor(with: trait).getRed(&r, green: &g, blue: &b, alpha: &a)
+            let k: CGFloat = 0.16
+            let to: CGFloat = trait.userInterfaceStyle == .light ? 0 : 1
+            return UIColor(red: r + (to - r) * k, green: g + (to - g) * k,
+                           blue: b + (to - b) * k, alpha: a)
+        }
+    }
+}
+
 extension Color {
     static let hopPurple = Color(red: 0x7c / 255, green: 0x3a / 255, blue: 0xed / 255)
     static let hopGlow = Color(red: 0xa8 / 255, green: 0x55 / 255, blue: 0xf7 / 255)
 
-    /// One surface palette instead of ad-hoc greys. The base is the terminal's
-    /// own background (#0d1117, hop's web colour), and the raised tones are the
-    /// values that go with it — so chrome reads as the same material as the
-    /// terminal rather than three unrelated darks sitting next to each other.
-    static let hopSurface = Color(hex: 0x0d1117)      // terminal, page
-    static let hopRaised = Color(hex: 0x161b22)       // nav bar, key bar
-    static let hopKey = Color(hex: 0x272e38)          // key caps
-    static let hopKeyArmed = Color(hex: 0x9d7bf5)     // armed modifier
-    /// Attention. Amber rather than red: red in a list of agent sessions reads
-    /// as "something failed", and a session wanting you usually hasn't.
-    static let hopAttention = Color(hex: 0xf0a53a)
-    /// State dots share one pair of designed tones instead of system .green /
-    /// .red, whose saturation belongs to traffic lights, not a dark UI.
-    static let hopLive = Color(hex: 0x35d47a)
-    static let hopDead = Color(hex: 0xd95a6b)
-    /// Card material: dark surfaces read as SHAPES only when lit from above —
-    /// a slightly lifted top tone falling to the page's own dark, under a
-    /// hairline that catches light on the top edge and fades out by the
-    /// bottom. Flat fills next to these look like holes.
-    static let hopCardTop = Color(hex: 0x1a212c)
-    static let hopCardBottom = Color(hex: 0x10151c)
-    /// Dynamic Island's own black — not hopSurface's terminal-panel dark.
-    /// The island is solid and reads as part of the display bezel; the
-    /// chrome pill borrows this specifically to read as an extension of it
-    /// rather than another floating glass panel.
-    static let hopIslandBlack = Color(hex: 0x000000)
+    // The palette above, as SwiftUI colours. Same dynamic values — a view
+    // built from these flips with the scheme, no per-view branching.
+    static let hopSurface = Color(uiColor: .hopSurface)
+    static let hopRaised = Color(uiColor: .hopRaised)
+    static let hopKey = Color(uiColor: .hopKey)
+    static let hopKeyArmed = Color(uiColor: .hopKeyArmed)
+    static let hopAttention = Color(uiColor: .hopAttention)
+    static let hopLive = Color(uiColor: .hopLive)
+    static let hopDead = Color(uiColor: .hopDead)
+    static let hopWorking = Color(uiColor: .hopWorking)
+    static let hopCardTop = Color(uiColor: .hopCardTop)
+    static let hopCardBottom = Color(uiColor: .hopCardBottom)
+    static let hopPill = Color(uiColor: .hopPill)
+    static let hopWell = Color(uiColor: .hopWell)
+    static let hopInk = Color(uiColor: .hopInk)
+    static let hopShadow = Color(uiColor: .hopShadow)
+
+    /// Hairlines, seams and strokes: `primary` at a low alpha is a faint
+    /// white on dark paper and a faint black on light paper. Every
+    /// `Color.hopLine(x)` the chrome had became this — white on white
+    /// is no line at all.
+    static func hopLine(_ alpha: Double) -> Color { Color.primary.opacity(alpha) }
 
     static var hopCard: LinearGradient {
         LinearGradient(colors: [.hopCardTop, .hopCardBottom],
                        startPoint: .top, endPoint: .bottom)
     }
 
+    /// The light-catching top edge on a card. A white sheen — invisible on
+    /// white paper by design, where the card's hairline stroke and shadow
+    /// carry the shape instead.
     static var hopHairline: LinearGradient {
         LinearGradient(colors: [.white.opacity(0.14), .white.opacity(0.03)],
                        startPoint: .top, endPoint: .bottom)
@@ -50,26 +124,10 @@ extension Color {
     }
 }
 
-extension UIColor {
-    static let hopSurface = UIColor(red: 0x0d / 255, green: 0x11 / 255, blue: 0x17 / 255, alpha: 1)
-    static let hopRaised = UIColor(red: 0x16 / 255, green: 0x1b / 255, blue: 0x22 / 255, alpha: 1)
-    static let hopKey = UIColor(red: 0x27 / 255, green: 0x2e / 255, blue: 0x38 / 255, alpha: 1)
-    static let hopKeyArmed = UIColor(red: 0x9d / 255, green: 0x7b / 255, blue: 0xf5 / 255, alpha: 1)
-
-    /// The cap "lights" under the finger: a step toward white, not a dim —
-    /// physical keys brighten when pressed, and dimming reads as disabled.
-    var hopPressed: UIColor {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        getRed(&r, green: &g, blue: &b, alpha: &a)
-        let k: CGFloat = 0.16
-        return UIColor(red: r + (1 - r) * k, green: g + (1 - g) * k,
-                       blue: b + (1 - b) * k, alpha: a)
-    }
-}
-
 @main
 struct HopApp: App {
     @UIApplicationDelegateAdaptor(HopAppDelegate.self) private var appDelegate
+    @AppStorage("termLight") private var lightTheme = false
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
 
@@ -98,7 +156,9 @@ struct HopApp: App {
             RootView()
                 .environmentObject(model)
                 .tint(.hopPurple)
-                .preferredColorScheme(.dark)
+                // ONE switch: the terminal's light/dark IS the app's. The
+                // palette is dual-faced, so this flips every surface at once.
+                .preferredColorScheme(lightTheme ? .light : .dark)
                 .task {
                     HopNotifier.shared.configure()
                     HopTips.configure()
@@ -243,9 +303,9 @@ struct LoginView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack(spacing: 8) {
-                    Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
+                    Rectangle().fill(Color.hopLine(0.12)).frame(height: 0.5)
                     Text("or password").font(.caption2).foregroundStyle(.tertiary)
-                    Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
+                    Rectangle().fill(Color.hopLine(0.12)).frame(height: 0.5)
                 }
 
                 VStack(spacing: 12) {
@@ -257,14 +317,14 @@ struct LoginView: View {
                         .padding(12)
                         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                            .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                     SecureField("password", text: $password)
                         .textContentType(.password)
                         .focused($focus, equals: .password)
                         .padding(12)
                         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                            .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                     TextField("authenticator code", text: $totp)
                         .textContentType(.oneTimeCode)
                         .keyboardType(.numberPad)
@@ -281,7 +341,7 @@ struct LoginView: View {
                         .padding(12)
                         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                            .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                 }
                 .font(.system(.body, design: .monospaced))
 

@@ -1196,6 +1196,24 @@ final class HopSpikeTests: XCTestCase {
             .allSatisfy { $0.foregroundColor == nil })
     }
 
+    func testAgentPhaseParsesTheDaemonsVerdict() {
+        let seen: [String: Int] = ["Aurora": 3]
+        func mk(_ extra: [String: Any]) -> HopSession {
+            var j: [String: Any] = ["name": "Aurora", "bellSeq": 3]
+            for (k, v) in extra { j[k] = v }
+            return HopSession(json: j, seenBellSeq: seen)!
+        }
+        XCTAssertEqual(mk(["agentPhase": "working", "turnSeen": true]).phase, .working)
+        XCTAssertEqual(mk(["agentPhase": "done", "turnSeen": false]).phase, .doneUnread)
+        XCTAssertEqual(mk(["agentPhase": "done", "turnSeen": true]).phase, .doneRead)
+        // A daemon that omits the fields (older, or a plain shell): no phase, liveness colours.
+        XCTAssertNil(mk([:]).phase)
+        XCTAssertNil(mk(["agentPhase": NSNull()]).phase)
+        XCTAssertNil(phaseTint(nil))
+        XCTAssertNotNil(phaseTint(.working))
+        XCTAssertTrue(sessionSpokenSummary(mk(["agentPhase": "done", "turnSeen": false])).contains("not yet read"))
+    }
+
     func testSessionBusyToleratesBothUnitsAndExpires() {
         let nowS = 1_785_226_000.0
         // Milliseconds (what the daemon actually sends) and seconds both work:
@@ -1374,6 +1392,41 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertEqual(linkHit(atOffset: cols + 5, in: j), url)
         // And on the first row, inside the URL's start.
         XCTAssertEqual(linkHit(atOffset: 8, in: j), url)
+    }
+
+    /// Claude renders under bullets, so a URL that wraps at the right edge
+    /// comes back INDENTED on the next row. The indent used to terminate the
+    /// match: tapping the first half opened a truncated link and tapping the
+    /// second half (no scheme there) found nothing (Jian: "tapping a
+    /// multiline url seems to break"). Both halves must resolve to the whole.
+    func testIndentedWrappedUrlResolvesFromEitherHalf() {
+        let cols = 30
+        let url = "https://hop.example/assets/view/demo/hop-demo.html"
+        // "  ⏺ " style prefix, then the URL fills the row to its last column,
+        // and the continuation is indented by the same 4 spaces.
+        let prefix = "    "
+        let first = prefix + url                        // wraps at 30
+        let row0 = String(first.prefix(cols))          // full to the edge
+        let rest = String(first.dropFirst(cols))
+        let row1 = prefix + rest                       // indented continuation
+        let pad = { (s: String) in s.padding(toLength: cols, withPad: " ", startingAt: 0) }
+        let rows = [pad(row0), pad(row1), pad("$ ")]
+        // First half: inside the URL on row 0.
+        XCTAssertEqual(linkHit(rows: rows, row: 0, col: 8), url)
+        // Second half: on the continuation text, past the indent.
+        XCTAssertEqual(linkHit(rows: rows, row: 1, col: prefix.count + 3), url)
+        // Tapping the INDENT itself is not a tap on the link.
+        XCTAssertNil(linkHit(rows: rows, row: 1, col: 1))
+        // A row that merely starts indented after a full row is NOT a
+        // continuation when it resumes with a non-URL glyph (a bullet — the
+        // realistic neighbour under Claude's output). Known, accepted
+        // limitation: a full-width URL ending on the very last column
+        // followed by an indented WORD would fuse — it needs an exact-edge
+        // coincidence, and the alternative was every indented wrap broken.
+        let unrelated = [pad(row0), pad("    • next item"), pad("$ ")]
+        XCTAssertEqual(linkHit(rows: unrelated, row: 0, col: 8),
+                       String(row0.dropFirst(prefix.count)),
+                       "an indented bullet row must not be fused onto the link")
     }
 
     // MARK: - keyboard protocol tracking (shift+enter gate)
@@ -1718,9 +1771,211 @@ final class HopSpikeTests: XCTestCase {
         XCTAssertNil(AppModel.acceptableRedeemURL("not a url", destination: dest))
     }
 
+
+    /// Codex renders a hop view link as a plain, dim, 4-space-indented URL
+    /// that the TERMINAL hard-wraps (no app indent on the continuation) —
+    /// the row is full to its last column and the rest starts at column 0.
+    func testCodexHardWrappedUrlResolvesFromEitherRow() {
+        let url = "https://hop.zhoulab.io/view/angler-codex/optimization_report.html/inline"
+        let cols = 62
+        let first = "    " + String(url.prefix(cols - 4))
+        let rest = String(url.dropFirst(cols - 4))
+        let rows = [
+            "  └ View:".padding(toLength: cols, withPad: " ", startingAt: 0),
+            first,
+            rest.padding(toLength: cols, withPad: " ", startingAt: 0),
+            "    Session: angler-codex".padding(toLength: cols, withPad: " ", startingAt: 0)
+        ]
+        XCTAssertEqual(first.count, cols)
+        XCTAssertEqual(linkHit(rows: rows, row: 1, col: 10), url)
+        XCTAssertEqual(linkHit(rows: rows, row: 2, col: 3), url)
+    }
+
+    /// A swipe FROM a session the scope filter would drop (an agent session
+    /// opened under the user scope) must still have neighbours.
+    func testSwipeRingAlwaysIncludesTheCurrentSession() {
+        func mk(_ n: String, by: String, at: Double, live: Bool = true) -> HopSession {
+            HopSession(json: ["name": n, "internalName": n, "createdBy": by, "live": live,
+                              "lastActivityAt": at, "bellSeq": 0], seenBellSeq: [:])!
+        }
+        let a = mk("a", by: "user", at: 30), me = mk("me", by: "agent", at: 20), b = mk("b", by: "user", at: 10)
+        let plain = swipeRing([a, me, b], order: [], scope: .user)
+        XCTAssertEqual(plain.map(\.name), ["a", "b"])
+        let mine = swipeRing([a, me, b], order: [], scope: .user, including: "me")
+        XCTAssertEqual(mine.map(\.name), ["a", "me", "b"], "current inserted at its recency slot")
+        // Already present: unchanged.
+        XCTAssertEqual(swipeRing([a, me, b], order: [], scope: .all, including: "me").map(\.name), ["a", "me", "b"])
+    }
+
+    /// Accessory arrows under modifiers: xterm's CSI 1;<param> form.
+    func testArrowSequenceCarriesModifiers() {
+        XCTAssertEqual(arrowSequence(.up, shift: false, alt: false, ctrl: false), "\u{1b}[A")
+        XCTAssertEqual(arrowSequence(.shiftUp, shift: false, alt: false, ctrl: false), "\u{1b}[1;2A")
+        XCTAssertEqual(arrowSequence(.up, shift: true, alt: false, ctrl: false), "\u{1b}[1;2A")
+        XCTAssertEqual(arrowSequence(.right, shift: false, alt: false, ctrl: true), "\u{1b}[1;5C")
+        XCTAssertEqual(arrowSequence(.left, shift: false, alt: true, ctrl: false), "\u{1b}[1;3D")
+        XCTAssertEqual(arrowSequence(.shiftDown, shift: false, alt: false, ctrl: true), "\u{1b}[1;6B")
+        XCTAssertNil(arrowSequence(.tab, shift: true, alt: false, ctrl: false))
+    }
+
+    /// The swipe's release contract: the lit card, nothing else.
+    func testSwipeCommitsExactlyWhatIsLit() {
+        XCTAssertTrue(swipeShouldCommit(lit: true, released: true))
+        XCTAssertFalse(swipeShouldCommit(lit: false, released: true), "nothing lit — no jump")
+        XCTAssertFalse(swipeShouldCommit(lit: true, released: false), "cancelled — no switch")
+        XCTAssertFalse(swipeShouldCommit(lit: false, released: false))
+    }
+
+    /// A Mac chord on the wire: the classic encodings where they exist, and
+    /// CSI-u — the only form that carries ⌘ — where they don't.
+    func testModifiedKeyEncodesMacChords() {
+        let e = true, plain = false
+        XCTAssertEqual(modifiedKey("a", shift: false, alt: false, ctrl: false, cmd: false, enhanced: plain), "a")
+        XCTAssertEqual(modifiedKey("c", shift: false, alt: false, ctrl: true, cmd: false, enhanced: plain), "\u{03}")
+        XCTAssertEqual(modifiedKey("f", shift: false, alt: true, ctrl: false, cmd: false, enhanced: plain), "\u{1b}f")
+        XCTAssertEqual(modifiedKey("a", shift: false, alt: true, ctrl: true, cmd: false, enhanced: plain), "\u{1b}\u{01}")
+        // ⌘ only exists in CSI-u: 1 + shift0 + alt0 + ctrl0 + super8 = 9.
+        XCTAssertEqual(modifiedKey("k", shift: false, alt: false, ctrl: false, cmd: true, enhanced: e), "\u{1b}[107;9u")
+        XCTAssertNil(modifiedKey("k", shift: false, alt: false, ctrl: false, cmd: true, enhanced: plain),
+                     "⌘ must not be faked at an app that cannot read it")
+        // Shift never doubles a letter's case, but it does ride the bitmask.
+        XCTAssertEqual(modifiedKey("K", shift: true, alt: false, ctrl: false, cmd: true, enhanced: e), "\u{1b}[75;10u")
+        XCTAssertEqual(modifiedKey("A", shift: true, alt: false, ctrl: false, cmd: false, enhanced: plain), "A")
+    }
+
+    /// ⌘ rides the same bitmask on arrows: 1 + 8 = 9.
+    func testArrowSequenceCarriesCommand() {
+        XCTAssertEqual(arrowSequence(.left, shift: false, alt: false, ctrl: false, cmd: true), "\u{1b}[1;9D")
+        XCTAssertEqual(arrowSequence(.up, shift: true, alt: false, ctrl: true, cmd: true), "\u{1b}[1;14A")
+    }
+
+    /// Tap-to-position walks: vertical first, then horizontal FROM WHERE THE
+    /// VERTICAL LANDED — the bug that made multiline taps land wrong.
+    func testCursorWalkPlansFromWhereTheVerticalLands() {
+        let up = "\u{1b}[A", down = "\u{1b}[B", right = "\u{1b}[C", left = "\u{1b}[D"
+        // Same row: plain left/right, and no vertical at all.
+        XCTAssertEqual(cursorWalk(fromRow: 5, fromCol: 10, toRow: 5, toCol: 4,
+                                  targetLineLength: 40), String(repeating: left, count: 6))
+        // Two rows up, same column: the column is kept, so no horizontal leg.
+        XCTAssertEqual(cursorWalk(fromRow: 5, fromCol: 10, toRow: 3, toCol: 10,
+                                  targetLineLength: 40), up + up)
+        // Up onto a SHORT line: the cursor clamps to its end (7), so reaching
+        // column 3 is 4 lefts — measured from 7, never from the original 10.
+        XCTAssertEqual(cursorWalk(fromRow: 5, fromCol: 10, toRow: 4, toCol: 3,
+                                  targetLineLength: 7), up + String(repeating: left, count: 4))
+        // Tapping past the end of a line lands at its end, not beyond it.
+        XCTAssertEqual(cursorWalk(fromRow: 5, fromCol: 2, toRow: 6, toCol: 30,
+                                  targetLineLength: 9), down + String(repeating: right, count: 7))
+        // Already there: nothing to send.
+        XCTAssertNil(cursorWalk(fromRow: 5, fromCol: 10, toRow: 5, toCol: 10, targetLineLength: 40))
+        // A composer's worth of travel is fine — this is the case that made
+        // tapping an earlier line of a long message do nothing.
+        XCTAssertEqual(cursorWalk(fromRow: 20, fromCol: 0, toRow: 8, toCol: 0, targetLineLength: 40),
+                       String(repeating: "\u{1b}[A", count: 12))
+        // A whole screen away is still refused: that is a mis-tap, not a move.
+        XCTAssertNil(cursorWalk(fromRow: 40, fromCol: 0, toRow: 2, toCol: 0, targetLineLength: 40))
+    }
+
+    /// A long URL broken by a TUI's own box rule — the shape that made hop
+    /// "sometimes not recognize long url". The row ends at the rule, never at
+    /// the grid edge, so the old full-to-edge test refused to join.
+    func testLinkHitJoinsAcrossBoxRules() {
+        let cols = 40
+        let head = "https://example.com/a/very/long/"
+        let tail = "path/to/thing?x=1"
+        func pad(_ s: String) -> String { s.padding(toLength: cols, withPad: " ", startingAt: 0) }
+        let rows = [
+            pad("│ intro text"),
+            pad("│ " + head + "│"),           // URL butts against the rule
+            pad("│ " + tail),
+            pad("│ after")
+        ]
+        XCTAssertEqual(linkHit(rows: rows, row: 1, col: 6), head + tail, "tapping the first half")
+        XCTAssertEqual(linkHit(rows: rows, row: 2, col: 4), head + tail, "tapping the second half")
+    }
+
+    /// A URL that merely ENDS inside a box has spaces before the rule, so the
+    /// row below must NOT be glued on.
+    func testLinkHitDoesNotGlueAnEndedURL() {
+        let cols = 44
+        func pad(_ s: String) -> String { s.padding(toLength: cols, withPad: " ", startingAt: 0) }
+        let rows = [
+            pad("│ https://example.com/done      │"),
+            pad("│ and then some prose           │")
+        ]
+        XCTAssertEqual(linkHit(rows: rows, row: 0, col: 5), "https://example.com/done")
+    }
+
+    /// The grid-edge wrap and the indented continuation still work.
+    func testLinkHitStillJoinsWrapAndIndent() {
+        let cols = 30
+        let head = "https://example.com/abcdefghi"     // 29 chars + 1 = full row
+        let rows = ["x" + head, "    tail/end".padding(toLength: cols, withPad: " ", startingAt: 0)]
+        XCTAssertEqual(rows[0].count, cols)
+        XCTAssertEqual(linkHit(rows: rows, row: 0, col: 5), head + "tail/end")
+    }
+
+    /// Copying a link that was broken across rows must paste as a live link.
+    func testRejoinWrappedURLRebuildsAPastableLink() {
+        // What the pasteboard holds today: the break, the indent, the rules.
+        XCTAssertEqual(rejoinWrappedURL("https://example.com/a/very/\n    long/path"),
+                       "https://example.com/a/very/long/path")
+        XCTAssertEqual(rejoinWrappedURL("│ https://example.com/a/ │\n│ b/c                    │"),
+                       "https://example.com/a/b/c")
+        // Not one URL: leave it exactly as the user selected it.
+        XCTAssertNil(rejoinWrappedURL("see https://example.com/a\nand also more text"))
+        XCTAssertNil(rejoinWrappedURL("plain one-line text"))
+        XCTAssertNil(rejoinWrappedURL("https://example.com/a\n\nhttps://example.com/b"))
+    }
+
+    /// "Open link…" must offer the same links a tap can reach. It used the
+    /// terminal's wrap flag alone, which an app's own line breaking never
+    /// sets, so long URLs inside a box were missing from the list.
+    func testLinksInFindsABoxBrokenURL() {
+        let cols = 40
+        func pad(_ s: String) -> String { s.padding(toLength: cols, withPad: " ", startingAt: 0) }
+        let head = "https://example.com/a/very/long/"
+        let rows = [
+            pad("│ result"),
+            pad("│ " + head + "│"),
+            pad("│ path/end"),
+            pad("│ done")
+        ]
+        XCTAssertEqual(linksIn(rows: rows), [head + "path/end"])
+    }
+
+    /// The size ping-pong from Jian's 2026-09-26 trace: ours, theirs, ours,
+    /// theirs, three round trips in 70ms, the page flashing between two
+    /// sizes. A declare right after adopting a peer's grid is the move that
+    /// restarts it.
+    func testSizeDeclareStopsThePingPong() {
+        // Nothing sent yet: say our size once.
+        XCTAssertTrue(shouldDeclareSize(cols: 58, rows: 34, now: 100,
+                                        lastSent: nil, lastForeignAdoptAt: nil))
+        // Just adopted the peer's grid — stay quiet.
+        XCTAssertFalse(shouldDeclareSize(cols: 58, rows: 34, now: 100,
+                                         lastSent: nil, lastForeignAdoptAt: 99.5),
+                       "answering an adopt is the fight itself")
+        // The cooldown expires and we may speak again.
+        XCTAssertTrue(shouldDeclareSize(cols: 58, rows: 34, now: 102.5,
+                                        lastSent: nil, lastForeignAdoptAt: 99.5))
+        // The keyboard churn re-sends the same dims: once is enough.
+        XCTAssertFalse(shouldDeclareSize(cols: 58, rows: 34, now: 100.1,
+                                         lastSent: (58, 34, 100), lastForeignAdoptAt: nil))
+        // A genuinely NEW fit still goes out (rotation, keyboard away).
+        XCTAssertTrue(shouldDeclareSize(cols: 58, rows: 76, now: 100.1,
+                                        lastSent: (58, 34, 100), lastForeignAdoptAt: nil))
+        // Degenerate fits are never announced.
+        XCTAssertFalse(shouldDeclareSize(cols: 1, rows: 34, now: 100,
+                                         lastSent: nil, lastForeignAdoptAt: nil))
+    }
 }
 
 /// Headless SwiftTerm needs a delegate; the trap test needs none of it.
 final class MuteTerminalDelegate: TerminalDelegate {
     func send(source: Terminal, data: ArraySlice<UInt8>) {}
+
+
+
+
 }
