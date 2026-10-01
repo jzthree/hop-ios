@@ -597,6 +597,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The briefing's read witness: what this device saw, at what strength
+    /// (glimpsed / read / acted), to the daemon's union across devices.
+    /// Fire-and-forget; a lost batch is re-earned by the next look.
+    func reportDigestReads(_ reads: [[String: Any]]) async {
+        guard !reads.isEmpty, let url = baseURL?.appendingPathComponent("api/digest/reads") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("user", forHTTPHeaderField: "x-hop-actor")
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["reads": reads])
+        _ = try? await urlSession.data(for: req)
+    }
+
     private func post(_ path: String, _ body: [String: Any]) async -> Bool {
         guard let url = baseURL?.appendingPathComponent(path) else { return false }
         var req = URLRequest(url: url)

@@ -440,6 +440,39 @@ const main = async () => {
   // after edition can be called a stall, which no single hour's screens can
   // reveal. Generous but bounded: whole editions ride along until the byte
   // budget is spent; the newest is skipped because it rides in full above.
+  // The READ WITNESS: which stories the reader actually saw, at what
+  // strength (glimpsed / read / acted), across every device — the daemon's
+  // union (lib/digest-reads.js). Per session: the newest edition that told
+  // its story, and how that telling was received. This decides, below,
+  // whether a thread may be told as a DELTA or must be retold cold.
+  let readState = {};
+  try {
+    const rr = await api("/api/digest/reads");
+    const reads = rr?.reads || {};
+    const allEditions = (() => {
+      for (const out of OUTS) {
+        try { return JSON.parse(fs.readFileSync(path.join(path.dirname(out), "digest-archive.json"), "utf8")).editions || []; }
+        catch { /* next */ }
+      }
+      return [];
+    })();
+    const sorted = [...allEditions].sort((a, b) => Date.parse(b.generated_at || 0) - Date.parse(a.generated_at || 0));
+    for (const e of sorted) {
+      for (const it of e.items || []) {
+        if (!it?.session || readState[it.session]) continue;
+        const r = reads[`${e.generated_at}|${it.session}`];
+        readState[it.session] = {
+          last_told_at: e.generated_at,
+          last_told_seconds_ago: Math.round((Date.now() - Date.parse(e.generated_at)) / 1000),
+          last_telling_was: r ? r.level : "unread",
+          ...(r ? { seen_seconds_ago: Math.round((Date.now() - r.lastAt) / 1000) } : {}),
+          headline_then: it.headline
+        };
+      }
+    }
+  } catch (e) { readState = {}; /* older daemon: no witness; every thread is cold */ }
+  for (const c of changed) if (readState[c.session]) c.briefing_history = readState[c.session];
+
   const HISTORY_BYTE_BUDGET = 24_000;
   const editionHistory = (() => {
     let editions = [];
@@ -597,9 +630,20 @@ the agent, but for everything the agent output, I may or may not have
 viewed it"). The reader remembers what THEY typed: their own
 instructions, questions and decisions are safe to assume, and the
 "about" lines are their own words. Assume NOTHING agent-produced has
-been seen — not agent output, and not your previous editions. A briefing
-is not a serial; every edition is read cold, possibly as the first one
-ever. Concretely:
+been seen — not agent output. For your OWN previous editions there is
+evidence: each changed session may carry \`briefing_history\`, from hop's
+read witness, saying when its story was last told and how that telling
+was received — "acted" (they opened the session from it), "read" (it was
+on screen for the time it takes to read, with them present), "glimpsed"
+(on screen briefly), or "unread" (never seen on any device). Use it:
+- last telling "read" or "acted": tell the DELTA. One clause naming what
+  they already know (their \`headline_then\`, in your words), then only
+  what changed since: before → after numbers, what landed, what did not.
+  Shorter than a cold story, and never a restatement of the old one.
+- "glimpsed" or "unread", or no history at all: they have NOT read it.
+  Tell it cold, in full, as below.
+Where there is no \`briefing_history\`, every edition is read cold,
+possibly as the first one ever. Concretely:
 - Never lean on a previous edition. "As noted", "still", "again", "the
   stall from yesterday" are all broken references for a reader who never
   saw yesterday's page — when a thread continues, restate the fact
@@ -609,8 +653,10 @@ ever. Concretely:
   run that settles which of the two music models won has now waited
   three days on one keypress" stands alone; "the cooldown is still
   waiting" assumes a reader you do not have.
-- Repetition ACROSS editions is fine when the fact still matters — a
-  stall may headline three editions running, told fresh each time.
+- Repetition ACROSS editions is fine when the fact still matters AND the
+  reader has not read it — a stall may headline three editions running,
+  told fresh each time, until the witness says they read it; after that
+  it is a one-line delta ("still waiting, now 3 days") with its counter.
   Redundancy WITHIN an edition is what to avoid.
 
 Editions run hourly. The back-issues below are YOUR memory, never the

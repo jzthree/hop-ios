@@ -95,6 +95,8 @@ struct SessionsView: View {
     /// generatedAt + the opened session names, comma-joined — one default,
     /// self-pruning, no migration.
     @AppStorage("digestReadLedger") private var digestReadLedger = ""
+    /// The briefing's read witness for this device (see DigestReadWitness).
+    @StateObject private var digestWitness = DigestReadWitness()
 
     private func digestReadSet(for stamp: String) -> Set<String> {
         let parts = digestReadLedger.components(separatedBy: "|")
@@ -449,6 +451,7 @@ struct SessionsView: View {
                filter.isEmpty {
                 Section {
                     DigestCard(digest: d,
+                               witness: digestWitness,
                                readSessions: digestReadSet(for: d.generatedAt),
                                nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
@@ -1005,7 +1008,12 @@ struct SessionsView: View {
                 .onChange(of: network.pathGeneration) {
                     Task { await model.refreshSessions(silent: true) }
                 }
-                .task(id: scenePhase) { await pollSessions() }
+                .task(id: scenePhase) {
+                    digestWitness.active = scenePhase == .active
+                    digestWitness.send = { reads in await model.reportDigestReads(reads) }
+                    if scenePhase != .active { digestWitness.flush() }
+                    await pollSessions()
+                }
                 .task(id: "\(scenePhase)-\(path.isEmpty)") { await pollPreviews() }
                 // The browse boundary: whenever the list is showing (launch, or
                 // back from a terminal), take a fresh recency snapshot for the
