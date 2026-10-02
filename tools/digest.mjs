@@ -262,6 +262,67 @@ const readTurnCount = (internalName) => {
     return { count: Number(t.count) || 0, at: t.at ? Date.parse(t.at) : 0 };
   } catch { return { count: 0, at: 0 }; }
 };
+// ---- The chief-of-staff page: slots and budgets ---------------------------
+export const SLOT_ORDER = ["decide", "watch", "done", "also"];
+export const SLOT_URGENCY = { decide: "needs-you", watch: "blocked", done: "finished", also: "fyi" };
+const URGENCY_SLOT = { "needs-you": "decide", blocked: "watch", finished: "done", fyi: "also" };
+export const BUDGET = { summary: 20, headline: 8, whyDecide: 30, whyWatch: 30, whyDone: 15, recommendation: 12, reply: 4 };
+export const wordCount = (t) => String(t || "").trim().split(/\s+/).filter(Boolean).length;
+export const trimWords = (t, n) => {
+  const w = String(t || "").trim().split(/\s+/).filter(Boolean);
+  if (w.length <= n) return w.join(" ");
+  // Prefer a sentence end inside the budget; else cut at the word.
+  const head = w.slice(0, n).join(" ");
+  const m = /^(.*[.!?])\s[^.!?]*$/.exec(head);
+  // A short complete sentence beats a longer cut fragment.
+  return (m && wordCount(m[1]) >= Math.ceil(n / 3)) ? m[1] : head.replace(/[,;:—-]+$/, "") + "…";
+};
+/** Every item gets a slot (from urgency when the model gave none) and the urgency the slot implies. */
+export const normalizeSlots = (digest) => {
+  if (!Array.isArray(digest.items)) { digest.items = []; return digest; }
+  for (const it of digest.items) {
+    if (!SLOT_ORDER.includes(it.slot)) it.slot = URGENCY_SLOT[it.urgency] || "also";
+    it.urgency = SLOT_URGENCY[it.slot];
+    if (it.slot === "also") { delete it.why; delete it.recommendation; delete it.replies; }
+    if (it.slot !== "decide") { delete it.recommendation; delete it.replies; }
+    if (Array.isArray(it.replies)) it.replies = it.replies.filter((r) => typeof r === "string" && r.trim()).slice(0, 3);
+  }
+  return digest;
+};
+const whyBudget = (slot) => (slot === "done" ? BUDGET.whyDone : BUDGET.whyDecide);
+/** Fields over budget: [{path, text, budget}] — the tighten pass's work list. */
+export const budgetViolations = (digest) => {
+  const out = [];
+  if (wordCount(digest.summary) > BUDGET.summary) out.push({ path: "summary", text: digest.summary, budget: BUDGET.summary });
+  (digest.items || []).forEach((it, i) => {
+    if (wordCount(it.headline) > BUDGET.headline) out.push({ path: `items[${i}].headline`, text: it.headline, budget: BUDGET.headline });
+    if (it.why && wordCount(it.why) > whyBudget(it.slot)) out.push({ path: `items[${i}].why`, text: it.why, budget: whyBudget(it.slot) });
+    if (it.recommendation && wordCount(it.recommendation) > BUDGET.recommendation) out.push({ path: `items[${i}].recommendation`, text: it.recommendation, budget: BUDGET.recommendation });
+  });
+  return out;
+};
+export const tightenPrompt = (over) => `Rewrite each text to AT MOST its word budget, keeping the verdict, the numbers and the meaning; plain words, no trailing clause. Reply with ONLY a JSON object mapping each "path" to its rewritten text.\n${JSON.stringify(over, null, 1)}`;
+const setPath = (digest, p, v) => {
+  const m = /^items\[(\d+)\]\.(\w+)$/.exec(p);
+  if (p === "summary") digest.summary = v;
+  else if (m && digest.items[Number(m[1])]) digest.items[Number(m[1])][m[2]] = v;
+};
+export const applyTightened = (digest, fixed) => {
+  for (const [p, v] of Object.entries(fixed || {})) if (typeof v === "string" && v.trim()) setPath(digest, p, v.trim());
+  return digest;
+};
+/** The last word: anything still over budget is cut. */
+export const enforceBudgets = (digest) => {
+  digest.summary = trimWords(digest.summary, BUDGET.summary);
+  for (const it of digest.items || []) {
+    it.headline = trimWords(it.headline, BUDGET.headline);
+    if (it.why) it.why = trimWords(it.why, whyBudget(it.slot));
+    if (it.recommendation) it.recommendation = trimWords(it.recommendation, BUDGET.recommendation);
+    if (Array.isArray(it.replies)) it.replies = it.replies.map((r) => trimWords(r, BUDGET.reply));
+  }
+  return digest;
+};
+
 /** Turns and opens over a window, from cumulative samples [{t, turns, seenAt}]. */
 export const engagementFrom = (samples, now, windowMs) => {
   const inWindow = samples.filter((x) => now - x.t <= windowMs);
@@ -340,6 +401,11 @@ const main = async () => {
       idle_seconds: s.lastActivityAt
         ? Math.round(Date.now() / 1000 - s.lastActivityAt) : null,
       // The reader's coverage state, from the daemon's attach witness.
+      // What the agent is doing, by hop's own verdict (the wall's colours):
+      // "working" (a turn in flight) or "done"; and whether the reader has
+      // opened the session since the last turn ended. In hand ≠ news.
+      agent_phase: s.agentPhase || null,
+      last_turn_seen_by_reader: s.turnSeen !== false,
       user_is_looking_now: s.userAttached === true,
       user_last_looked_seconds_ago: s.lastUserSeenAt
         ? Math.round((Date.now() - s.lastUserSeenAt) / 1000) : null,
@@ -440,6 +506,20 @@ const main = async () => {
   // after edition can be called a stall, which no single hour's screens can
   // reveal. Generous but bounded: whole editions ride along until the byte
   // budget is spent; the newest is skipped because it rides in full above.
+  // What will handle ITSELF: check-backs hop has scheduled for a session
+  // (a prompt it will type later, on a time or a trigger). A session with a
+  // check-back pending is in hand — the briefing says so in a clause, not
+  // a story — unless the check-back is itself overdue.
+  let checkbacksBySession = {};
+  try {
+    const cb = await api("/api/checkbacks");
+    for (const c of cb?.items || []) {
+      if (c.status !== 'pending') continue;
+      (checkbacksBySession[c.session] = checkbacksBySession[c.session] || []).push(c.line.replace(/^\S+\s+\S+\s+/, ''));
+    }
+  } catch { /* older daemon */ }
+  for (const c of changed) if (checkbacksBySession[c.session]) c.scheduled_checkbacks = checkbacksBySession[c.session];
+
   // The READ WITNESS: which stories the reader actually saw, at what
   // strength (glimpsed / read / acted), across every device — the daemon's
   // union (lib/digest-reads.js). Per session: the newest edition that told
@@ -570,59 +650,50 @@ at all — you are the judge of what matters, not a summariser of everything.
 Leave out what they do not need. If nothing needs them, say so plainly and
 briefly, and say what you checked.
 
-Write it like the front page of a newspaper, and keep the newspaper's
-HIERARCHY (the maintainer, on reading a wall of long headlines: "the
-title should be short and the details can be longer... I really didn't
-have the patience to read it completely"). Each item is two layers:
-- The HEADLINE is a real headline: ten words or fewer, one phone line,
-  no subordinate clauses. It names what happened — "Distillation step
-  refuted by its own results" — and earns the tap; it does not tell the
-  story. A reader scanning ONLY headlines must still come away with the
-  true state of the fleet, so put the verdict in the headline, not the
-  setup.
-- The story lives in "why": one to three self-contained sentences — the
-  clause of context, the concrete facts and numbers, what it means or
-  puts at risk. The cold-reader rule above applies HERE; the headline is
-  too short to carry context and should not try.
-The app prints the session's name as the dateline. A front page leads with
-the stories that matter, told properly — but EVERY session in the
-"meaningful updates" list that the reader is not looking at right now gets
-an item of its own, because each item is the button that opens that
-session and a session with news but no item is invisible to them. The
-minor ones are one line: a headline and a single-sentence "why", urgency
-"fyi". Never fold one session's update into another session's story; the
-reader asked why the page named one session when several had moved. Keep
-it under eight items; if more changed, the least consequential get the
-shortest lines, not silence.
+Write it the way a chief of staff briefs a chief executive, not the way a
+bookkeeper lists the ledger. Three slots, in this order, then one roll-up:
+- DECIDE: things only the reader can settle — a question an agent is
+  asking, an approval, a choice between runs. Each carries the DECISION in
+  the headline, the case in one or two sentences, and your RECOMMENDATION
+  with the two or three replies the reader could give (short, typeable
+  verbatim: "Approve", "Hold", "Rerun with the corrected mask"). Bring the
+  answer, not just the question.
+- WATCH: what is blocked, at risk, or quietly wrong, and WHEN it resolves
+  itself if it will ("Randi's scheduler is back at 8 pm; three jobs queued
+  to submit then"). A stall gets its counter ("waiting on one keypress,
+  3 days"), not a fresh paragraph.
+- DONE: results, with the number that matters and what it means in one
+  line. Finished work the reader has already opened (last_turn_seen_by_reader
+  true) is not news unless the result itself is.
+- ALSO: every other session that moved, as a headline ONLY (≤8 words) — the
+  roll-up that keeps a tap into each session without a paragraph each.
+What is IN HAND is not news: an agent still working (agent_phase "working")
+on what it was asked, a session with a scheduled_checkbacks entry (hop
+will prompt it itself at that time — say so in a clause if it matters,
+never as a story). The clock below is yours to use: deadlines, when a
+scheduler is back, when a check-back fires.
 
-Write for the reader, not the wire. The screens are full of vocabulary the
-AGENTS invented — experiment IDs, issue numbers, file and branch names,
-internal labels like "exp_0036" or "issue 29" — that the reader never typed
-and cannot resolve. Translate every such handle into what it refers to ("the
-third RNA ablation that was queued Friday", "the port-cleanup bug it found in
-review") or drop it; keep an identifier only when it is one the reader
-themselves uses. The "about" line on each session is the reader's OWN words
-for what it is for — prefer its vocabulary over anything on the screen.
-Numbers that carry meaning (metrics, counts, durations) stay; labels that
-carry none go.
-
-The test for every sentence: someone who knows their own projects well but
-has not read these terminals should understand it on the FIRST pass. Plain
-sentences — what happened, what it means, what to do — beat dense clauses
-packed with references. With only a handful of stories there is room to write
-them properly; terse is not the goal, clear is.
-
-Two real constraints. The page scrolls, but the reader scans: the two or
-three stories that matter get a headline plus a short paragraph; every
-other item is a headline plus one sentence. And each item must name
-exactly one session, because each becomes a button they tap to open it.
+BUDGETS — hard, enforced in code after you answer, so write to them:
+- summary: ≤20 words. The one thing to know. If nothing needs the reader,
+  say so in that sentence plus the shape of the fleet ("6 agents working,
+  2 finished and unread"), and put NOTHING in decide/watch/done.
+- headline: ≤8 words, the verdict, one phone line, no subordinate clause.
+- why: decide and watch ≤30 words; done ≤15 words; also: none at all.
+- recommendation: ≤12 words. replies: 2–3 items of ≤4 words each.
+Every item names exactly one session, because each becomes a button that
+opens it. Never fold one session's update into another's story. Translate
+agent-invented handles (experiment IDs, issue numbers, file and branch
+names) into what they refer to, or drop them; keep identifiers the reader
+uses themselves. Numbers that carry meaning stay.
 
 Reply with ONLY a JSON object:
-{"generated_at":"<ISO8601>","summary":"<the one thing to know, in a sentence>",
+{"generated_at":"<ISO8601>","summary":"<≤20 words>",
  "items":[{"session":"<internalName exactly as given>",
-           "headline":"<a real headline: the verdict in ≤10 words, one phone line>",
-           "why":"<the story: 1-3 self-contained sentences — context, facts, what it means>",
-           "urgency":"needs-you"|"blocked"|"finished"|"fyi"}]}
+           "slot":"decide"|"watch"|"done"|"also",
+           "headline":"<≤8 words, the verdict>",
+           "why":"<decide/watch ≤30 words; done ≤15; also: omit>",
+           "recommendation":"<decide only: ≤12 words>",
+           "replies":["<decide only: 2–3 short replies>"]}]}
 
 WHAT THE READER REMEMBERS — the rule that governs every sentence (the
 maintainer's own words: "of course I know everything that I typed into
@@ -668,6 +739,8 @@ but never treat them as something the reader has read. Sessions listed
 under "unchanged" have not changed meaningfully since the previous
 edition — mention one only if a CHANGED session's story needs it.
 
+The clock: it is ${new Date().toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })} for the reader.
+
 Previous edition:
 ${prevEdition ? JSON.stringify({ summary: prevEdition.summary, items: prevEdition.items }, null, 1) : "(none)"}
 
@@ -683,6 +756,18 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
   const digest = JSON.parse(json);
   digest.model = MODEL;
+  normalizeSlots(digest);
+  // Budgets are a contract, not a wish: fields over budget go back once,
+  // in one call, to be tightened; what is still over is cut at a word.
+  const over = budgetViolations(digest);
+  if (over.length) {
+    try {
+      const tightened = await run("claude", ["-p", "--model", MODEL], tightenPrompt(over));
+      const fixed = JSON.parse(tightened.slice(tightened.indexOf("{"), tightened.lastIndexOf("}") + 1));
+      applyTightened(digest, fixed);
+    } catch (e) { console.error("tighten pass failed: " + String(e)); }
+    enforceBudgets(digest);
+  }
   // OUR clock, always: the model fabricates plausible timestamps (measured:
   // an edition stamped noon that ran at 15:42), and the archive and the
   // read-ledgers key on this value.
@@ -693,6 +778,7 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   if (Array.isArray(digest.items)) {
     const rankOf = Object.fromEntries(seen.map((s) => [s.session, s.engagement_rank || 999]));
     const urgencyOrder = { "needs-you": 0, blocked: 1, finished: 2, fyi: 3 };
+    // Slots are the hierarchy now; urgency follows the slot for older readers.
     digest.items = digest.items
       .map((it, i) => ({ it, i }))
       .sort((a, b) => (urgencyOrder[a.it.urgency] ?? 9) - (urgencyOrder[b.it.urgency] ?? 9)
@@ -702,7 +788,8 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   }
   saveState();
   // The agent judged the changes not newsworthy: keep the current edition
-  // current rather than pushing an empty page over it.
+  // current rather than pushing an empty page over it. (A quiet edition
+  // with only an ALSO roll-up still publishes — that is the two-line page.)
   if (!(digest.items?.length) && prevEdition) {
     console.log(`agent judged nothing newsworthy — edition kept (${MODEL})`);
     return;
