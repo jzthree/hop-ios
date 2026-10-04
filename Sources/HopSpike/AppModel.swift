@@ -36,12 +36,106 @@ final class AppModel: ObservableObject {
     @Published var requestedSession: String?
     /// The host agent's briefing, if one has been written since we last looked.
     @Published var digest: HopDigest?
+    /// mybot's morning pulse (ideas + overlooked items), served beside the
+    /// digest by the same daemon directory. Absent unless mybot runs.
+    @Published var mybotPulse: MybotPulseFeed?
+
+    /// Same contract as refreshDigest: a static file behind the cookie we
+    /// already send, and the last good copy survives a wiped web dist.
+    func refreshMybotPulse() async {
+        guard let url = baseURL?.appendingPathComponent("assets/pulse.json") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let (data, resp) = try? await urlSession.data(for: req),
+           (resp as? HTTPURLResponse)?.statusCode == 200,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let feed = MybotPulseFeed(json: obj) {
+            if mybotPulse != feed { mybotPulse = feed }
+            UserDefaults.standard.set(data, forKey: "lastMybotPulse")
+            return
+        }
+        if mybotPulse == nil,
+           let data = UserDefaults.standard.data(forKey: "lastMybotPulse"),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let feed = MybotPulseFeed(json: obj) {
+            mybotPulse = feed
+        }
+    }
+
+    /// One-tap pulse follow-up: a session in the item's folder running the
+    /// launch command mybot prepared. Reopens it if it already exists.
+    func startPulseFollowUp(_ action: MybotPulseAction) async -> String? {
+        if let s = sessions.first(where: { $0.name == action.sessionName }) { return s.internalName }
+        guard await createSession(name: action.sessionName,
+                                  cwd: action.cwd.isEmpty ? nil : action.cwd) else { return nil }
+        await refreshSessions(silent: true)
+        let room = sessions.first(where: { $0.name == action.sessionName })?.internalName ?? action.sessionName
+        // Give the new shell a moment to print its prompt; input typed before
+        // that is buffered by the pty anyway, this just keeps the echo tidy.
+        try? await Task.sleep(for: .milliseconds(600))
+        guard await QuickReply.send(action.command, to: room, model: self) else { return nil }
+        return room
+    }
+    /// The daemon's cross-device read union for the briefing: "edition|session"
+    /// → strongest level any device witnessed (glimpsed / read / acted). A story
+    /// read at the desk is not "unread" on the phone.
+    @Published var digestReads: [String: String] = [:]
+    /// Earlier editions, newest first, EXCLUDING the current one — the
+    /// desktop's timeline. Served beside digest.json as digest-archive.json.
+    @Published var digestArchive: [HopDigest] = []
+
+    func refreshDigestArchive() async {
+        guard let url = baseURL?.appendingPathComponent("assets/digest-archive.json") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let eds = obj["editions"] as? [[String: Any]] else { return }
+        let current = digest?.generatedAt
+        // A day of hourly editions is what a phone can usefully scroll.
+        let next = eds.compactMap(HopDigest.init(json:))
+            .filter { $0.generatedAt != current }
+            .prefix(24)
+        if Array(next) != digestArchive { digestArchive = Array(next) }
+    }
+
+    func refreshDigestReads() async {
+        guard let url = baseURL?.appendingPathComponent("api/digest/reads") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reads = obj["reads"] as? [String: [String: Any]] else { return }
+        var next: [String: String] = [:]
+        for (k, r) in reads { if let level = r["level"] as? String { next[k] = level } }
+        if next != digestReads { digestReads = next }
+    }
 
     /// Fetched from the directory the daemon already serves under /assets/,
     /// with the cookie the app already holds — so this costs no new endpoint
     /// and nothing on the phone. Absent is the normal state, not an error:
     /// the file only exists once the scheduled job has run.
     func refreshDigest() async {
+        #if DEBUG
+        // Tests: a briefing from a file, so a decision can point at a scratch
+        // session instead of a live agent.
+        if let path = ProcessInfo.processInfo.environment["HOP_DEV_DIGEST"],
+           let data = FileManager.default.contents(atPath: path),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let d = HopDigest(json: obj) {
+            if digest != d { digest = d }
+            return
+        }
+        #endif
+        await refreshDigestReads()
         guard let url = baseURL?.appendingPathComponent("assets/digest.json") else { return }
         var req = URLRequest(url: url)
         req.timeoutInterval = 8
@@ -53,6 +147,7 @@ final class AppModel: ObservableObject {
            let d = HopDigest(json: obj) {
             if digest != d { digest = d }
             UserDefaults.standard.set(data, forKey: "lastDigest")
+            await refreshDigestArchive()
             return
         }
         // The served file is a casualty of every web rebuild (the dist is
@@ -284,7 +379,7 @@ final class AppModel: ObservableObject {
             screensRaw = cached.screens
             lastRawFolders = cached.folders
             folders = cached.folders.compactMap(HopFolder.init(json:))
-            sessions = cached.sessions.compactMap { HopSession(json: $0, seenBellSeq: seenBells) }
+            sessions = cached.sessions.compactMap { HopSession(json: $0, seenBellSeq: seenBells, seenTurns: seenTurns) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             for s in sessions { lastKnown[s.internalName] = s }
             screens = screensRaw.compactMapValues { d in
@@ -511,7 +606,7 @@ final class AppModel: ObservableObject {
                 seen[key] = (jsonInt(first["bellSeq"]) ?? 0) - 1   // -1 is fine: any bellSeq beats it
             }
 #endif
-            sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen) }
+            sessions = raw.compactMap { HopSession(json: $0, seenBellSeq: seen, seenTurns: seenTurns) }
                 .sorted { ($0.attention ? 1 : 0, $0.lastActivityAt) > ($1.attention ? 1 : 0, $1.lastActivityAt) }
             // Keep the swipe ring's frozen order current WITHOUT reshuffling it:
             // gone sessions drop, newcomers append. A full recency re-sort only
@@ -601,6 +696,18 @@ final class AppModel: ObservableObject {
     /// (glimpsed / read / acted), to the daemon's union across devices.
     /// Fire-and-forget; a lost batch is re-earned by the next look.
     func reportDigestReads(_ reads: [[String: Any]]) async {
+        #if targetEnvironment(simulator)
+        // A simulator is never the human reading: UI tests and `make sim`
+        // would tell the generator stories were read that nobody saw, and it
+        // would shorten them to deltas. Debug sink instead, for tests.
+        if let m = ProcessInfo.processInfo.environment["HOP_DIGEST_WITNESS_MARKER"],
+           let data = try? JSONSerialization.data(withJSONObject: reads),
+           let line = String(data: data, encoding: .utf8) {
+            let prev = (try? String(contentsOfFile: m, encoding: .utf8)) ?? ""
+            try? (prev + line + "\n").write(toFile: m, atomically: true, encoding: .utf8)
+        }
+        return
+        #else
         guard !reads.isEmpty, let url = baseURL?.appendingPathComponent("api/digest/reads") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -609,6 +716,7 @@ final class AppModel: ObservableObject {
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["reads": reads])
         _ = try? await urlSession.data(for: req)
+        #endif
     }
 
     private func post(_ path: String, _ body: [String: Any]) async -> Bool {
@@ -1063,6 +1171,18 @@ final class AppModel: ObservableObject {
     /// Mark by name+seq, for paths that never hold a HopSession — notably the
     /// background notification handler, which has only what the notification
     /// carried.
+    /// The reader opened this session: its finished turn is read NOW, on
+    /// this device, ahead of the daemon's verdict (which follows within a
+    /// poll). Keyed by the turn's stamp so a newer turn is unread again.
+    @Published var seenTurns: [String: Double] = [:]
+    func markTurnSeen(_ session: HopSession) {
+        guard let at = session.turnAt, session.turnSeen == false else { return }
+        seenTurns[session.internalName] = at
+        if let i = sessions.firstIndex(where: { $0.internalName == session.internalName }) {
+            sessions[i].turnSeen = true   // phase is derived from it
+        }
+    }
+
     func markSeen(internalName: String, bellSeq: Int) {
         var seen = seenBells
         seen[internalName] = max(seen[internalName] ?? 0, bellSeq)
@@ -1264,7 +1384,10 @@ struct HopSession: Identifiable {
     /// turn ended — the daemon's own seen witness, so the phone and the desk
     /// agree on what has been read.
     let agentPhase: String?
-    let turnSeen: Bool
+    /// ms stamp of the last turn end (null when none) — the key the local
+    /// read override is checked against, so it never outlives the turn.
+    let turnAt: Double?
+    var turnSeen: Bool
     /// The wall's three agent colours. Attention (a question) is drawn on top
     /// of these by the views; it is not folded in here.
     enum Phase { case working, doneUnread, doneRead }
@@ -1293,7 +1416,7 @@ struct HopSession: Identifiable {
     }
     var id: String { internalName }
 
-    init?(json: [String: Any], seenBellSeq: [String: Int]) {
+    init?(json: [String: Any], seenBellSeq: [String: Int], seenTurns: [String: Double] = [:]) {
         guard let n = (json["displayName"] as? String) ?? (json["name"] as? String) else { return nil }
         name = n
         internalName = (json["internalName"] as? String) ?? n
@@ -1316,7 +1439,12 @@ struct HopSession: Identifiable {
         attentionReason = (json["attentionReason"] as? String) ?? ""
         attentionNote = (json["attentionNote"] as? String) ?? ""
         agentPhase = json["agentPhase"] as? String
-        turnSeen = (json["turnSeen"] as? Bool) ?? true
+        turnAt = (json["turnAt"] as? NSNumber)?.doubleValue
+        // Opening a session IS reading it: the daemon's witness agrees on
+        // its next answer, but the tile should not wait for the poll. A
+        // local mark counts only for the very turn it was made against.
+        let localSeen = turnAt != nil && seenTurns[(json["internalName"] as? String) ?? ""] == turnAt
+        turnSeen = ((json["turnSeen"] as? Bool) ?? true) || localSeen
         createdBy = (json["createdBy"] as? String) ?? "user"
         tagline = (json["tagline"] as? String) ?? ""
         folderId = json["folderId"] as? String

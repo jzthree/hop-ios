@@ -448,8 +448,19 @@ const main = async () => {
   [...seen].sort((a, b) => b._score - a._score).forEach((s, i) => { s.engagement_rank = i + 1; });
   for (const s of seen) delete s._score;
   const hashes = Object.fromEntries(seen.map((s) => [s.session, tailHash(s.screen)]));
-  const changed = seen.filter((s) =>
+  // NOT SEEN by the reader: an agent finished a turn since they last
+  // opened it, or it rang for them — and they don't have it open now.
+  // Every such session gets a line in EVERY edition until they open it
+  // (Jian, 2026-10-02: "briefing should show all sessions I haven't
+  // seen"); before, one that hadn't changed since the last run fell to
+  // the "unchanged" name list and off the page while still unread.
+  for (const s of seen) {
+    s.you_have_not_seen_it = !s.user_is_looking_now && (!s.last_turn_seen_by_reader || s.wants_you);
+  }
+  const mustCover = seen.filter((s) => s.you_have_not_seen_it);
+  const reallyChanged = seen.filter((s) =>
     hashes[s.session] !== state.sessions?.[s.session] || (s.wants_you && !state.rangBefore?.[s.session]));
+  const changed = seen.filter((s) => reallyChanged.includes(s) || s.you_have_not_seen_it);
   const unchanged = seen.filter((s) => !changed.includes(s)).map((s) => s.name);
 
   // Attach what the user has NOT seen to every changed session they are not
@@ -488,7 +499,16 @@ const main = async () => {
       engagement
     }, null, 1));
   };
-  if (changed.length === 0) {
+  // Quiet hour: nothing changed AND the current edition already lists every
+  // session the reader hasn't seen — re-running would reprint the same page.
+  const onPage = (() => {
+    for (const out of OUTS) {
+      try { return new Set((JSON.parse(fs.readFileSync(out, "utf8")).items || []).map((i) => i.session)); }
+      catch { /* next */ }
+    }
+    return new Set();
+  })();
+  if (reallyChanged.length === 0 && mustCover.every((s) => onPage.has(s.session))) {
     saveState();
     console.log("no meaningful update since last edition — suppressed");
     return;
@@ -673,6 +693,12 @@ will prompt it itself at that time — say so in a clause if it matters,
 never as a story). The clock below is yours to use: deadlines, when a
 scheduler is back, when a check-back fires.
 
+COVERAGE — hard rule: every session with \`you_have_not_seen_it: true\` gets
+an item in this edition — at minimum an ALSO headline — even if it was told
+before and nothing new happened since. The reader wants every session they
+have not caught up on listed until they open it. (Sessions they HAVE seen
+still follow the judgement above.)
+
 BUDGETS — hard, enforced in code after you answer, so write to them:
 - summary: ≤20 words. The one thing to know. If nothing needs the reader,
   say so in that sentence plus the shape of the fleet ("6 agents working,
@@ -757,6 +783,20 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
   const digest = JSON.parse(json);
   digest.model = MODEL;
   normalizeSlots(digest);
+  // Coverage is a contract too: any not-yet-seen session the writer left
+  // out gets an ALSO line from its own state, so the page never silently
+  // drops something the reader hasn't looked at.
+  const covered = new Set(digest.items.map((it) => it.session));
+  for (const s of mustCover) {
+    if (covered.has(s.session)) continue;
+    digest.items.push({
+      session: s.session,
+      slot: "also",
+      urgency: "fyi",
+      headline: s.wants_you ? "Waiting for you" : (s.agent_phase === "working" ? "Working — new output since you looked" : "Finished a turn you haven't seen")
+    });
+    console.log(`coverage backfill: ${s.name}`);
+  }
   // Budgets are a contract, not a wish: fields over budget go back once,
   // in one call, to be tightened; what is still over is cut at a word.
   const over = budgetViolations(digest);

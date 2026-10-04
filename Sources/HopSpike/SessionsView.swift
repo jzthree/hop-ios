@@ -16,6 +16,7 @@ struct SessionsView: View {
     @StateObject private var network = NetworkConditions.shared
 
     @State private var path: [String] = []
+    @State private var showingPulse = false
     @State private var filter = ProcessInfo.processInfo.environment["HOP_DEV_FILTER"] ?? ""
     /// The Parked section starts folded, like the desktop's "▸ parked · N".
     @State private var parkedOpen = false
@@ -99,9 +100,18 @@ struct SessionsView: View {
     @StateObject private var digestWitness = DigestReadWitness()
 
     private func digestReadSet(for stamp: String) -> Set<String> {
+        var read: Set<String> = []
         let parts = digestReadLedger.components(separatedBy: "|")
-        guard parts.first == stamp, parts.count > 1 else { return [] }
-        return Set(parts[1].components(separatedBy: ",").filter { !$0.isEmpty })
+        if parts.first == stamp, parts.count > 1 {
+            read = Set(parts[1].components(separatedBy: ",").filter { !$0.isEmpty })
+        }
+        // Plus what ANY device actually read (daemon union). Read or acted
+        // clears the dot; a glimpse doesn't — you saw it go by, not read it.
+        for (k, level) in model.digestReads where level == "read" || level == "acted" {
+            let kp = k.split(separator: "|", maxSplits: 1).map(String.init)
+            if kp.count == 2, kp[0] == stamp { read.insert(kp[1]) }
+        }
+        return read
     }
 
     private func markDigestRead(_ session: String, stamp: String) {
@@ -453,6 +463,14 @@ struct SessionsView: View {
                     DigestCard(digest: d,
                                witness: digestWitness,
                                readSessions: digestReadSet(for: d.generatedAt),
+                               earlier: model.digestArchive,
+                               onReply: { session, text in
+                                   let room = resolveSessionName(session, in: model.sessions) ?? session
+                                   let ok = await QuickReply.send(text, to: room, model: model)
+                                   model.actionError = ok ? nil : "Couldn't send to \(model.sessions.first { $0.internalName == room }?.name ?? session)"
+                                   return ok
+                               },
+                               readSetFor: { digestReadSet(for: $0) },
                                nameFor: { internalName in
                         model.sessions.first(where: { $0.internalName == internalName })?.name
                             ?? internalName
@@ -464,18 +482,19 @@ struct SessionsView: View {
                             digestDismissed = d.generatedAt
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 6, trailing: 10))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    // Swipe the briefing away, not just the ✕ (Jian). Same
-                    // effect as Dismiss — it's kept, reachable again via the
-                    // toolbar's "Show briefing" until a newer edition lands.
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.2)) { digestDismissed = d.generatedAt }
-                        } label: { Label("Archive", systemImage: "archivebox") }
-                        .tint(Color.hopGlow)
-                    }
+                    // Row styling and swipes live INSIDE DigestCard now: one
+                    // row per story (swipe a story to clear or open it), and
+                    // the header row's swipe archives the whole briefing.
+                }
+            }
+            // mybot's pulse sits under the briefing: the briefing is what the
+            // fleet needs from you, the pulse is ideas and loose ends.
+            if let feed = model.mybotPulse, let first = feed.pulses.first, filter.isEmpty {
+                Section {
+                    MybotPulseCard(pulse: first) { showingPulse = true }
+                        .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 6, trailing: 10))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
             }
             if showTiles {
@@ -1059,6 +1078,18 @@ struct SessionsView: View {
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { return }
                     await model.refreshDigest()
+                    await model.refreshMybotPulse()
+                }
+                .sheet(isPresented: $showingPulse) {
+                    if let feed = model.mybotPulse {
+                        MybotPulsePage(feed: feed, existing: Set(model.sessions.map(\.name))) { action in
+                            guard let room = await model.startPulseFollowUp(action) else { return false }
+                            showingPulse = false
+                            try? await Task.sleep(for: .milliseconds(350))
+                            path = [room]
+                            return true
+                        }
+                    }
                 }
         }
     }

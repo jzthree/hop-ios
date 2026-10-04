@@ -54,6 +54,9 @@ struct ArtifactSheet: View {
     /// tap brings it back — the way every reader app treats its chrome.
     @State private var chromeHidden = false
     @State private var loading = true
+    /// A fetched copy of the published FILE, waiting for the Files exporter.
+    @State private var exporting: ExportFile?
+    @State private var exportError: String?
 
     init(url: URL) { _viewing = State(initialValue: .single(url: url)) }
     init(viewing: ArtifactViewing) { _viewing = State(initialValue: viewing) }
@@ -137,6 +140,34 @@ struct ArtifactSheet: View {
                             .onChange(of: g.size.height) { _, h in barHeight = h }
                     })
                     .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                // The way back, ALWAYS. Tapping the content is meant to bring
+                // the bar (and its Back button) back — but a WKWebView (rendered
+                // markdown/CSV/JSON) swallows that tap, so once the bar hid you
+                // were stuck in the viewer with no exit (Jian). This handle is a
+                // SwiftUI view layered ABOVE the content, so its tap always
+                // lands; it also gives immersive reading an honest affordance
+                // instead of an invisible tap target.
+                VStack(spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { chromeHidden = false }
+                    } label: {
+                        Image(systemName: "chevron.compact.down")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.primary.opacity(0.75))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 22)
+                            .padding(.top, topSafe + 2)
+                            .padding(.bottom, 5)
+                            .background(Color.hopPill.opacity(0.45))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show controls")
+                    Spacer(minLength: 0)
+                }
+                .ignoresSafeArea(edges: .top)
+                .transition(.opacity)
             }
             if loading && !isNativeMedia {
                 ProgressView().tint(.hopGlow)
@@ -144,7 +175,6 @@ struct ArtifactSheet: View {
                     .allowsHitTesting(false)
             }
         }
-        .preferredColorScheme(.dark)
         .statusBarHidden(chromeHidden)
         // The cover's root must claim the whole screen: without this the
         // presented view is laid out inside the presenter's safe area, and
@@ -154,6 +184,11 @@ struct ArtifactSheet: View {
             Color.clear.onAppear { topSafe = g.safeAreaInsets.top }
                 .onChange(of: g.safeAreaInsets.top) { _, t in topSafe = t }
         })
+        // Looking at it IS reading it: mark the shown view seen so the strip's
+        // unread accent clears — on open and on every page (a no-op for a bare
+        // single-URL open, which carries no session/name to key on).
+        .onAppear { ViewSeen.markItemSeen(item) }
+        .onChange(of: viewing.index) { _, _ in ViewSeen.markItemSeen(item) }
     }
 
     /// The pill bar — the terminal's chrome, reused verbatim in shape: black,
@@ -197,6 +232,16 @@ struct ArtifactSheet: View {
             }
             Menu {
                 if let url {
+                    // The FILE, not a link: the daemon's ?download=1 serves the
+                    // published bytes under their real name (md/csv/json raw,
+                    // not the rendered page); the system exporter offers
+                    // Files, iCloud, and any provider (Jian: "I should be able
+                    // to download a hop view item from the UI").
+                    if !item.isServer {
+                        Button { Task { await downloadForExport() } } label: {
+                            Label("Save to Files…", systemImage: "arrow.down.doc")
+                        }
+                    }
                     ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
                     Button { UIPasteboard.general.string = url.absoluteString } label: {
                         Label("Copy link", systemImage: "link")
@@ -212,6 +257,13 @@ struct ArtifactSheet: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("More")
+            .sheet(item: $exporting) { file in
+                DocumentExporter(url: file.url).ignoresSafeArea()
+            }
+            .alert("Couldn't download", isPresented: Binding(get: { exportError != nil },
+                                                             set: { if !$0 { exportError = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(exportError ?? "") }
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 8)
@@ -221,14 +273,14 @@ struct ArtifactSheet: View {
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
                                    bottomTrailingRadius: 20, topTrailingRadius: 0,
                                    style: .continuous)
-                .fill(Color.hopIslandBlack)
+                .fill(Color.hopPill)
                 .ignoresSafeArea(edges: .top)
         )
         .overlay(
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
                                    bottomTrailingRadius: 20, topTrailingRadius: 0,
                                    style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(Color.hopLine(0.06), lineWidth: 0.5)
         )
         .padding(.horizontal, 5)
     }
@@ -342,8 +394,8 @@ struct ArtifactWebView: UIViewRepresentable {
         // hop's own surface under the page, not WebKit's white — the white
         // flash between open and first paint read as a different app.
         web.isOpaque = false
-        web.backgroundColor = UIColor(Color.hopSurface)
-        web.scrollView.backgroundColor = UIColor(Color.hopSurface)
+        web.backgroundColor = .hopSurface
+        web.scrollView.backgroundColor = .hopSurface
         web.underPageBackgroundColor = UIColor(Color.hopSurface)
         // The app's session cookie, copied into the web view's store BEFORE
         // the load — the artifact lives behind the same auth as everything
@@ -396,6 +448,56 @@ struct ArtifactWebView: UIViewRepresentable {
         func webView(_ w: WKWebView, didFinish n: WKNavigation!) { loading = false }
         func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { loading = false }
         func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { loading = false }
+    }
+}
+
+/// A temp copy of a published file, ready for the system exporter.
+struct ExportFile: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// "Save to Files": UIDocumentPickerViewController in export mode. `asCopy`
+/// so the temp file is copied out and can be cleaned up afterwards.
+struct DocumentExporter: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.shouldShowFileExtensions = true
+        return picker
+    }
+    func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
+}
+
+extension ArtifactSheet {
+    /// Fetch the published bytes (the daemon's ?download=1 form, authenticated
+    /// the same way the viewer's own loads are) into a temp file bearing the
+    /// item's real name, then hand it to the exporter.
+    @MainActor func downloadForExport() async {
+        let raw = viewing.serverURL.isEmpty ? item.path : viewing.serverURL + item.path
+        guard var comps = URLComponents(string: raw) else { exportError = "Bad link"; return }
+        comps.queryItems = (comps.queryItems ?? []).filter { $0.name != "download" }
+            + [URLQueryItem(name: "download", value: "1")]
+        guard let dl = comps.url else { exportError = "Bad link"; return }
+        var req = URLRequest(url: dl)
+        req.timeoutInterval = 60
+        let cookies = HTTPCookieStorage.shared.cookies(for: dl) ?? []
+        req.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                exportError = "Server returned \((resp as? HTTPURLResponse)?.statusCode ?? 0)"; return
+            }
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hop-export", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let name = item.name.isEmpty ? "view" : item.name
+            let file = dir.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: file)
+            try data.write(to: file, options: .atomic)
+            exporting = ExportFile(url: file)
+        } catch {
+            exportError = error.localizedDescription
+        }
     }
 }
 

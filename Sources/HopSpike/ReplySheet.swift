@@ -52,9 +52,9 @@ struct ReplySheet: View {
             .lineSpacing(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
-            .background(Color(hex: 0x090b10), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.hopWell, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5))
+                .strokeBorder(Color.hopLine(0.07), lineWidth: 0.5))
 
             HStack(spacing: 8) {
                 TextField("Answer…", text: $text)
@@ -66,7 +66,7 @@ struct ReplySheet: View {
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                        .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                 Button { send() } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 31))

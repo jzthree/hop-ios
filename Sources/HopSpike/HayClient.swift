@@ -1,8 +1,6 @@
 import Foundation
 import os
-#if DEBUG
-import UIKit          // the resize witness reads applicationState
-#endif
+import UIKit          // device key (identifierForVendor); the DEBUG resize witness
 
 // Minimal client for the hay room protocol (see hop2/hay/README.md):
 // connect wss://host/ws?room=X&name=Y&cols=N&rows=M, then JSON messages.
@@ -68,15 +66,27 @@ final class HayClient: NSObject {
     /// colours; dark is the app's default.
     var theme: TerminalTheme = .dark
 
+    /// `sizeClaim` asks the server to run the attach-size election AS we
+    /// connect — before it replays — so the snapshot arrives already at
+    /// our size and the first frame is the right one (Jian: "the terminal
+    /// show up instantly in the right size"). Without it, the replay came at
+    /// whatever a desktop peer left, and our claim 400ms later reflowed it
+    /// in plain view. A server that predates the flag ignores it.
     func connect(base: String, httpBase: String, room: String, cols: Int, rows: Int,
-                 token: String?, using session: URLSession) {
+                 token: String?, using session: URLSession, sizeClaim: Bool = false) {
         var comps = URLComponents(string: base + "/ws")
         var items: [URLQueryItem] = [
             .init(name: "room", value: room),
             .init(name: "name", value: "iPhone"),
             .init(name: "source", value: "ios"),
+            // Stable per install: the server replaces this device's previous
+            // socket for the room instead of keeping the corpse (which still
+            // OWNED the size, so a wake adopted its own old grid as foreign
+            // and bounced 55 -> 32 -> 34 rows), and hands the size over.
+            .init(name: "device", value: "ios-" + (UIDevice.current.identifierForVendor?.uuidString ?? "unknown")),
             .init(name: "cols", value: String(cols)),
             .init(name: "rows", value: String(rows)),
+            .init(name: "sizeClaim", value: sizeClaim ? "attach" : nil),
             // A phone doesn't need a desktop's worth of replay: hop's default
             // tail is 1.5 MB raw, which measured 2.4 MB on the wire as JSON and
             // yielded ONE screen on a TUI session. The param is `replay` (bytes)
@@ -173,10 +183,14 @@ final class HayClient: NSObject {
     /// the terminal, tapping the chip) — the daemon lets it win the size
     /// election outright, the same flag the web client sends on an explicit
     /// switch. Recency-based claims (the polite retry) leave it false.
-    func sendResize(cols: Int, rows: Int, claim: String? = nil, user: Bool = false) {
+    /// `take`: an explicit "use my size" ("take mine") — wins even over
+    /// someone typing now. Opening/attaching never steals from an active
+    /// typist (hop2 rooms.ts, OWNER_ACTIVE_MS).
+    func sendResize(cols: Int, rows: Int, claim: String? = nil, user: Bool = false, take: Bool = false) {
         var msg: [String: Any] = ["type": "resize", "cols": cols, "rows": rows]
         if let claim { msg["claim"] = claim }
         if user { msg["user"] = true }
+        if take { msg["take"] = true }
         #if DEBUG
         // The wire-level witness for the "never resize while nobody is
         // looking" rule. Appends state at send time; the runner cannot watch

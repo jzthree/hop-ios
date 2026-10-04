@@ -35,7 +35,7 @@ struct NewSessionSheet: View {
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                    .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                 .onSubmit { create() }
             Text("Letters, numbers, - and _")
                 .font(.caption2).foregroundStyle(.tertiary)
@@ -87,10 +87,10 @@ struct NewSessionSheet: View {
                 .foregroundStyle(selected ? .white : .secondary)
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(selected ? Color.hopPurple.opacity(0.85)
-                                     : Color.white.opacity(0.06),
+                                     : Color.hopLine(0.06),
                             in: Capsule())
                 .overlay(Capsule().strokeBorder(
-                    selected ? Color.hopGlow.opacity(0.5) : Color.white.opacity(0.05),
+                    selected ? Color.hopGlow.opacity(0.5) : Color.hopLine(0.05),
                     lineWidth: 0.5))
         }
         .buttonStyle(.plain)

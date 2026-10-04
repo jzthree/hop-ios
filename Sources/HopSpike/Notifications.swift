@@ -105,14 +105,34 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             guard s.attention, shouldNotify(bellSeq: s.bellSeq,
                                             lastNotified: notified[s.internalName]) else { continue }
             let content = UNMutableNotificationContent()
-            content.title = s.name
-            let live = await snippet(s)
-            content.body = live
-                ?? (s.tagline.isEmpty ? "Session wants your attention" : s.tagline)
-            // The tagline still rides along as the subtitle when there's a live
-            // line to show: which session, and what it's for, without crowding
-            // the part you actually read.
-            if live != nil, !s.tagline.isEmpty { content.subtitle = s.tagline }
+            // A question beats a screen snippet: "Claude needs your permission
+            // to use Bash" / the AskUserQuestion text itself (Jian: "whenever
+            // an agent asks me a question… send me a notification").
+            if let ask = s.freshAsk {
+                content.title = "\(s.name) is asking"
+                content.body = ask
+                if !s.tagline.isEmpty { content.subtitle = s.tagline }
+            } else if s.attentionReason == "finished" {
+                // Codex rings the bell at the end of every turn: say so,
+                // rather than "wants your attention" over a finished screen.
+                content.title = "\(s.name) finished"
+                content.body = s.tagline.isEmpty ? "Finished a turn" : s.tagline
+            } else if s.attentionReason == "working" {
+                content.title = "\(s.name) is still working"
+                content.body = s.tagline.isEmpty ? "Pinged mid-turn; nothing needs you yet" : s.tagline
+            } else if s.attentionReason == "view" {
+                content.title = "\(s.name) published a view"
+                content.body = s.attentionNote.isEmpty ? "A new result is ready" : s.attentionNote
+            } else {
+                content.title = s.name
+                let live = await snippet(s)
+                content.body = live
+                    ?? (s.tagline.isEmpty ? "Session wants your attention" : s.tagline)
+                // The tagline still rides along as the subtitle when there's a live
+                // line to show: which session, and what it's for, without crowding
+                // the part you actually read.
+                if live != nil, !s.tagline.isEmpty { content.subtitle = s.tagline }
+            }
             content.sound = .default
             // A waiting agent is what time-sensitive exists for. It needs the
             // com.apple.developer.usernotifications.time-sensitive entitlement,

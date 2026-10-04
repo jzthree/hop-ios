@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftTerm
+import PhotosUI
 import TipKit
 import os
 
@@ -23,7 +24,9 @@ struct TerminalHostView: View {
     let session: HopSession
     @State private var status: ConnState = .connecting
     @State private var fontSize: Double = UserDefaults.standard.double(forKey: "termFontSize") == 0 ? 12 : UserDefaults.standard.double(forKey: "termFontSize")
-    @State private var lightTheme = UserDefaults.standard.bool(forKey: "termLight")
+    /// Shared with the app root: the terminal's light/dark is the whole
+    /// app's appearance (Jian: "light UI to pair with the light terminal").
+    @AppStorage("termLight") private var lightTheme = false
     @State private var findText = ""
     @State private var findSeq = 0
     @State private var findDirection = -1
@@ -53,6 +56,9 @@ struct TerminalHostView: View {
     /// trade you opt into, and the first time it actually hides under this
     /// setting, a one-time tip teaches the way back.
     @AppStorage("chromeAutoHide") private var chromeAutoHideEnabled = false
+    /// Hold the screen lit while a terminal is open. Off by default: it is
+    /// a battery trade, and one the user should make deliberately.
+    @AppStorage("keepAwake") private var keepAwakeEnabled = false
     /// Arms the summon tip's anchor after the first auto-hide.
     @State private var chromeTipAnchor = false
     /// Observer mode: shrink type until the peer's full grid width fits.
@@ -79,13 +85,69 @@ struct TerminalHostView: View {
     /// has no equivalent of this: the pill follows the finger and names the
     /// session you would land on, so the swipe is never blind.
     @State private var pillDragX: CGFloat = 0
+    /// Signed hop distance the current swipe would travel through the ring
+    /// (negative = left/earlier, positive = right/next). Uncapped now — one
+    /// drag can cross the whole ring (Jian); drives the lit card and the commit.
+    @State private var swipeSteps: Int = 0
+    /// Continuous horizontal scroll of the swipe filmstrip, in points — the
+    /// strip tracks the finger so the ring slides under a fixed centre (current
+    /// centred at rest). `swipeSteps` is this snapped to whole cards.
+    @State private var swipeScrollX: CGFloat = 0
+    /// One card slot: 78pt card + 8pt spacing. Shared by the drag→hops math and
+    /// the filmstrip layout so the lit card lands dead centre.
+    private let swipeCardW: CGFloat = 86
     /// An artifact link (hop view) being shown in-app.
     @State private var artifactViewing: ArtifactViewing?
     @State private var artifactURL: URL?
+    /// What the ⋯ menu READS, frozen. Its rows show live session state (the
+    /// Views count, the notify flag, who's here), and every session poll or
+    /// presence blip re-rendered the open menu — SwiftUI's Menu re-lays out
+    /// on a re-render, so it jumped under a finger mid-aim (Jian: "the menu
+    /// moves itself, hard to tap"). Menu has no open/close hook to pause on,
+    /// so the menu reads THIS copy instead, refreshed only on a slow cadence
+    /// (the values change by the minute; a menu is open for seconds) and
+    /// never mid-interaction. Slightly stale by design.
+    @State private var menuSnap = MenuSnapshot()
+    @State private var menuSnapAt = Date.distantPast
+    struct MenuSnapshot: Equatable {
+        var viewsCount: Int? = nil
+        var notifyOnFinish = false
+        var viewerNames: [String] = []   // names only: a typing flag flips every 1.2s
+        var runningApp = ""              // the daemon's fg-process sample can flap between polls
+    }
+    private func refreshMenuSnapshot(force: Bool = false) {
+        // 20s: long enough that a menu opened and used never sees a re-layout;
+        // short enough that a stale count is gone by the next glance.
+        guard force || Date().timeIntervalSince(menuSnapAt) > 20 else { return }
+        let next = MenuSnapshot(
+            viewsCount: liveSession.views?.count,
+            notifyOnFinish: liveSession.notifyOnFinish,
+            viewerNames: viewers.map(\.name),
+            runningApp: liveSession.runningApp)
+        if next != menuSnap { menuSnap = next }
+        menuSnapAt = Date()
+    }
+    /// Attach a photo: the camera sheet, the system library picker, and the
+    /// item it hands back (drained the moment it's read).
+    @State private var showCamera = false
+    @State private var showPhotoLibrary = false
+    @State private var pickedPhoto: PhotosPickerItem?
     @State private var pillPeek: HopSession?
     @ObservedObject private var network = NetworkConditions.shared
     @State private var controlAction: ControlAction?
     @State private var toast: String?
+    /// Where floating status UI (outage banner, "take mine") may start: just
+    /// under the bar when it's shown (its measured height includes the
+    /// island inset), else just under the island.
+    private var overlayTop: CGFloat {
+        chromeShown && !landscapePhone && chromeHeightNow > 0 ? chromeHeightNow : windowTopInset()
+    }
+    /// One tap on the name reveals the WHOLE name (Jian: "the full screen
+    /// session view often cannot display full session name — can one tap
+    /// display the full name"). A pill-width title truncates anything past
+    /// ~14 monospaced characters, and a tap there used to fall through to
+    /// the bar background and HIDE the chrome — the opposite of "show me".
+    @State private var fullNameShown = false
     /// Last bell-driven views refresh — the throttle for bellNudgesViews().
     @State private var lastBellRefresh = Date.distantPast
     @State private var viewers: [HayClient.Viewer] = []
@@ -115,19 +177,11 @@ struct TerminalHostView: View {
 #endif
     }()
     @State private var sessionViews: [ArtifactItem] = []
-    /// The one strip row whose delete is revealed (swipe left). One at a
-    /// time, like every list on the platform.
-    @State private var stripOpenDelete: String?
-    /// The row currently UNDER a finger, and how far it has been dragged —
-    /// the swipe must move with the hand. The first version classified only
-    /// on release: nothing moved during the drag, and from a device that is
-    /// indistinguishable from the feature not existing (Jian: "the swipe to
-    /// delete option is still not implemented").
-    @State private var stripDrag: (path: String, x: CGFloat)?
-    /// When the current touch on a row began. onEnded's own `time` is the
-    /// END, so a hold and a tap look identical there; a tap is brief from
-    /// its START, and this is what makes "long press should not open" true.
-    @State private var stripTouchBegan: Date?
+    /// Bumped after seen-marks that touch no other state, so the chip re-reads.
+    @State private var viewsSeenTick = 0
+    // Swipe-to-delete and tap arbitration now belong to the native List
+    // (.swipeActions + .onTapGesture); the old hand-rolled DragGesture state
+    // is gone with it — it was what broke scrolling on a long list.
     /// Renaming happens on the desktop too; without this the title here stays
     /// wrong until the next list refresh.
     @State private var renamedTitle: String?
@@ -184,6 +238,17 @@ struct TerminalHostView: View {
 
     /// Split out of `body` for the same reason SessionsView is: the whole
     /// chain in one expression blows the SwiftUI type-checker's budget.
+    /// The idle timer is APP-WIDE and sticky — set it once and the phone
+    /// never sleeps again until someone puts it back. So everything that
+    /// can take this screen away has to release it: leaving the screen,
+    /// and the app backgrounding. iOS only honours it for the frontmost
+    /// app anyway, which is precisely why hop can do this for a dictation
+    /// and HopBoard cannot: the keyboard extension has no UIApplication,
+    /// and during keyboard dictation hop is the app holding the screen.
+    private func applyIdleTimer(_ awake: Bool? = nil) {
+        UIApplication.shared.isIdleTimerDisabled = awake ?? keepAwakeEnabled
+    }
+
     private var screen: some View {
         TerminalScreen(model: model, room: session.internalName, status: $status,
                        fontSize: fontSize, lightTheme: lightTheme,
@@ -193,8 +258,8 @@ struct TerminalHostView: View {
                        onSessionSwipe: { phase, dx in
                            switch phase {
                            case .moved: switchDragMoved(dx)
-                           case .commit: switchDragEnded(dx, commit: true)
-                           case .cancel: switchDragEnded(dx, commit: false)
+                           case .commit: switchDragEnded(dx, released: true)
+                           case .cancel: switchDragEnded(dx, released: false)
                            }
                        },
                        find: findRequest, reconnectToken: reconnectToken,
@@ -227,8 +292,13 @@ struct TerminalHostView: View {
                        onBodyTap: {
                            // Tapping the session below is the natural "done
                            // with the list" (Jian: "user should be able to
-                           // collapse it by tapping elsewhere").
+                           // collapse it by tapping elsewhere"). Logged: if a
+                           // back tap ever routes here instead of the chevron,
+                           // the diagnostics show this firing with the chevron
+                           // silent — the signature of the expanded-strip back
+                           // bug reaching the terminal's body-tap.
                            if viewsExpanded {
+                               KBLog.record("bodyTap → collapse strip")
                                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                                    viewsExpanded = false
                                }
@@ -288,12 +358,19 @@ struct TerminalHostView: View {
             .opacity(bannerVisible ? 0.82 : 1)
             .animation(.easeInOut(duration: 0.3), value: bannerVisible)
             .padding(.horizontal, 2)
-            // Rows begin just under the status text (probe-caught at 26:
-            // row zero ran straight through the clock). The band the menu
-            // covers is NOT reserved here — shrinking the frame would cost
-            // real rows off the PTY, and the terminal shifts its own content
-            // clear of the menu instead (chromeOverlap / chromeShift).
-            .padding(.top, 40)
+            // Start the terminal BELOW the Dynamic Island, not under it (Jian:
+            // "the top of the screen overlaps the island … start the terminal
+            // from below the island and use the island space for other
+            // purposes"). The old flat 40pt cleared the clock but not the
+            // island — its safe-area top is ~59pt, so row zero of a
+            // full-screen app (Claude's TUI, which can't scroll to shift
+            // itself clear) sat under the notch. Reserve the real safe-area
+            // top instead; the island band is the chrome's now. A 40pt floor
+            // covers the pre-layout window where the inset reads 0, and older
+            // non-notch phones where 40 is the friendlier clearance. The menu
+            // band below the island is still cleared by chromeShift, not
+            // reserved here, so toggling chrome never reflows the PTY.
+            .padding(.top, max(40, windowTopInset()))
             // NO accessory padding: SwiftUI's keyboard avoidance already
             // clears the FULL keyboard frame INCLUDING the inputAccessoryView
             // riding on it, so the extra 46pt here was double-counted — a
@@ -368,6 +445,30 @@ struct TerminalHostView: View {
             }) { url in
                 ArtifactSheet(url: url)
             }
+            // Attach a photo. The library is the system picker (no permission
+            // prompt — it's sandboxed to what you choose); the camera needs
+            // NSCameraUsageDescription and a real device.
+            .photosPicker(isPresented: $showPhotoLibrary, selection: $pickedPhoto, matching: .images)
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item else { return }
+                Task {
+                    let data = try? await item.loadTransferable(type: Data.self)
+                    let image = data.flatMap { UIImage(data: $0) }
+                    await MainActor.run {
+                        pickedPhoto = nil
+                        attachPhoto(image)
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showCamera, onDismiss: {
+                NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
+            }) {
+                CameraPicker { image in
+                    showCamera = false
+                    attachPhoto(image)
+                }
+                .ignoresSafeArea()
+            }
             .overlay {
                 if let goneReason {
                     VStack(spacing: 12) {
@@ -418,7 +519,7 @@ struct TerminalHostView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.hopAttention.opacity(0.5), lineWidth: 0.75))
                     .frame(maxWidth: .infinity)
-                    .padding(.top, windowTopInset() + 52)
+                    .padding(.top, overlayTop + (peerSize != nil ? 40 : 6))
                     .transition(.opacity)
                     .accessibilityElement(children: .combine)
                 }
@@ -430,11 +531,17 @@ struct TerminalHostView: View {
                             .font(.caption2.weight(.semibold).monospacedDigit())
                             .padding(.horizontal, 9).padding(.vertical, 5)
                             .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+                            .overlay(Capsule().strokeBorder(Color.hopLine(0.10), lineWidth: 0.5))
                     }
                     .tint(.hopGlow)
-                    .padding(.top, windowTopInset() + 46)
+                    // Under the bar's MEASURED bottom, never a fixed offset:
+                    // the bar grew (it clears the island now) and a fixed
+                    // +46 left the chip half-buried under it (probe
+                    // screenshot 2026-10-01). Fixed size: its own type
+                    // scale, nothing from the terminal's (remote) grid.
+                    .padding(.top, overlayTop + 6)
                     .padding(.trailing, 8)
+                    .fixedSize()
                     .transition(.opacity)
                     .accessibilityLabel("Session is \(peerSize). Tap to take your size.")
                 }
@@ -456,7 +563,34 @@ struct TerminalHostView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let toast {
+                if fullNameShown {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(renamedTitle ?? liveSession.name)
+                            .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                            .textSelection(.enabled)
+                        if !liveSession.tagline.isEmpty {
+                            Text(liveSession.tagline)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)   // wrap, never truncate
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.hopLine(0.10), lineWidth: 0.5))
+                    .padding(.horizontal, 12)
+                    .padding(.top, windowTopInset() + 52)   // just under the pill, like the outage banner
+                    .transition(.opacity)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("full session name")
+                    .onTapGesture { withAnimation { fullNameShown = false } }
+                    .task {
+                        try? await Task.sleep(for: .seconds(4))
+                        withAnimation(.easeIn(duration: 0.2)) { fullNameShown = false }
+                    }
+                } else if let toast {
                     Text(toast)
                         .font(.footnote)
                         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -502,7 +636,7 @@ struct TerminalHostView: View {
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Color.hopRaised, in: RoundedRectangle(cornerRadius: 9))
                         .overlay(RoundedRectangle(cornerRadius: 9)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+                            .strokeBorder(Color.hopLine(0.08), lineWidth: 0.5))
                         Button {
                             findDirection = -1          // older
                             findSeq += 1
@@ -528,7 +662,7 @@ struct TerminalHostView: View {
                     .padding(.top, windowTopInset())
                     .background(.ultraThinMaterial)
                     .overlay(alignment: .bottom) {
-                        Color.white.opacity(0.06).frame(height: 0.5)
+                        Color.hopLine(0.06).frame(height: 0.5)
                     }
                 }
             }
@@ -592,6 +726,12 @@ struct TerminalHostView: View {
                         .padding(.top, windowTopInset() + 8)
                 }
             }
+            // The swipe filmstrip: neighbours in the switch ring, current in
+            // the middle, destination lit — so a sideways swipe shows what is
+            // left and right and HOW MANY hops away, not just the next name
+            // (Jian). Its own top overlay so it shows for the BODY swipe too,
+            // when chrome is hidden.
+            .overlay(alignment: .top) { swipeFilmstrip }
             .onChange(of: scenePhase) { _, phase in
                 // iOS suspends the socket when the app backgrounds; coming back
                 // to a dead terminal and having to hunt for a menu item was the
@@ -609,6 +749,7 @@ struct TerminalHostView: View {
                 if phase != .active {
                     pillPeek = nil
                     pillDragX = 0
+                    swipeSteps = 0
                 }
                 if phase == .active, status == .closed { reconnectToken += 1 }
                 if phase == .active, retryAt != nil { retryAt = Date() }   // wake: trying now
@@ -631,6 +772,9 @@ struct TerminalHostView: View {
                 if status == .closed { reconnectToken += 1 }
             }
             .task(id: session.internalName) {
+                // Opening the session is reading its finished turn: the wall
+                // tile goes quiet now, not on the next poll.
+                model.markTurnSeen(session)
                 // Chrome persists by default — no auto-hide. It used to vanish
                 // 3s after open unconditionally, which traded a moment of
                 // extra terminal rows for "I cannot invoke it easily" for
@@ -651,14 +795,43 @@ struct TerminalHostView: View {
                 // again (see onChromeTap above).
                 chromeTipAnchor = true
             }
+            // Keep the session list live while you SIT in a terminal — and
+            // with it the views chip's presence (0→1) and its unseen/yellow
+            // state. The bell-nudge (onBell → bellNudgesViews) is immediate
+            // but fragile: a `hop view` publish that raced the manifest
+            // rebuild, or landed inside the 2s nudge throttle behind another
+            // bell, left the chip dark until the next foreground — the "new
+            // view doesn't light the button" report. A quiet heartbeat closes
+            // that gap deterministically. Paused while backgrounded (the
+            // socket is suspended anyway) and cancelled on leave (task id).
+            .task(id: session.internalName) {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(6))
+                    if Task.isCancelled { break }
+                    guard scenePhase == .active else { continue }
+                    await model.refreshSessions(silent: true)
+                    if viewsExpanded { await loadSessionViews() }
+                    // Throttled inside (20s): the poll is 6s, the menu must not be.
+                    refreshMenuSnapshot()
+                }
+            }
             .onAppear {
                 model.openSession = session.internalName
                 model.markSeen(session)
+                refreshMenuSnapshot(force: true)   // seed the menu's frozen view on entry
             }
+            // Back from the viewer (which marks what you looked at): settle
+            // the session-level mark and re-read the chip.
+            .onChange(of: artifactViewing?.index) { _, idx in if idx == nil { reconcileViewsSeen() } }
             .onDisappear {
                 // Guard the identity: switching sessions can appear-then-
                 // disappear, and a blind clear would wipe the new one.
                 if model.openSession == session.internalName { model.openSession = nil }
+                applyIdleTimer(false)
+            }
+            .onAppear { applyIdleTimer() }
+            .onChange(of: scenePhase) { _, phase in
+                applyIdleTimer(phase == .active && keepAwakeEnabled)
             }
             // The strips AROUND the terminal (padding, safe areas) follow the
             // terminal's theme. hopSurface is the dark background's exact hex,
@@ -699,12 +872,48 @@ struct TerminalHostView: View {
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        stripRows
+                // A native List, NOT a ScrollView of gesture-laden rows: the
+                // old rows each carried a `DragGesture(minimumDistance: 0)`,
+                // which claims the touch on contact and starved the ScrollView
+                // of its vertical pan — so a long list could not scroll (Jian).
+                // List scrolls natively AND gives swipe-to-delete via
+                // `.swipeActions`, so nothing competes for the drag.
+                let _ = viewsSeenTick
+                if ViewSeen.anyUnseen(sessionViews) {
+                    HStack {
+                        Text("\(ViewSeen.unseenCount(sessionViews)) unseen")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { markAllViewsSeen() } label: {
+                            Text("Mark all seen").font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.hopAttention)
+                        .accessibilityLabel("Mark all views seen")
+                    }
+                    .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 2)
+                }
+                List {
+                    ForEach(sessionViews) { item in
+                        stripRow(item)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.hopPill)
+                            .listRowSeparatorTint(Color.hopLine(0.06))
+                            .contentShape(Rectangle())
+                            .onTapGesture { openStripItem(item) }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if !item.isServer {
+                                    Button(role: .destructive) {
+                                        Task { await stripDelete(item) }
+                                    } label: { Label("Delete", systemImage: "trash") }
+                                }
+                            }
                     }
                 }
-                .frame(height: min(CGFloat(sessionViews.count) * 50, 300))
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 44)
+                .frame(height: min(CGFloat(sessionViews.count) * 52, 300))
                 // The strip carries its OWN way out, at its bottom edge —
                 // never occluded by the island, never dependent on the bar
                 // above being tappable. Born from the day the bar went dead
@@ -735,12 +944,12 @@ struct TerminalHostView: View {
         .background(
             UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
                                    style: .continuous)
-                .fill(Color.hopIslandBlack)
+                .fill(Color.hopPill)
         )
         .overlay(
             UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20,
                                    style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(Color.hopLine(0.06), lineWidth: 0.5)
         )
         .padding(.horizontal, 8)
         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -750,127 +959,107 @@ struct TerminalHostView: View {
         .task { await loadSessionViews() }
     }
 
-    @ViewBuilder private var stripRows: some View {
-            ForEach(sessionViews) { item in
-                ZStack(alignment: .trailing) {
-                if !item.isServer {
-                    // The reveal target a left swipe uncovers. Behind the
-                    // row, so the row's own slide is the whole animation.
-                    Button {
-                        withAnimation { stripOpenDelete = nil }
-                        Task { await stripDelete(item) }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 72)
-                            .frame(maxHeight: .infinity)
-                            .background(Color.red.opacity(0.88))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Delete \(item.label)")
-                }
-                // ONE ARBITER per row — a plain view under a single gesture
-                // that decides tap / swipe / hold ITSELF. The last version
-                // was a Button plus a simultaneous DragGesture plus a
-                // contextMenu, and SwiftUI arbitrated among them: a swipe
-                // released still fired the Button (Jian: "swipe and release
-                // opens rather than leaving a chance to delete"), and a
-                // long-press opened the menu AND the viewer. Nothing races
-                // now, because nothing else is listening.
-                HStack(spacing: 10) {
-                    Image(systemName: item.glyph)
-                        .font(.system(size: 13))
-                        .foregroundStyle(item.isServer
-                                         ? (item.serverLive ? Color.hopAttention : Color.secondary)
-                                         : Color.hopGlow)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(item.label)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(item.isServer ? (item.serverLive ? "live server" : "server gone")
-                             : (item.name.removingPercentEncoding ?? item.name))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-                .background(Color.hopIslandBlack)
-                .offset(x: stripDrag?.path == item.path
-                        ? stripDrag!.x
-                        : (stripOpenDelete == item.path ? -76 : 0))
-                .accessibilityElement(children: .contain)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityHint("Opens. Swipe left to delete.")
-                .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        if stripTouchBegan == nil { stripTouchBegan = v.time }
-                        // Track a leftward horizontal drag as a swipe. A
-                        // rightward or vertical drag is not ours (the
-                        // ScrollView scrolls; a right-swipe just closes an
-                        // open trash below).
-                        guard !item.isServer else { return }
-                        let dx = v.translation.width, dy = v.translation.height
-                        if stripDrag?.path != item.path {
-                            guard dx < -10, abs(dx) > abs(dy) * 1.4 else { return }
-                        }
-                        let base: CGFloat = stripOpenDelete == item.path ? -76 : 0
-                        stripDrag = (item.path, min(0, max(-150, base + dx)))
-                    }
-                    .onEnded { v in
-                        let began = stripTouchBegan ?? v.time
-                        stripTouchBegan = nil
-                        let dx = v.translation.width, dy = v.translation.height
-                        let moved = hypot(dx, dy)
-                        if let d = stripDrag, d.path == item.path {
-                            // A swipe ends as a swipe: park, delete, or
-                            // snap back — never open.
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                stripDrag = nil
-                                if d.x < -110 {
-                                    stripOpenDelete = nil
-                                    Task { await stripDelete(item) }
-                                } else if d.x < -40 {
-                                    stripOpenDelete = item.path
-                                } else {
-                                    stripOpenDelete = nil
-                                }
-                            }
-                            return
-                        }
-                        // Anything that moved is a scroll or a stray drag,
-                        // not a tap — and a hold is not a tap either
-                        // (Jian: "long press should not open"). Only a
-                        // clean, brief touch opens.
-                        guard moved < 8, v.time.timeIntervalSince(began) < 0.45 else { return }
-                        if stripOpenDelete != nil {
-                            // Any tap while a trash is out just closes it —
-                            // the platform's own list behavior.
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                stripOpenDelete = nil
-                            }
-                            return
-                        }
-                        if let i = sessionViews.firstIndex(where: { $0.id == item.id }) {
-                            artifactViewing = ArtifactViewing(items: sessionViews, index: i,
-                                                              serverURL: model.normalizedServerURL)
-                        }
-                    })
-                }
-                .clipped()
-                if item.id != sessionViews.last?.id {
-                    Color.white.opacity(0.06).frame(height: 0.5).padding(.leading, 42)
+    /// One list row — pure content, NO gesture of its own (the List owns the
+    /// scroll and the swipe-to-delete). A leading accent marks a view this
+    /// device has not opened, or one republished newer since it last did.
+    @ViewBuilder private func stripRow(_ item: ArtifactItem) -> some View {
+        let state = item.isServer ? ViewSeen.ItemState.seen : ViewSeen.itemState(item)
+        HStack(spacing: 10) {
+            // Unread accent: solid for never-opened, glow for UPDATED-since;
+            // clear (but space-holding) once seen, so rows stay aligned.
+            Circle()
+                .fill(state == .unseen ? Color.hopAttention
+                      : state == .updated ? Color.hopGlow : Color.clear)
+                .frame(width: 7, height: 7)
+            Image(systemName: item.glyph)
+                .font(.system(size: 13))
+                .foregroundStyle(item.isServer
+                                 ? (item.serverLive ? Color.hopAttention : Color.secondary)
+                                 : Color.hopGlow)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.label)
+                    .font(.footnote.weight(state == .seen ? .medium : .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(stripSubtitle(item, state: state))
+                    .font(.caption2)
+                    .foregroundStyle(state == .updated ? Color.hopGlow : Color.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.hopPill)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(state == .seen ? "Opens. Swipe left to delete."
+                           : "\(state == .updated ? "Updated" : "New"). Opens. Swipe left to delete.")
+    }
+
+    private func stripSubtitle(_ item: ArtifactItem, state: ViewSeen.ItemState) -> String {
+        if item.isServer { return item.serverLive ? "live server" : "server gone" }
+        let base = item.name.removingPercentEncoding ?? item.name
+        return state == .updated ? "updated · \(base)" : base
+    }
+
+    /// Open a strip row's view — and mark it seen NOW, so its accent clears
+    /// the moment you look (the body re-renders when the viewer presents and
+    /// again when it dismisses, both re-reading the seen state).
+    /// Take/pick → JPEG → host → path into the composer, with a toast at each
+    /// end. The encode and upload run off the main actor; the paste lands on
+    /// it. Nil (cancelled picker) is a quiet no-op.
+    private func attachPhoto(_ image: UIImage?) {
+        guard let image else { return }
+        toast = "Uploading photo…"
+        let internalName = session.internalName
+        Task {
+            guard let data = jpegForUpload(image) else {
+                await MainActor.run { toast = "Couldn't read that photo" }
+                return
+            }
+            let stamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let name = "photo-\(stamp).jpg"
+            let r = await model.uploadFile(data, filename: name, session: internalName)
+            await MainActor.run {
+                if let path = r.path {
+                    // Same quoting as the web's drop, plus a trailing space so
+                    // the next thing typed doesn't glue onto the path.
+                    NotificationCenter.default.post(name: .hopInsertText,
+                                                    object: shellQuotePath(path) + " ")
+                    toast = "Photo added — \(name)"
+                } else {
+                    toast = r.error ?? "Upload failed"
                 }
             }
+        }
+    }
+
+    private func markAllViewsSeen() {
+        ViewSeen.markAllSeen(sessionViews)
+        ViewSeen.markSeen(liveSession)
+        viewsSeenTick += 1
+    }
+
+    /// After an item is seen: once none are left, the session-level mark
+    /// (what the session list's chip reads) agrees.
+    private func reconcileViewsSeen() {
+        if !sessionViews.isEmpty, !ViewSeen.anyUnseen(sessionViews) { ViewSeen.markSeen(liveSession) }
+        viewsSeenTick += 1
+    }
+
+    private func openStripItem(_ item: ArtifactItem) {
+        ViewSeen.markItemSeen(item)
+        reconcileViewsSeen()
+        if let i = sessionViews.firstIndex(where: { $0.id == item.id }) {
+            artifactViewing = ArtifactViewing(items: sessionViews, index: i,
+                                              serverURL: model.normalizedServerURL)
+        }
     }
 
     /// Dev hook, same family as HOP_DEV_SHEET: HOP_DEV_VIEWER=<index> opens
@@ -934,9 +1123,14 @@ struct TerminalHostView: View {
     /// want the whole list.
     @ViewBuilder private var viewsChip: some View {
         if let v = liveSession.views {
-            let unseen = ViewSeen.isNew(liveSession)
+            let _ = viewsSeenTick
+            // Orange until EVERY item has been looked at (Jian: it went gray
+            // "as long as I click on anything"): per-item state once the
+            // list is loaded, the session summary before that. Opening the
+            // strip marks nothing — looking at an item does.
+            let unseen = sessionViews.isEmpty ? ViewSeen.isNew(liveSession)
+                                              : ViewSeen.anyUnseen(sessionViews)
             Button {
-                ViewSeen.markSeen(liveSession)
                 // Expands the menu it sits in rather than covering the
                 // session. Always the list, even at one item: a chip that
                 // sometimes opens a document and sometimes a list is a chip
@@ -953,11 +1147,11 @@ struct TerminalHostView: View {
                         Text("\(v.count)").font(.caption2.weight(.semibold).monospacedDigit())
                     }
                 }
-                .foregroundStyle(unseen ? Color.hopIslandBlack : Color.primary)
+                .foregroundStyle(unseen ? Color.hopPill : Color.primary)
                 .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(unseen ? Color.hopAttention : Color.white.opacity(0.10),
+                .background(unseen ? Color.hopAttention : Color.hopLine(0.10),
                             in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(unseen ? 0 : 0.10),
+                .overlay(Capsule().strokeBorder(Color.hopLine(unseen ? 0 : 0.10),
                                                 lineWidth: 0.5))
             }
             .accessibilityLabel(unseen
@@ -965,21 +1159,28 @@ struct TerminalHostView: View {
                 : "\(v.count) published view\(v.count == 1 ? "" : "s")")
             .contextMenu {
                 Button {
-                    ViewSeen.markSeen(liveSession)
                     // Same URL-as-string rule as the viewer: manifest
                     // paths are already paths, and appendingPathComponent
                     // would encode their slashes.
+                    if let newest = sessionViews.filter({ !$0.isServer }).max(by: { $0.mtime < $1.mtime }) {
+                        ViewSeen.markItemSeen(newest)
+                        reconcileViewsSeen()
+                    }
                     if let u = URL(string: model.normalizedServerURL + v.latestPath) {
                         artifactURL = u
                     }
                 } label: { Label("Newest: \(v.latestLabel)", systemImage: "sparkles") }
                 Button {
-                    ViewSeen.markSeen(liveSession)
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                         viewsExpanded = true
                     }
                     Task { await loadSessionViews() }
                 } label: { Label("All views (\(v.count))", systemImage: "tray.full") }
+                if unseen {
+                    Button { markAllViewsSeen() } label: {
+                        Label("Mark all as seen", systemImage: "checkmark.circle")
+                    }
+                }
             }
             .transition(.scale.combined(with: .opacity))
         }
@@ -1000,15 +1201,21 @@ struct TerminalHostView: View {
             // menu in the title at all. The earlier duplication was the
             // button AND a menu; the resolution is the button WITHOUT the
             // menu, not the reverse (removing the button stranded him).
-            Button { dismiss() } label: {
+            Button {
+                KBLog.record("back tapped viewsExpanded=\(viewsExpanded)")
+                dismiss()
+            } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
-                    // 56x44, not 34x34: Apple's floor is 44pt and this is the
-                    // single most-tapped control on the screen (Jian: "I often
-                    // have to try several times"). The extra width also
-                    // catches taps drifting toward the screen edge, where the
-                    // edge-swipe zone used to eat them.
-                    .frame(width: 56, height: 44)
+                    // 72x50, the whole leading column of the pill: Apple's
+                    // floor is 44pt and this is the single most-tapped control
+                    // on the screen (Jian: "I often have to try several
+                    // times", then "can still be hard to touch"). A near-miss
+                    // used to fall through to the bar's background, whose tap
+                    // HIDES the chrome — the bar vanished instead of going
+                    // back, which reads as a dead button. Now every tap in
+                    // this column is Back, and the background ignores it too.
+                    .frame(width: 72, height: 50)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Back to sessions")
@@ -1038,6 +1245,14 @@ struct TerminalHostView: View {
                 Spacer(minLength: 4)
             }
             .contentShape(Rectangle())
+            // Tap = reveal the full name. Only text and glyphs live in this
+            // region (no controls), so a tap gesture here enters no
+            // arbitration; the 25pt drag and the long-press context menu
+            // are untouched by a tap. Being in FRONT of the bar background,
+            // it also stops a name tap from hiding the chrome.
+            .onTapGesture {
+                withAnimation(.easeOut(duration: 0.18)) { fullNameShown = true }
+            }
             .gesture(DragGesture(minimumDistance: 25)
                 .onChanged { v in
                     let dx = v.translation.width
@@ -1045,9 +1260,9 @@ struct TerminalHostView: View {
                     switchDragMoved(dx)
                 }
                 .onEnded { v in
-                    let dx = v.translation.width
-                    switchDragEnded(dx, commit: abs(dx) > 50
-                        && abs(dx) > abs(v.translation.height) * 2)
+                    // onChanged only fed horizontal-dominant drags, so a
+                    // vertical one lit nothing and commits nothing.
+                    switchDragEnded(v.translation.width, released: true)
                 })
             viewsChip
             actionsMenu
@@ -1068,25 +1283,39 @@ struct TerminalHostView: View {
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
                                    bottomTrailingRadius: 20, topTrailingRadius: 0,
                                    style: .continuous)
-                .fill(Color.hopIslandBlack)
+                .fill(Color.hopPill)
                 .ignoresSafeArea(edges: .top)
+                // Tap-to-hide-chrome lives on the BACKGROUND, strictly behind
+                // the controls, so the back chevron / chip / ⋯ always win the
+                // touch. As a foreground `.onTapGesture` on the whole bar it
+                // shared a subtree with those controls and entered gesture
+                // arbitration with them — and with the views strip expanded,
+                // that arbitration went the wrong way and the back tap was
+                // eaten (Jian: "back button when hop view expanded still does
+                // not work"). A background layer is never in that fight: empty
+                // bar area falls through to it; a control in front consumes
+                // its own touch first.
+                .contentShape(Rectangle())
+                .onTapGesture(coordinateSpace: .local) { at in
+                    // The Back column (leading 88pt) never hides the chrome:
+                    // a tap that missed the chevron by a few points is a Back
+                    // attempt, not a request to lose the bar.
+                    guard at.x > 88 else {
+                        KBLog.record("bar-bg tap in Back column ignored x=\(Int(at.x))")
+                        return
+                    }
+                    KBLog.record("bar-bg tap → hide chrome (viewsExpanded=\(viewsExpanded))")
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { chromeShown = false }
+                }
         )
         .overlay(
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 20,
                                    bottomTrailingRadius: 20, topTrailingRadius: 0,
                                    style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(Color.hopLine(0.06), lineWidth: 0.5)
                 .allowsHitTesting(false)
         )
-        .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
-        // The bar floats over the strip whose tap summons chrome — so the
-        // bar itself must answer the same tap, or showing chrome would
-        // consume the only gesture that hides it. Controls still win; this
-        // catches taps on the bar's empty background. Spring, not ease-out —
-        // the island's own expand/collapse is snappy, not a fade.
-        .onTapGesture {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { chromeShown = false }
-        }
+        .shadow(color: Color.hopShadow, radius: 8, y: 2)
         // Safari's address-bar swipe, for terminals: drag the pill sideways
         // to step through the fleet in switcher order. Horizontal-dominant
         // and 50pt of travel, so bar taps and menu touches never misfire.
@@ -1110,27 +1339,104 @@ struct TerminalHostView: View {
         let mag = abs(dx)
         let travel = mag <= 50 ? mag : 50 + (mag - 50) * 0.25
         pillDragX = (dx < 0 ? -1 : 1) * min(travel, 68)
-        let target = mag > 50
-            ? neighborSession(model.sessions, of: session.internalName,
-                              step: dx < 0 ? 1 : -1)
-            : nil
-        if target?.internalName != pillPeek?.internalName {
-            withAnimation(.easeOut(duration: 0.12)) { pillPeek = target }
-            if target != nil {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        // Pure carousel: the filmstrip tracks the finger 1:1, so one drag can
+        // cross the WHOLE ring, not a fixed ±2 (Jian). dx<0 (drag left) scrolls
+        // FORWARD (+). A little rubber at the two ends — the strip does not
+        // wrap, so running into blank space would lie about where you'd land.
+        let ring = swipeRing(model.sessions, order: model.swipeOrder, scope: model.swipeScope,
+                             including: session.internalName)
+        guard ring.count > 1,
+              let cur = ring.firstIndex(where: { $0.internalName == session.internalName }) else {
+            if pillPeek == nil, swipeScrollX == 0 {
+                KBLog.record("swipe: no ring (count=\(ring.count) scope=\(model.swipeScope) live=\(liveSession.live) createdBy=\(liveSession.createdBy))")
             }
+            swipeScrollX = 0; swipeSteps = 0; pillPeek = nil; return
+        }
+        let maxForward = CGFloat(ring.count - 1 - cur) * swipeCardW
+        let maxBack = CGFloat(cur) * swipeCardW
+        var scroll = -dx
+        if scroll > maxForward { scroll = maxForward + (scroll - maxForward) * 0.2 }
+        else if scroll < -maxBack { scroll = -maxBack + (scroll + maxBack) * 0.2 }
+        swipeScrollX = scroll
+        let steps = max(-cur, min(ring.count - 1 - cur, Int((scroll / swipeCardW).rounded())))
+        if steps != swipeSteps {
+            swipeSteps = steps
+            withAnimation(.easeOut(duration: 0.1)) { pillPeek = steps == 0 ? nil : ring[cur + steps] }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
     }
 
-    private func switchDragEnded(_ dx: CGFloat, commit: Bool) {
-        withAnimation(.spring(duration: 0.3)) { pillDragX = 0 }
+    /// WYSIWYG: releasing switches if and only if the filmstrip is lighting a
+    /// different session — `pillPeek` IS `ring[cur + steps]`, nil at steps 0
+    /// (Jian: "should trigger upon release as long as the purple highlighted
+    /// session changed"). No distance or velocity gate: those could refuse a
+    /// switch the user could SEE was armed, and the older flick rule did the
+    /// opposite — jumping when nothing was lit. Direction is already settled
+    /// upstream (both callers only feed horizontal-dominant drags).
+    private func switchDragEnded(_ dx: CGFloat, released: Bool) {
         let landing = pillPeek
-        withAnimation(.easeOut(duration: 0.12)) { pillPeek = nil }
-        guard commit,
-              let next = landing ?? neighborSession(model.sessions,
-                                                    of: session.internalName,
-                                                    step: dx < 0 ? 1 : -1) else { return }
+        withAnimation(.spring(duration: 0.3)) { pillDragX = 0; swipeScrollX = 0 }
+        withAnimation(.easeOut(duration: 0.12)) { pillPeek = nil; swipeSteps = 0 }
+        KBLog.record("swipe end dx=\(Int(dx)) released=\(released) lit=\(landing?.name ?? "nil")")
+        guard swipeShouldCommit(lit: landing != nil, released: released),
+              let next = landing else { return }
         model.requestedSession = next.internalName
+    }
+
+    /// The swipe filmstrip HUD: the ring slides under a fixed centre so the lit
+    /// destination sits dead-centre and current is centred at rest — a sideways
+    /// drag shows what is left and right and how far, across the whole ring
+    /// (Jian). Its order is FROZEN (model.swipeOrder) so neighbours don't
+    /// reshuffle mid-swipe. Non-interactive; the drag keeps the touch.
+    @ViewBuilder private var swipeFilmstrip: some View {
+        let ring = swipeRing(model.sessions, order: model.swipeOrder, scope: model.swipeScope,
+                             including: session.internalName)
+        if pillDragX != 0, ring.count > 1,
+           let cur = ring.firstIndex(where: { $0.internalName == session.internalName }) {
+            GeometryReader { geo in
+                HStack(spacing: 8) {
+                    ForEach(Array(ring.enumerated()), id: \.element.internalName) { pair in
+                        let dist = pair.offset - cur
+                        let isDest = dist == swipeSteps
+                        VStack(spacing: 2) {
+                            Text(pair.element.name)
+                                .font(.system(.caption2, design: .monospaced)
+                                        .weight(isDest ? .bold : .regular))
+                                .lineLimit(1).truncationMode(.middle)
+                            if dist == 0 {
+                                Text("now").font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(isDest ? Color.hopPill : .secondary)
+                            }
+                        }
+                        .frame(width: 78)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(
+                            isDest ? Color.hopGlow : Color.hopLine(dist == 0 ? 0.16 : 0.06)))
+                        .foregroundStyle(isDest ? Color.hopPill
+                                         : (dist == 0 ? Color.primary : Color.secondary))
+                        .scaleEffect(isDest ? 1.08 : 0.9)
+                    }
+                }
+                .padding(.horizontal, 8)
+                // Centre card `cur` at rest (8 lead pad + 39 half-card = 47),
+                // then slide by the live scroll so the lit card lands centre.
+                .offset(x: geo.size.width / 2 - (CGFloat(cur) * swipeCardW + 47) - swipeScrollX)
+                .frame(height: 54, alignment: .leading)
+                .animation(.easeOut(duration: 0.1), value: swipeSteps)
+            }
+            .frame(height: 54)
+            .frame(maxWidth: .infinity)
+            .background(Color.hopPill.opacity(0.55))
+            // Fade the ends so cards scroll in and out of a window instead of
+            // hard-clipping at the screen edge.
+            .mask(LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.13),
+                .init(color: .black, location: 0.87),
+                .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing))
+            .padding(.top, windowTopInset() + 50)
+            .allowsHitTesting(false)
+        }
     }
 
     /// One open path for every link, tapped or menu-picked: the user's own
@@ -1209,67 +1515,263 @@ struct TerminalHostView: View {
         // in the pill. Same verbs as the ⋯ menu's Session group; two doors,
         // one @ViewBuilder.
         .contentShape(Rectangle())
-        .contextMenu { sessionVerbs }
+        .contextMenu { TerminalActionsMenu.sessionVerbs(menuInputs, act: handleMenuAction) }
+    }
+
+    /// Everything the ⋯ menu's rows READ, as one Equatable value — the key
+    /// `TerminalActionsMenu.==` compares to decide whether the menu may
+    /// re-render at all. Add a field here the moment a row reads something
+    /// new; a row reading the screen directly would silently bring the
+    /// re-render-on-every-poll flicker back.
+    private var menuInputs: TerminalActionsMenu.Inputs {
+        #if DEBUG
+        menuRenderLog.debug("screen body")   // once per screen re-render (see menu body)
+        #endif
+        return .init(live: status == .live,
+              viewsCount: menuSnap.viewsCount,
+              notifyOnFinish: menuSnap.notifyOnFinish,
+              viewerNames: menuSnap.viewerNames,
+              runningApp: menuSnap.runningApp,
+              fitWidth: fitWidth,
+              lightTheme: lightTheme,
+              chromeAutoHide: chromeAutoHideEnabled,
+              keepAwake: keepAwakeEnabled,
+              collabEveryone: collabEveryone,
+              iHoldControl: iHoldControl,
+              folders: model.folders,
+              folderId: liveSession.folderId,
+              createdBy: liveSession.createdBy)
+    }
+
+    /// Everything a menu row DOES, in one place. Reads go through
+    /// `liveSession`, never the `session` the screen was pushed with: the
+    /// menu keeps the closure from the render that last changed its inputs,
+    /// so anything captured by value in it can be minutes old. @State and
+    /// @AppStorage writes are safe from a stale copy (they go to the shared
+    /// storage, not the copy).
+    private func handleMenuAction(_ action: TerminalActionsMenu.Action) {
+        switch action {
+        case .reconnect:
+            reconnectToken += 1
+        case .views:
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                viewsExpanded = true
+            }
+            Task { await loadSessionViews() }
+        case .toggleNotify:
+            let want = !liveSession.notifyOnFinish
+            Task {
+                await model.setNotifyOnFinish(liveSession, on: want)
+                refreshMenuSnapshot(force: true)   // your own toggle shows at once
+            }
+        case .find:
+            findOpen.toggle()
+        case .copyScreen:
+            NotificationCenter.default.post(name: .hopCopyScreen, object: nil)
+        case .copyAll:
+            NotificationCenter.default.post(name: .hopCopyAll, object: nil)
+        case .takePhoto:
+            if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+            else { toast = "No camera on this device" }
+        case .choosePhoto:
+            showPhotoLibrary = true
+        case .fork(let target):
+            Task {
+                if let fork = await model.forkSession(session.internalName, target: target) {
+                    model.requestedSession = fork
+                } else if let err = model.actionError { toast = err }
+            }
+        case .toggleFitWidth:
+            fitWidth.toggle(); fitTick += 1
+        case .fontStep(let delta):
+            setFont(fontSize + Double(delta))
+        case .toggleTheme:
+            lightTheme.toggle()   // @AppStorage persists; the root re-schemes
+        case .toggleAutoHide:
+            chromeAutoHideEnabled.toggle()
+            if !chromeAutoHideEnabled { chromeTipAnchor = false }
+        case .toggleKeepAwake:
+            keepAwakeEnabled.toggle()
+            applyIdleTimer()
+        case .control(let c):
+            controlAction = c
+        case .rename:
+            renameText = liveSession.name; renameShown = true
+        case .tagline:
+            taglineText = liveSession.tagline; taglineShown = true
+        case .moveToFolder(let id):
+            Task { _ = await model.moveSession(session.internalName, toFolder: id) }
+        case .toggleOrigin:
+            Task {
+                _ = await model.setOrigin(session.internalName,
+                                          createdBy: liveSession.createdBy == "agent" ? "user" : "agent")
+            }
+        case .park:
+            Task { if await model.setParked(liveSession, parked: true) { dismiss() } }
+        case .kill:
+            killConfirmShown = true
+        }
+    }
+
+    /// `.equatable()` is the fix, not decoration — see `TerminalActionsMenu`.
+    private var actionsMenu: some View {
+        TerminalActionsMenu(inputs: menuInputs, act: handleMenuAction).equatable()
+    }
+}
+
+/// The ⋯ menu as an EQUATABLE child of the screen. SwiftUI's Menu rebuilds
+/// its UIKit menu whenever its content closure is re-evaluated, and the
+/// screen's body re-evaluates on every AppModel publish (session polls, live
+/// tile previews), status flip and presence blip — so an OPEN menu re-laid
+/// itself out under the finger (Jian: "the menu moves itself"; then "still
+/// flickering" after the values it SHOWS were snapshotted, because the
+/// re-evaluation itself was the flicker, not the values). `.equatable()`
+/// skips this view's body — and so the Menu — unless `inputs` changed.
+/// The action closure is deliberately outside `==`: it's the door back to
+/// the screen, not something a row shows.
+///
+/// Rule: nothing in here reads the screen. Rows read `inputs`; taps call
+/// `act`. The screen owns the snapshot cadence for values that tick.
+#if DEBUG
+private let menuRenderLog = Logger(subsystem: "io.zhoulab.hop.spike", category: "menu-render")
+#endif
+
+struct TerminalActionsMenu: View, Equatable {
+    struct Inputs: Equatable {
+        var live: Bool
+        var viewsCount: Int?
+        var notifyOnFinish: Bool
+        var viewerNames: [String]
+        var runningApp: String
+        var fitWidth: Bool
+        var lightTheme: Bool
+        var chromeAutoHide: Bool
+        var keepAwake: Bool
+        var collabEveryone: Bool
+        var iHoldControl: Bool
+        var folders: [HopFolder]
+        var folderId: String?
+        var createdBy: String
+    }
+    enum Action {
+        case reconnect, views, toggleNotify
+        case find, copyScreen, copyAll, takePhoto, choosePhoto
+        case fork(target: String?)
+        case toggleFitWidth, fontStep(Int), toggleTheme, toggleAutoHide, toggleKeepAwake
+        case control(ControlAction)
+        case rename, tagline, moveToFolder(String?), toggleOrigin, park, kill
+    }
+
+    let inputs: Inputs
+    let act: (Action) -> Void
+
+    static func == (a: TerminalActionsMenu, b: TerminalActionsMenu) -> Bool { a.inputs == b.inputs }
+
+    #if DEBUG
+    /// Which input moved — every menu re-render is a potential re-layout
+    /// under a finger, so each one should be explicable.
+    nonisolated(unsafe) private static var lastInputs: Inputs?
+    private static func logInputChange(_ i: Inputs) {
+        defer { lastInputs = i }
+        guard let p = lastInputs else { menuRenderLog.debug("menu inputs: first"); return }
+        var changed: [String] = []
+        if p.live != i.live { changed.append("live \(p.live)->\(i.live)") }
+        if p.viewsCount != i.viewsCount { changed.append("viewsCount") }
+        if p.notifyOnFinish != i.notifyOnFinish { changed.append("notify") }
+        if p.viewerNames != i.viewerNames { changed.append("viewers \(p.viewerNames)->\(i.viewerNames)") }
+        if p.runningApp != i.runningApp { changed.append("runningApp '\(p.runningApp)'->'\(i.runningApp)'") }
+        if p.fitWidth != i.fitWidth { changed.append("fitWidth") }
+        if p.lightTheme != i.lightTheme { changed.append("theme") }
+        if p.chromeAutoHide != i.chromeAutoHide { changed.append("autoHide") }
+        if p.keepAwake != i.keepAwake { changed.append("keepAwake") }
+        if p.collabEveryone != i.collabEveryone { changed.append("collab \(p.collabEveryone)->\(i.collabEveryone)") }
+        if p.iHoldControl != i.iHoldControl { changed.append("hold \(p.iHoldControl)->\(i.iHoldControl)") }
+        if p.folders != i.folders { changed.append("folders") }
+        if p.folderId != i.folderId { changed.append("folderId") }
+        if p.createdBy != i.createdBy { changed.append("createdBy") }
+        menuRenderLog.debug("menu inputs changed: \(changed.joined(separator: ", "), privacy: .public)")
+    }
+    #endif
+
+    /// Fork (same tool) and the cross-tool handoffs, offered minus the tool
+    /// this session is visibly running — the daemon decides what it REALLY
+    /// runs (a restored session's process name can lie), and a wrong guess
+    /// comes back as its error, surfaced like any other. Shared by the ⋯
+    /// menu's Hand off submenu and the wall.
+    @ViewBuilder static func forkVerbs(_ i: Inputs, act: @escaping (Action) -> Void) -> some View {
+        Button { act(.fork(target: nil)) } label: {
+            Label("Fork session", systemImage: "arrow.triangle.branch")
+        }
+        // Crossing tools: the conversation is extracted to a document the
+        // new agent reads first (context handoff, not a resume — hop2
+        // b81b17a). Same daemon call as the web sheet's "Continue in…".
+        // Hidden only when the tool is KNOWN to be the target: the daemon
+        // reports `zsh` as the foreground process for a claude session
+        // (claude runs under the shell), so runningApp is usually empty
+        // here and both are offered — the daemon knows what a session
+        // really runs and refuses a same-tool handoff with a clear error.
+        if i.runningApp != "codex" {
+            Button { act(.fork(target: "codex")) } label: {
+                Label("Continue in Codex…", systemImage: "arrow.right.doc.on.clipboard")
+            }
+        }
+        if i.runningApp != "claude" {
+            Button { act(.fork(target: "claude")) } label: {
+                Label("Continue in Claude…", systemImage: "arrow.right.doc.on.clipboard")
+            }
+        }
     }
 
     /// The session-identity verbs (the web sheet's), shared verbatim between
-    /// the ⋯ menu's Session section and the title's context menu.
-    @ViewBuilder private var sessionVerbs: some View {
-        Button { renameText = session.name; renameShown = true } label: {
-            Label("Rename", systemImage: "pencil")
-        }
-        Button { taglineText = session.tagline; taglineShown = true } label: {
-            Label("Edit tagline", systemImage: "text.quote")
-        }
+    /// the ⋯ menu's Session submenu and the title's long-press menu.
+    @ViewBuilder static func sessionVerbs(_ i: Inputs, act: @escaping (Action) -> Void) -> some View {
+        Button { act(.rename) } label: { Label("Rename", systemImage: "pencil") }
+        Button { act(.tagline) } label: { Label("Edit tagline", systemImage: "text.quote") }
         Menu {
-            ForEach(model.folders) { f in
-                Button {
-                    Task { _ = await model.moveSession(session.internalName, toFolder: f.id) }
-                } label: {
-                    if session.folderId == f.id {
+            ForEach(i.folders) { f in
+                Button { act(.moveToFolder(f.id)) } label: {
+                    if i.folderId == f.id {
                         Label(f.name, systemImage: "checkmark")
                     } else { Text(f.name) }
                 }
             }
-            if session.folderId != nil {
-                Button {
-                    Task { _ = await model.moveSession(session.internalName, toFolder: nil) }
-                } label: { Label("Unfiled", systemImage: "tray") }
+            if i.folderId != nil {
+                Button { act(.moveToFolder(nil)) } label: { Label("Unfiled", systemImage: "tray") }
             }
         } label: { Label("Move to", systemImage: "folder") }
-        Button {
-            Task { _ = await model.setOrigin(session.internalName,
-                                             createdBy: session.createdBy == "agent" ? "user" : "agent") }
-        } label: {
-            Label(session.createdBy == "agent" ? "Move to You" : "Move to Agents",
+        Button { act(.toggleOrigin) } label: {
+            Label(i.createdBy == "agent" ? "Move to You" : "Move to Agents",
                   systemImage: "arrow.left.arrow.right")
         }
-        Button {
-            Task {
-                if await model.setParked(session, parked: true) { dismiss() }
-            }
-        } label: { Label("Park", systemImage: "moon.zzz") }
-        Button(role: .destructive) { killConfirmShown = true } label: {
+        Button { act(.park) } label: { Label("Park", systemImage: "moon.zzz") }
+        Button(role: .destructive) { act(.kill) } label: {
             Label("Kill", systemImage: "xmark.circle")
         }
     }
 
     /// The old menu was twelve items in arrival order — copy next to collab
     /// next to theme, one divider doing all the explaining. Regrouped by what
-    /// an item acts ON, most-reached first: the screen's content (find, copy,
-    /// links), then how it's drawn (fit, size, theme), then who's here, then
-    /// the connection.
-    private var actionsMenu: some View {
+    /// an item acts ON, most-reached first: what this session has handed
+    /// over / can be handed, the screen's content, then everything about
+    /// HOW it's drawn folded under one More row.
+    var body: some View {
+        let i = inputs
+        #if DEBUG
+        // Measured 2026-09-26 (sim, live session, 45s): "screen body" +54,
+        // "menu body" +1 — with .equatable() the menu no longer re-lays out
+        // on the screen's ~1/s re-render. Re-measure with
+        // `simctl spawn <sim> log stream --level debug --predicate 'category == "menu-render"'`.
+        let _ = menuRenderLog.debug("menu body")
+        let _ = Self.logInputChange(i)
+        #endif
         Menu {
             // State-conditional, and FIRST: while the socket is verified
             // live a Reconnect row is dead weight — and it was the one row
-            // that pushed the menu past the keyboard-up fold (the pixels
-            // caught it clipped even after the submenu consolidation; the
-            // AX-coordinate tap had quietly false-passed). During an outage
-            // it leads the menu, because then it IS what you came for.
-            if status != .live {
+            // that pushed the menu past the keyboard-up fold. During an
+            // outage it leads the menu, because then it IS what you came for.
+            if !i.live {
                 Section {
-                    Button { reconnectToken += 1 } label: {
+                    Button { act(.reconnect) } label: {
                         Label("Reconnect", systemImage: "arrow.clockwise")
                     }
                 }
@@ -1279,126 +1781,132 @@ struct TerminalHostView: View {
                 // when you want the list rather than the newest thing — and
                 // the only route at all once the chip has been dismissed by
                 // the chrome auto-hiding.
-                Button {
-                    ViewSeen.markSeen(liveSession)
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                        viewsExpanded = true
-                    }
-                    Task { await loadSessionViews() }
-                } label: {
-                    Label(liveSession.views.map { "Views (\($0.count))" } ?? "Views",
+                Button { act(.views) } label: {
+                    Label(i.viewsCount.map { "Views (\($0))" } ?? "Views",
                           systemImage: "rectangle.stack")
                 }
-                // In the SESSION, because the fault you want to report is
-                // usually on screen right now and walking to Account to
-                // report it rebuilds the view that had it.
-                Button { controlAction = .sendDiagnostics } label: {
-                    Label("Send diagnostics to hop", systemImage: "paperplane")
+                // Opt-in, per session: ring this phone when the agent finishes
+                // a turn. Off by default (every-turn alerts across the fleet
+                // would be noise); armed server-side so it holds on every
+                // client, and the finish arrives as a bellSeq bump the existing
+                // notifier surfaces.
+                Button { act(.toggleNotify) } label: {
+                    Label(i.notifyOnFinish ? "Stop notifying" : "Notify when finished",
+                          systemImage: i.notifyOnFinish ? "bell.fill" : "bell")
                 }
-                Button { findOpen.toggle() } label: { Label("Find", systemImage: "magnifyingglass") }
-                Button { NotificationCenter.default.post(name: .hopCopyScreen, object: nil) } label: {
-                    Label("Copy screen", systemImage: "doc.on.doc")
-                }
-                Button { NotificationCenter.default.post(name: .hopCopyAll, object: nil) } label: {
-                    Label("Copy all scrollback", systemImage: "doc.on.clipboard")
-                }
-                Button { controlAction = .links } label: {
+            }
+            Section {
+                Button { act(.find) } label: { Label("Find", systemImage: "magnifyingglass") }
+                Menu {
+                    Button { act(.copyScreen) } label: {
+                        Label("This screen", systemImage: "doc.on.doc")
+                    }
+                    Button { act(.copyAll) } label: {
+                        Label("All scrollback", systemImage: "doc.on.clipboard")
+                    }
+                } label: { Label("Copy", systemImage: "doc.on.doc") }
+                Button { act(.control(.links)) } label: {
                     Label("Open link…", systemImage: "link")
                 }
-                // Fork from INSIDE the session — the moment you want a copy
-                // to try something is usually mid-conversation. Switches to
-                // the fork; the original keeps running behind you.
-                Button {
-                    Task {
-                        if let fork = await model.forkSession(session.internalName) {
-                            model.requestedSession = fork
-                        }
+                // A photo is the one thing a phone can hand a session that a
+                // desk can't. Take or pick; it lands on the host and its path
+                // goes into the composer, so Claude reads it like any file.
+                Menu {
+                    Button { act(.takePhoto) } label: { Label("Take photo", systemImage: "camera") }
+                    Button { act(.choosePhoto) } label: {
+                        Label("Choose photo", systemImage: "photo.on.rectangle")
                     }
-                } label: {
-                    Label("Fork session", systemImage: "arrow.triangle.branch")
-                }
+                } label: { Label("Add photo", systemImage: "camera.on.rectangle") }
             }
-            // Unnamed on purpose: fit/size/theme explain themselves, and the
-            // header row was the difference between the menu fitting the
-            // keyboard-up height and scrolling.
+            // Fork / hand off from INSIDE the session — the moment you want
+            // a copy, or the other tool, is usually mid-conversation.
+            // Switches to the new session; the original keeps running.
             Section {
-                // Observer mode: see the peer's whole grid width at once
-                // instead of panning — and claim nothing while watching.
-                Button { fitWidth.toggle(); fitTick += 1 } label: {
-                    Label(fitWidth ? "Actual size" : "Fit to width",
-                          systemImage: fitWidth
-                            ? "arrow.up.left.and.arrow.down.right"
-                            : "arrow.down.right.and.arrow.up.left")
-                }
-                // A stepper, not two one-shot rows: the menu stays up while
-                // you tap and the terminal re-fits live behind it, so finding
-                // a size is one visit instead of open-tap-reopen per point.
-                // Unlabeled: every row here is paid for out of the keyboard-up
-                // height budget (see the submenu comment below).
-                ControlGroup {
-                    Button { setFont(fontSize - 1) } label: {
-                        Label("Smaller text", systemImage: "textformat.size.smaller")
-                    }
-                    Button { setFont(fontSize + 1) } label: {
-                        Label("Bigger text", systemImage: "textformat.size.larger")
-                    }
-                }
-                .menuActionDismissBehavior(.disabled)
-                Button {
-                    lightTheme.toggle()
-                    UserDefaults.standard.set(lightTheme, forKey: "termLight")
-                } label: {
-                    Label(lightTheme ? "Dark terminal" : "Light terminal",
-                          systemImage: lightTheme ? "moon.fill" : "sun.max.fill")
-                }
-                // Off by default: the menu persists until you ask for this
-                // trade. Turning it on arms the 3s timer in the session task
-                // above; the first time it actually fires, a one-time tip
-                // teaches the way back (tap the top of the screen).
-                Button {
-                    chromeAutoHideEnabled.toggle()
-                    if !chromeAutoHideEnabled { chromeTipAnchor = false }
-                } label: {
-                    Label(chromeAutoHideEnabled ? "Keep menu visible" : "Auto-hide menu",
-                          systemImage: chromeAutoHideEnabled ? "eye" : "eye.slash")
+                Menu { Self.forkVerbs(i, act: act) } label: {
+                    Label("Hand off", systemImage: "arrow.triangle.branch")
                 }
             }
-            // Sharing and Session fold into SUBMENUS. Not for tidiness: with
-            // the keyboard up the menu's visible height is ~11 rows, and the
-            // flat 18-row list scrolled — the probe screenshot showed the
-            // Session verbs and Reconnect below a fold nothing hints at, and
-            // iOS's AX snapshot truncated the tail outright (the suite lost
-            // Reconnect). A menu you must scroll blind is a menu you can't
-            // glance; every top-level item is now on screen at once. The
-            // session verbs keep a flat fast path: long-press the title.
+            // The rarely-reached tail — Display, Sharing, Session — folded
+            // under ONE "More" row, so every top-level row is on screen at
+            // once with the keyboard up (the first regroup left Sharing and
+            // Session below a fold nothing hinted at; screenshot-caught).
             Section {
                 Menu {
-                    ForEach(viewers) { v in
-                        Label(v.typing ? "\(v.name) — typing" : v.name,
-                              systemImage: "person.fill")
+                    // Observer mode: see the peer's whole grid width at once
+                    // instead of panning — and claim nothing while watching.
+                    Button { act(.toggleFitWidth) } label: {
+                        Label(i.fitWidth ? "Actual size" : "Fit to width",
+                              systemImage: i.fitWidth
+                                ? "arrow.up.left.and.arrow.down.right"
+                                : "arrow.down.right.and.arrow.up.left")
                     }
-                    Button {
-                        controlAction = collabEveryone ? .lock : .unlock
-                    } label: {
-                        Label(collabEveryone ? "Lock typing to one user" : "Let everyone type",
-                              systemImage: collabEveryone ? "lock" : "lock.open")
+                    // A stepper, not two one-shot rows: the menu stays up
+                    // while you tap and the terminal re-fits live behind it.
+                    // fontSize is NOT an input, so the taps re-fit the
+                    // terminal without re-laying out this menu.
+                    ControlGroup {
+                        Button { act(.fontStep(-1)) } label: {
+                            Label("Smaller text", systemImage: "textformat.size.smaller")
+                        }
+                        Button { act(.fontStep(1)) } label: {
+                            Label("Bigger text", systemImage: "textformat.size.larger")
+                        }
                     }
-                    if !collabEveryone {
-                        Button {
-                            controlAction = iHoldControl ? .release : .take
-                        } label: {
-                            Label(iHoldControl ? "Release control" : "Take control",
-                                  systemImage: iHoldControl ? "hand.raised.slash" : "hand.raised")
+                    .menuActionDismissBehavior(.disabled)
+                    Button { act(.toggleTheme) } label: {
+                        Label(i.lightTheme ? "Dark mode" : "Light mode",
+                              systemImage: i.lightTheme ? "moon.fill" : "sun.max.fill")
+                    }
+                    // Off by default: the menu persists until you ask for
+                    // this trade. Turning it on arms the 3s timer in the
+                    // session task; the first time it actually fires, a
+                    // one-time tip teaches the way back (tap the top).
+                    Button { act(.toggleAutoHide) } label: {
+                        Label(i.chromeAutoHide ? "Keep menu visible" : "Auto-hide menu",
+                              systemImage: i.chromeAutoHide ? "eye" : "eye.slash")
+                    }
+                    // A terminal is for WATCHING — an agent mid-turn, a
+                    // build, a sentence you are still dictating — and the
+                    // screen going dark interrupts all three. Only the
+                    // frontmost app can ask for this, which is exactly why
+                    // hop can and the HopBoard keyboard cannot.
+                    Button { act(.toggleKeepAwake) } label: {
+                        Label(i.keepAwake ? "Let the screen sleep" : "Keep screen awake",
+                              systemImage: i.keepAwake ? "moon.zzz" : "sun.max")
+                    }
+                } label: { Label("Display", systemImage: "textformat.size") }
+                Menu {
+                    // Snapshot, not live presence (the screen freezes it):
+                    // a viewer's typing flag flips every 1.2s.
+                    ForEach(i.viewerNames, id: \.self) { name in
+                        Label(name, systemImage: "person.fill")
+                    }
+                    Button { act(.control(i.collabEveryone ? .lock : .unlock)) } label: {
+                        Label(i.collabEveryone ? "Lock typing to one user" : "Let everyone type",
+                              systemImage: i.collabEveryone ? "lock" : "lock.open")
+                    }
+                    if !i.collabEveryone {
+                        Button { act(.control(i.iHoldControl ? .release : .take)) } label: {
+                            Label(i.iHoldControl ? "Release control" : "Take control",
+                                  systemImage: i.iHoldControl ? "hand.raised.slash" : "hand.raised")
                         }
                     }
                 } label: {
-                    Label(viewers.count > 1 ? "Sharing — \(viewers.count) here" : "Sharing",
+                    Label(i.viewerNames.count > 1
+                            ? "Sharing — \(i.viewerNames.count) here" : "Sharing",
                           systemImage: "person.2")
                 }
                 // The web sheet's session verbs, reachable WITHOUT leaving
-                // the terminal (Jian: "missing rename — review the main hop
-                // web version"). Same daemon calls the wall menus make.
-                Menu { sessionVerbs } label: {
+                // the terminal. Diagnostics lives here too: in the SESSION,
+                // because the fault you want to report is usually on screen
+                // right now — but rare, so not a top-level row.
+                Menu {
+                    Self.sessionVerbs(i, act: act)
+                    Divider()
+                    Button { act(.control(.sendDiagnostics)) } label: {
+                        Label("Send diagnostics to hop", systemImage: "paperplane")
+                    }
+                } label: {
                     Label("Session", systemImage: "slider.horizontal.3")
                 }
             }
@@ -1408,7 +1916,7 @@ struct TerminalHostView: View {
             // (Jian: the menu should feel integrated, not overlapping).
             HStack(spacing: 0) {
                 Rectangle()
-                    .fill(Color.white.opacity(0.10))
+                    .fill(Color.hopLine(0.10))
                     .frame(width: 0.5, height: 22)
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .semibold))
@@ -1437,6 +1945,9 @@ extension Notification.Name {
     /// back unusable until you tapped it.
     static let hopRefocusTerminal = Notification.Name("hopRefocusTerminal")
     static let hopCopyAll = Notification.Name("hopCopyAll")
+    /// Text handed to the terminal by the app (object: String) — an uploaded
+    /// photo's path, pasted into the composer.
+    static let hopInsertText = Notification.Name("hopInsertText")
     static let hopJumpToLive = Notification.Name("hopJumpToLive")
 }
 
@@ -1526,6 +2037,11 @@ struct TerminalScreen: UIViewRepresentable {
         }
         tv.onChromeTap = onChromeTap
         tv.onOpenLink = onOpenLink
+        #if DEBUG
+        if let scan = ProcessInfo.processInfo.environment["HOP_LINK_SCAN"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak tv] in tv?.debugScanLinks(to: scan) }
+        }
+        #endif
         tv.onBackSwipe = onBackSwipe
         context.coordinator.onGridChange = onFitRefresh
         tv.installAccessoryBar()
@@ -1564,8 +2080,7 @@ struct TerminalScreen: UIViewRepresentable {
             let cols = (autoScale && elected > 1) ? elected : uiView.getTerminal().cols
             let width = uiView.bounds.width
             let advance = { (pt: CGFloat) -> CGFloat in
-                ("0" as NSString).size(withAttributes:
-                    [.font: UIFont.monospacedSystemFont(ofSize: pt, weight: .regular)]).width
+                HopTermView.cellSize(fontPt: pt, lineSpacing: uiView.lineSpacing).width
             }
             // Analytic first guess, then measure-and-correct: glyph advances
             // round to pixel boundaries at small sizes, so pure linear scaling
@@ -1589,7 +2104,7 @@ struct TerminalScreen: UIViewRepresentable {
             if autoScale, !fitWidth, electedRows > 1, uiView.bounds.height > 0 {
                 let height = uiView.bounds.height
                 let lineH = { (pt: CGFloat) -> CGFloat in
-                    UIFont.monospacedSystemFont(ofSize: pt, weight: .regular).lineHeight
+                    HopTermView.cellSize(fontPt: pt, lineSpacing: uiView.lineSpacing).height
                 }
                 for _ in 0..<3 {
                     let h = lineH(size) * CGFloat(electedRows)
@@ -1764,6 +2279,7 @@ struct TerminalScreen: UIViewRepresentable {
             let offNatural = !peerHoldsSize && nat != nil && grid != nil
                 && (grid!.cols != nat!.cols || grid!.rows != nat!.rows)
             guard peerHoldsSize || offNatural else { return }
+            view?.walkMark("reclaim peer=\(peerHoldsSize) offNatural=\(offNatural)")
             lastReclaimAt = Date()
             // A keystroke on THIS terminal is deliberate by definition —
             // carry the flag that wins outright. Claim the NATURAL fit: the
@@ -1800,6 +2316,22 @@ struct TerminalScreen: UIViewRepresentable {
                 // on device as "never autofits back no matter how much I
                 // type". The throttle and the flag both live in the shared
                 // intent path.
+                // A keystroke means "show me the input box": the terminal
+                // convention (scroll-on-input) and what SwiftTerm already does
+                // for system-keyboard keys — its send(data:) path reveals the
+                // caret, resetting the viewport to the live edge. Our history
+                // anchor then dragged it BACK after the app's echo landed, so
+                // every key showed the box, then the reading spot, then the box
+                // (Jian, in Codex: "flickering between these two"). Two writers,
+                // one policy now: the anchor yields to typing, and accessory-bar
+                // keys (which bypass SwiftTerm's send) go to the edge as well.
+                if let tv = view, let anchor = tv.historyAnchor {
+                    tv.selectMark("typing: anchor=\(anchor) yDisp=\(tv.getTerminal().buffer.yDisp) → live edge")
+                    tv.userScrollInFlight = true
+                    tv.scrollTo(row: Int.max / 2)
+                    tv.historyAnchor = nil
+                    onScroll(false)
+                }
                 reclaimOnUserIntent()
                 // Echo BEFORE the wire: the whole point is not waiting for
                 // it. The original text goes to the daemon either way; only
@@ -1809,6 +2341,7 @@ struct TerminalScreen: UIViewRepresentable {
                 if !echoed.isEmpty { view?.feed(text: echoed) }
                 client.sendInput(text)
                 markTyping()
+                armTypingProbe()   // catch a half-open socket that ate this keystroke
                 return
             }
             // A session that ENDED is not coming back, so buffering keystrokes
@@ -1847,6 +2380,34 @@ struct TerminalScreen: UIViewRepresentable {
         // only, with the web client's 1.2s idle window.
         private var typingActive = false
         private var typingTimer: Timer?
+        /// When the server last sent ANYTHING back (output/snapshot/connect).
+        /// A live socket echoes a keystroke within a beat, so silence past the
+        /// probe window after typing means the socket is half-open — accepting
+        /// writes into a black hole (`send` succeeds, nothing returns).
+        private var lastInboundAt = Date.distantPast
+        /// At most one liveness probe armed per window, so a burst of typing
+        /// doesn't schedule a burst of checks.
+        private var typingProbeScheduled = false
+
+        /// Typed-but-no-answer watchdog. A half-open socket is invisible today:
+        /// local echo paints the character and `send` reports success, so the
+        /// dot stays green while nothing actually lands (Jian: "typing can
+        /// remain unresponsive more than a few seconds without notifying"). If
+        /// the server says nothing back within ~1.5s of a keystroke, ping it;
+        /// verifyLiveness tears a dead socket down so the reconnect UI shows
+        /// within ~2s. A false alarm (a keystroke that legitimately drew
+        /// nothing) just costs one cheap pong and changes nothing.
+        private func armTypingProbe() {
+            guard !typingProbeScheduled else { return }
+            typingProbeScheduled = true
+            let sentAt = Date()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                self.typingProbeScheduled = false
+                guard self.isLive, self.lastInboundAt < sentAt else { return }
+                self.client.verifyLiveness(timeout: 1.0)
+            }
+        }
 
         private func markTyping() {
             if !typingActive {
@@ -1889,6 +2450,42 @@ struct TerminalScreen: UIViewRepresentable {
         var onBell: () -> Void = {}
         private var ctrlArmed = false
         private var altArmed = false
+        private var shiftArmed = false
+        /// The last size we PUT ON THE WIRE, and when we last adopted a
+        /// peer's — the two facts `shouldDeclareSize` needs to keep a size
+        /// election from turning into a ping-pong.
+        private var lastDeclared: (cols: Int, rows: Int, at: TimeInterval)?
+        private var lastForeignAdoptAt: TimeInterval?
+        private var declareWork: DispatchWorkItem?
+
+        /// A non-claiming size message, COALESCED. The fit churns dozens of
+        /// times through a keyboard settle; only the size it settles on is
+        /// worth telling anyone about.
+        func declareSize(_ cols: Int, _ rows: Int, reason: String) {
+            declareWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let now = Date().timeIntervalSince1970
+                guard shouldDeclareSize(cols: cols, rows: rows, now: now,
+                                        lastSent: self.lastDeclared,
+                                        lastForeignAdoptAt: self.lastForeignAdoptAt) else {
+                    self.view?.walkMark("declare \(cols)x\(rows) SKIPPED (\(reason))")
+                    return
+                }
+                self.lastDeclared = (cols, rows, now)
+                self.view?.walkMark("declare \(cols)x\(rows) (\(reason))")
+                self.client.sendResize(cols: cols, rows: rows)
+            }
+            declareWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: work)
+        }
+        private var cmdArmed = false
+        /// The hop keyboard's ⇧ and the bar's ⇧ are ONE armed state: either
+        /// can arm it, both show it, and the next arrow consumes it.
+        func setShiftArmed(_ on: Bool) {
+            shiftArmed = on
+            view?.setShiftArmed(on)
+        }
         private var lastReconnectToken = 0
         private var retryAttempt = 0
         private var retryTask: Task<Void, Never>?
@@ -1945,6 +2542,7 @@ struct TerminalScreen: UIViewRepresentable {
                     // user typed it, the socket lied about being alive.
                     self.pending.append(text, at: Date())
                 case .connected:
+                    self.lastInboundAt = Date()
                     self.retryAttempt = 0      // healthy again: reset backoff
                     self.onRetryState(nil, 0)
                     self.echo.reset()
@@ -1974,6 +2572,7 @@ struct TerminalScreen: UIViewRepresentable {
                             .info("scrollback reachable \(depth) lines, altScreen=\(self.view?.remoteAltScreen == true)")
                     }
                 case .output(let data):
+                    self.lastInboundAt = Date()   // the socket is answering — typing landed
                     if data.utf8.count > 32_768 {
                         KBLog.record("feed \(data.utf8.count / 1024)KB")
                     }
@@ -1998,6 +2597,7 @@ struct TerminalScreen: UIViewRepresentable {
                 case .snapshot(let data, let alternateScreen, let cursorHidden,
                                let mouseReporting, let mouseSgr):
                     self.snapshotLanded = true
+                    self.lastInboundAt = Date()
                     self.echo.reset()          // the replay is the truth
                     self.wakeMark("snapshot fitted=\(self.fittedCols)x\(self.fittedRows)")
                     // A snapshot is the whole session replayed, so it has to
@@ -2037,6 +2637,7 @@ struct TerminalScreen: UIViewRepresentable {
                         if t.cols != g.cols || t.rows != g.rows {
                             self.wakeMark("snapshot regrid \(t.cols)x\(t.rows)→\(g.cols)x\(g.rows)"
                                 + " (fit \(self.fittedCols)x\(self.fittedRows))")
+                            self.view?.walkMark("local resize → \(g.cols)x\(g.rows)")
                             t.resize(cols: g.cols, rows: g.rows)
                         }
                     }
@@ -2102,6 +2703,7 @@ struct TerminalScreen: UIViewRepresentable {
                     Logger(subsystem: "io.zhoulab.hop.spike", category: "protocol")
                         .error("server rejected a message: \(message, privacy: .public)")
                 case .activeSize(let cols, let rows, let mine):
+                    tv.walkMark("active_size \(cols)x\(rows) mine=\(mine) grid=\(tv.getTerminal().cols)x\(tv.getTerminal().rows)")
                     // One PTY, one size, and the server stamps every
                     // active_size with the OWNER's clientId — so "is this
                     // size ours" is an IDENTITY check, never a size
@@ -2130,6 +2732,7 @@ struct TerminalScreen: UIViewRepresentable {
                         tv.pinnedGrid = (cols, rows)
                         let t = tv.getTerminal()
                         if t.cols != cols || t.rows != rows {
+                            self.view?.walkMark("local resize → \(cols)x\(rows)")
                             t.resize(cols: cols, rows: rows)
                             t.updateFullScreen()
                             tv.setNeedsDisplay(tv.bounds)
@@ -2145,6 +2748,8 @@ struct TerminalScreen: UIViewRepresentable {
                         // the whole just-painted transcript — the first
                         // controlled repro of the corruption.
                         self.wakeMark("active_size \(cols)x\(rows) ADOPT-FOREIGN")
+                        // Answering an adopt immediately IS the ping-pong.
+                        self.lastForeignAdoptAt = Date().timeIntervalSince1970
                         self.adoptForeign(cols: cols, rows: rows)
                     } else {
                         // Grid already drawn at the peer's size — a refused
@@ -2201,6 +2806,8 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopJumpToLive, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(refocusTerminal),
                                                    name: .hopRefocusTerminal, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(insertText(_:)),
+                                                   name: .hopInsertText, object: nil)
             #if DEBUG
             // Wake-invariant probe: HOP_DEV_FOREIGN_SIZE=100x30 makes the
             // first BACKGROUNDING adopt that grid — exactly what the daemon's
@@ -2259,7 +2866,8 @@ struct TerminalScreen: UIViewRepresentable {
                 let announce = announceSize(t)
                 client.connect(base: wsBase, httpBase: httpBase, room: room,
                                cols: announce.cols, rows: announce.rows,
-                               token: token, using: urlSession)
+                               token: token, using: urlSession,
+                               sizeClaim: !observeOnly && userIsLooking && canClaimAtConnect())
             } else {
                 verifyThenConnect()
             }
@@ -2285,7 +2893,8 @@ struct TerminalScreen: UIViewRepresentable {
                 let announce = self.announceSize(t)
                 self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
                                     cols: announce.cols, rows: announce.rows,
-                                    token: self.token_, using: self.urlSession)
+                                    token: self.token_, using: self.urlSession,
+                               sizeClaim: !observeOnly && userIsLooking && canClaimAtConnect())
             }
         }
 
@@ -2324,7 +2933,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // re-arms the chip, which is the honest answer.
                 if let claim = view?.naturalFit() ?? (fittedCols > 1 && fittedRows > 1
                                                       ? (cols: fittedCols, rows: fittedRows) : nil) {
-                    client.sendResize(cols: claim.cols, rows: claim.rows, user: true)
+                    client.sendResize(cols: claim.cols, rows: claim.rows, user: true, take: true)
                 }
             }
         }
@@ -2383,8 +2992,20 @@ struct TerminalScreen: UIViewRepresentable {
                 // Coerced for the same reason every other number here is: a
                 // cast that yields nil skips the resize silently, and the
                 // symptom is the wrapped mush this code exists to prevent.
+                // A screen at a FOREIGN size we are about to claim away from
+                // is not worth painting: it would show for ~200ms and then
+                // reflow — the exact size-change Jian sees on open. Skip it;
+                // the snapshot (at our size, with the connect-time claim)
+                // is the first frame.
+                if !self.observeOnly, self.userIsLooking, let fit = tv.naturalFit(), fit.cols > 1,
+                   let c = jsonInt(obj["cols"]), let r = jsonInt(obj["rows"]),
+                   c != fit.cols || r != fit.rows {
+                    self.wakeMark("fastPaint skipped: \(c)x\(r) ≠ fit \(fit.cols)x\(fit.rows)")
+                    return
+                }
                 if let cols = jsonInt(obj["cols"]), let rows = jsonInt(obj["rows"]),
                    cols > 1, rows > 1, t.cols != cols || t.rows != rows {
+                    self.view?.walkMark("local resize → \(cols)x\(rows)")
                     t.resize(cols: cols, rows: rows)
                 }
                 self.wakeMark("fastPaint grid=\(t.cols)x\(t.rows) fitted=\(self.fittedCols)x\(self.fittedRows)")
@@ -2426,16 +3047,18 @@ struct TerminalScreen: UIViewRepresentable {
         /// terminals themselves do: a row that filled its last column ran on.
         private func visibleLinks() -> [String] {
             guard let t = view?.getTerminal() else { return [] }
-            var rows: [(text: String, wrapped: Bool)] = []
-            var previousFilledLastColumn = false
+            // The SAME padded rows tapping uses, so the list and the tap
+            // agree about what is a link (the wrap flag alone missed every
+            // URL an app broke itself — inside a box rule, under a bullet).
+            var rows: [String] = []
+            rows.reserveCapacity(t.rows)
             for row in 0..<t.rows {
-                guard let line = t.getLine(row: row + t.buffer.yDisp) else { continue }
-                let full = line.translateToString(trimRight: false)
-                rows.append((line.translateToString(trimRight: true), previousFilledLastColumn))
-                previousFilledLastColumn = full.count >= t.cols
-                    && !(full.last?.isWhitespace ?? true)
+                var line = t.getLine(row: row + t.buffer.yDisp)?
+                    .translateToString(trimRight: true) ?? ""
+                if line.count > t.cols { line = String(line.prefix(t.cols)) }
+                rows.append(line.padding(toLength: t.cols, withPad: " ", startingAt: 0))
             }
-            return extractLinks(from: screenText(rows: rows))
+            return linksIn(rows: rows)
         }
 
         func detach() {
@@ -2485,7 +3108,8 @@ struct TerminalScreen: UIViewRepresentable {
                     let announce = self.announceSize(tv.getTerminal())
                     self.client.connect(base: self.wsBase, httpBase: self.httpBase, room: self.room,
                                         cols: announce.cols, rows: announce.rows,
-                                        token: self.token_, using: self.urlSession)
+                                        token: self.token_, using: self.urlSession,
+                               sizeClaim: !observeOnly && userIsLooking && canClaimAtConnect())
                 }
             }
         }
@@ -2506,8 +3130,15 @@ struct TerminalScreen: UIViewRepresentable {
             if !userIsLooking, electedCols > 1, electedRows > 1 {
                 return (electedCols, electedRows)
             }
+            // Never announce SwiftTerm's unmeasured 80x25 default: a connect-
+            // time claim with it reflowed the PTY to 80x25 and then, 400ms
+            // later, to the real fit — two reflows per open, part of the size
+            // flicker (probe 2026-10-01: "active_size 80x25" then "51x50").
+            if let nat = view?.naturalFit() { return nat }
             return (t.cols, t.rows)
         }
+        /// Whether we have a real measurement to claim with at connect.
+        private func canClaimAtConnect() -> Bool { view?.naturalFit() != nil }
 
         /// Foreground wake: a socket that LOOKS live may be half-open.
         /// Ping it; the failure path feeds the normal reconnect machinery,
@@ -2551,7 +3182,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // keystroke applies it sight-unseen). Declare, never contest.
                 if let nat = v.naturalFit(), nat.cols > 1, nat.rows > 1 {
                     wakeMark("\(reason) declare \(nat.cols)x\(nat.rows) (peer holds)")
-                    client.sendResize(cols: nat.cols, rows: nat.rows)
+                    declareSize(nat.cols, nat.rows, reason: reason)
                 }
                 return false
             }
@@ -2574,7 +3205,22 @@ struct TerminalScreen: UIViewRepresentable {
                 wakeMark("\(reason) ok \(cols)x\(rows)")
                 return false
             }
-            guard Date().timeIntervalSince(lastReclaimAt) > 1 else { return false }
+            let sinceLast = Date().timeIntervalSince(lastReclaimAt)
+            guard sinceLast > 1 else {
+                // Rate-limited — but never DROPPED: the keyboard's last frame
+                // landed 80ms after a settle claim, this re-check was the
+                // only thing that would have corrected it, and it vanished
+                // silently; a 39-row grid sat in a 32-row view until the
+                // next keystroke (diagnostic 2026-10-03). Re-run when allowed.
+                wakeMark("\(reason) MISMATCH grid=\(t.cols)x\(t.rows) fit=\(cols)x\(rows) — rate-limited, retry")
+                settleTask?.cancel()
+                settleTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(Int((1.05 - sinceLast) * 1000)))
+                    guard let self, !Task.isCancelled, self.claimed else { return }
+                    self.maintainOwnFit(reason: "settle-retry")
+                }
+                return false
+            }
             lastReclaimAt = Date()
             wakeMark("\(reason) MISMATCH grid=\(t.cols)x\(t.rows) fit=\(cols)x\(rows) — re-asserting")
             // POLITE. Maintaining our own grid must never outrank a human
@@ -2634,6 +3280,13 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         /// Give the keyboard back after a sheet took it.
+
+        /// Text handed in from the app — an uploaded photo's path. Through
+        /// deliver(), so it buffers while disconnected exactly like typing.
+        @objc private func insertText(_ note: Notification) {
+            guard let text = note.object as? String, !text.isEmpty else { return }
+            deliver(text)
+        }
 
         @objc private func refocusTerminal() {
 
@@ -2727,6 +3380,12 @@ struct TerminalScreen: UIViewRepresentable {
             case .alt:
                 altArmed.toggle()
                 view?.setAltArmed(altArmed)
+            case .shift:
+                shiftArmed.toggle()
+                view?.setShiftArmed(shiftArmed)
+            case .cmd:
+                cmdArmed.toggle()
+                view?.setCmdArmed(cmdArmed)
             case .dismiss:
                 _ = view?.resignFirstResponder()
             case .board:
@@ -2742,6 +3401,15 @@ struct TerminalScreen: UIViewRepresentable {
                 // typing. Its send path still lands in deliver(), so buffering
                 // while disconnected keeps working.
                 view?.paste(nil)
+            case .up, .down, .left, .right, .shiftUp, .shiftDown, .shiftLeft, .shiftRight:
+                // xterm modified arrows: CSI 1;<1+shift+2·alt+4·ctrl> X. The
+                // armed modifiers used to be ignored here (a plain arrow went
+                // out under an armed ctrl), so ctrl+→ word jumps never worked
+                // either. One-shot, like the typed-text path.
+                let seq = arrowSequence(key, shift: shiftArmed, alt: altArmed,
+                                        ctrl: ctrlArmed, cmd: cmdArmed)
+                clearArmedModifiers()
+                if let seq { deliver(seq) }
             default:
                 if let seq = key.sequence { deliver(seq) }
             }
@@ -2759,20 +3427,52 @@ struct TerminalScreen: UIViewRepresentable {
         /// The one path every typed character takes, from either keyboard:
         /// armed modifiers apply, then deliver (which buffers, reclaims the
         /// size, and marks typing).
+        /// Every armed modifier lets go after one key, exactly like a Mac's
+        /// sticky keys and like the arrows above.
+        private func clearArmedModifiers() {
+            if ctrlArmed { ctrlArmed = false; view?.setCtrlArmed(false) }
+            if altArmed { altArmed = false; view?.setAltArmed(false) }
+            if shiftArmed { shiftArmed = false; view?.setShiftArmed(false); view?.clearBoardShift() }
+            if cmdArmed { cmdArmed = false; view?.setCmdArmed(false) }
+        }
+
+        /// ⌘C on a Mac terminal copies what's SELECTED, or the screen when
+        /// nothing is — never the shell's ^C.
+        private func copySelectionOrScreen() {
+            if let sel = view?.getSelection(), !sel.isEmpty {
+                UIPasteboard.general.string = sel
+                onToast("Copied")
+            } else {
+                copyScreen()
+            }
+        }
+
         func typedText(_ raw: String) {
-            var text = raw
-            if ctrlArmed, let scalar = text.unicodeScalars.first, text.count == 1,
-               scalar.isASCII, scalar.value >= 0x40 {
-                text = String(UnicodeScalar(scalar.value & 0x1f)!)
-                ctrlArmed = false
-                view?.setCtrlArmed(false)
+            // ⇧ + return: the Mac's newline-without-submit (the ⇧⏎ key is the
+            // same thing in one tap).
+            if shiftArmed, raw == "\r" || raw == "\n" {
+                clearArmedModifiers()
+                view.map { deliver($0.shiftEnterSequence()) }
+                return
             }
-            if altArmed, text.count == 1 {
-                text = "\u{1b}" + text          // meta = ESC prefix
-                altArmed = false
-                view?.setAltArmed(false)
+            guard raw.count == 1, let ch = raw.first,
+                  ctrlArmed || altArmed || cmdArmed else { deliver(raw); return }
+            // ⌘C / ⌘V never touch the wire, so they work in EVERY app — which
+            // is what they do on a Mac.
+            if cmdArmed, !ctrlArmed, !altArmed, let low = ch.lowercased().first {
+                if low == "c" { clearArmedModifiers(); copySelectionOrScreen(); return }
+                if low == "v" { clearArmedModifiers(); view?.paste(nil); return }
             }
-            deliver(text)
+            let enhanced = view?.enhancedKeys ?? false
+            let seq = modifiedKey(ch, shift: shiftArmed, alt: altArmed, ctrl: ctrlArmed,
+                                  cmd: cmdArmed, enhanced: enhanced)
+            clearArmedModifiers()
+            guard let seq else {
+                // Only CSI-u carries ⌘, and this app never asked for it.
+                onToast("⌘\(ch.uppercased()) needs an app that reads it — claude and codex do")
+                return
+            }
+            deliver(seq)
         }
 
         /// The size this phone's view actually fits, recorded from layout —
@@ -2974,7 +3674,12 @@ struct TerminalScreen: UIViewRepresentable {
             // the layout already exists, so the claim goes out NOW; the
             // 400ms was a third of the wake-flash (Jian: "why does idle
             // change the size?").
-            let delayMs = everConnected ? 0 : 400
+            // The 400ms guarded a first connect whose layout didn't exist yet;
+            // when the natural fit is already valid there is nothing to wait
+            // for, and every ms is a wrong-size frame on a server without the
+            // connect-time claim.
+            let fitReady = (view?.naturalFit()?.cols ?? 0) > 1
+            let delayMs = (everConnected || fitReady) ? 0 : 400
             everConnected = true
             Task { @MainActor [weak self] in
                 if delayMs > 0 { try? await Task.sleep(for: .milliseconds(delayMs)) }
@@ -3020,6 +3725,7 @@ struct TerminalScreen: UIViewRepresentable {
             // nobody has typed recently and refuses otherwise, and a refusal
             // just means we render their grid scaled until you type.
             wakeMark("claim \(cols)x\(rows) polite")
+            view?.walkMark("attach-claim \(cols)x\(rows)")
             client.sendResize(cols: cols, rows: rows, claim: "attach")
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("attach claim \(cols)x\(rows) for \(self.room, privacy: .public)")
@@ -3034,7 +3740,7 @@ struct TerminalScreen: UIViewRepresentable {
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            KBLog.record("fit \(newCols)x\(newRows) bounds=\(Int(source.bounds.width))x\(Int(source.bounds.height))")
+            KBLog.record("fit \(newCols)x\(newRows) bounds=\(Int(source.bounds.width))x\(Int(source.bounds.height)) font=\(String(format: "%.1f", source.font.pointSize)) cell=\(String(format: "%.2f", source.bounds.width / CGFloat(max(newCols, 1))))")
             fittedCols = newCols
             fittedRows = newRows
             view?.drawnRows = newRows
@@ -3073,6 +3779,7 @@ struct TerminalScreen: UIViewRepresentable {
                         guard let self, self.observeOnly,
                               let t = self.view?.getTerminal(),
                               t.cols != self.electedCols else { return }
+                        self.view?.walkMark("local resize → \(self.electedCols)x\(self.electedRows)")
                         t.resize(cols: self.electedCols, rows: self.electedRows)
                     }
                 }
@@ -3140,7 +3847,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // scaled down) — declaring THAT would propose the peer's own
                 // size back as ours, which confirms as OURS by construction.
                 if let nat = view?.naturalFit(), nat.cols > 1, nat.rows > 1 {
-                    client.sendResize(cols: nat.cols, rows: nat.rows)
+                    declareSize(nat.cols, nat.rows, reason: "peer holds")
                 }
                 return
             }
@@ -3153,6 +3860,7 @@ struct TerminalScreen: UIViewRepresentable {
                 // stuck for the gesture that triggered the heal, and forever
                 // if the socket was down.
                 if let t = view?.getTerminal(), t.cols != cols || t.rows != rows {
+                    self.view?.walkMark("local resize → \(cols)x\(rows)")
                     t.resize(cols: cols, rows: rows)
                     t.updateFullScreen()
                     view.map { $0.setNeedsDisplay($0.bounds) }
@@ -3160,7 +3868,7 @@ struct TerminalScreen: UIViewRepresentable {
                     onGridChange()
                 }
             }
-            client.sendResize(cols: cols, rows: rows)
+            declareSize(cols, rows, reason: "fit")
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {}
@@ -3172,6 +3880,7 @@ struct TerminalScreen: UIViewRepresentable {
             // offering to return you to a place you had never left.
             let t = source.getTerminal()
             let hv = source as? HopTermView
+            if hv?.selectionActive == true { hv?.selectMark("scrolled while selected pos=\(position) yDisp=\(t.buffer.yDisp)") }
             if t.buffer.yDisp > 0 { hv?.sawScrollback = true }
             let hasHistory = t.buffer.yDisp > 0 || hv?.sawScrollback == true
             let inHistory = hasHistory && position < 0.999
@@ -3182,6 +3891,7 @@ struct TerminalScreen: UIViewRepresentable {
             if let hv = source as? HopTermView, hv.userScrollInFlight {
                 hv.userScrollInFlight = false
                 hv.historyAnchor = inHistory ? t.buffer.yDisp : nil
+                hv.selectMark("anchor ← \(hv.historyAnchor.map(String.init) ?? "nil") pos=\(position) yDisp=\(t.buffer.yDisp) hasHistory=\(hasHistory)")
             }
         }
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
@@ -3221,6 +3931,8 @@ struct TerminalScreen: UIViewRepresentable {
 // ── Accessory key bar ──
 enum AccessoryKey: Equatable {
     case esc, tab, shiftTab, ctrl, alt, ctrlC, up, down, left, right
+    case shiftUp, shiftDown, shiftLeft, shiftRight
+    case shift, cmd
     case pipe, slash, dash, tilde, pageUp, pageDown, paste, dismiss, backspace, shiftEnter
     /// Toggles the hop keyboard (HopBoardView as inputView) — a view
     /// concern, handled by HopTermView itself, so sequence is nil.
@@ -3262,6 +3974,10 @@ enum AccessoryKey: Equatable {
         case .down: return "\u{1b}[B"
         case .left: return "\u{1b}[D"
         case .right: return "\u{1b}[C"
+        case .shiftUp: return "\u{1b}[1;2A"
+        case .shiftDown: return "\u{1b}[1;2B"
+        case .shiftLeft: return "\u{1b}[1;2D"
+        case .shiftRight: return "\u{1b}[1;2C"
         case .board: return nil
         // Not static: CSI 13;2u for an app that understands it, plain enter
         // for a shell that would print it as junk. The tap handler asks the
@@ -3269,13 +3985,18 @@ enum AccessoryKey: Equatable {
         case .shiftEnter: return nil
         // paste is not a static sequence: it goes through the view so the
         // app's bracketed-paste mode is honoured. See the handler.
-        case .paste, .ctrl, .alt, .dismiss: return nil
+        case .paste, .ctrl, .alt, .shift, .cmd, .dismiss: return nil
         }
     }
 
     var spokenName: String {
         switch self {
         case .shiftTab: return "shift tab"
+        case .cmd: return "command"
+        case .shiftUp: return "shift up"
+        case .shiftDown: return "shift down"
+        case .shiftLeft: return "shift left"
+        case .shiftRight: return "shift right"
         case .ctrlCombo(let ch): return "control \(ch)"
         case .backspace: return "backspace"
         case .shiftEnter: return "shift return"
@@ -3308,9 +4029,12 @@ protocol AccessoryKeyHandler: AnyObject {
     /// Scrolling, which is NOT typing — see the implementation for why that
     /// distinction has to exist at all.
     func scrollInput(_ text: String)
+    /// The hop keyboard's ⇧: one-shot, applies to the next accessory arrow.
+    func setShiftArmed(_ on: Bool)
 }
 extension AccessoryKeyHandler {
     func accessoryKey(_ key: AccessoryKey) { accessoryKey(key, isRepeat: false) }
+    func setShiftArmed(_ on: Bool) {}
 }
 
 final class HopTermView: TerminalView {
@@ -3348,24 +4072,110 @@ final class HopTermView: TerminalView {
     /// The URL under a tap, or nil. Rows are padded to the grid width and
     /// joined without separators, so wrapped URLs connect and the offset
     /// math is exact — see linkHit. Built per tap; the grid is small.
-    func linkUnderTap(_ locInView: CGPoint) -> String? {
+    /// Point → grid cell, in the geometry the view is ACTUALLY drawing: the
+    /// fit SwiftTerm reports at the current (possibly scaled) font, not the
+    /// natural-font cap. A peer-sized session is auto-scaled so a desktop's
+    /// 62 columns fit this width; mapping taps through the 51-column natural
+    /// cap put every tap ~20% off — rows away from the URL under the finger
+    /// (Jian, on Codex sessions the desktop hub drives: "cannot click urls").
+    /// The cap is the PAN verdict's business; pixels belong to the drawn fit.
+    /// In pan mode the content is the whole grid in content coordinates, so
+    /// the viewport offset is the pan, not a scroll into history.
+    func cellAt(_ locInView: CGPoint) -> (row: Int, col: Int, cellW: CGFloat, cellH: CGFloat)? {
         let t = getTerminal()
-        let x = locInView.x - bounds.origin.x
-        let y = locInView.y - bounds.origin.y
-        let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                    drawnRows: capRows, terminalRows: t.rows)
-        let cellW = bounds.width / CGFloat(max(1, capCols > 0 ? capCols : t.cols))
-        let row = Int(y / max(1, cellH))
-        let col = Int(x / max(1, cellW))
+        let drawnFit = scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                                 drawnCols: drawnCols, drawnRows: drawnRows, fontRatio: 1)
+        let cols = max(1, drawnFit?.cols ?? (drawnCols > 0 ? drawnCols : t.cols))
+        let rows = max(1, drawnFit?.rows ?? (drawnRows > 0 ? drawnRows : t.rows))
+        let cellW = bounds.width / CGFloat(cols)
+        let cellH = bounds.height / CGFloat(rows)
+        let liveTop = CGFloat(t.buffer.yDisp) * cellH
+        let x = peerSizedGrid ? locInView.x : locInView.x - bounds.origin.x
+        let y = peerSizedGrid ? locInView.y - liveTop : locInView.y - bounds.origin.y
+        let row = Int(y / max(1, cellH)), col = Int(x / max(1, cellW))
         guard row >= 0, row < t.rows, col >= 0, col < t.cols else { return nil }
-        var joined = ""
-        joined.reserveCapacity(t.rows * (t.cols + 1))
+        return (row, col, cellW, cellH)
+    }
+
+    /// The longest URL anywhere in the buffer (scrollback included, both
+    /// screens) that starts with `prefix` and is longer than it.
+    private func fullURL(withPrefix prefix: String) -> String? {
+        guard prefix.count >= 12 else { return nil }
+        let t = getTerminal()
+        var best: String?
+        let lines = t.getBufferAsData(kind: .normal) + Data([10]) + t.getBufferAsData(kind: .alt)
+        let text = String(decoding: lines, as: UTF8.self)
+        var search = text.startIndex
+        while let r = text.range(of: prefix, range: search..<text.endIndex) {
+            var end = r.upperBound
+            while end < text.endIndex, isUrlChar(text[end]) { end = text.index(after: end) }
+            let cand = String(text[r.lowerBound..<end])
+            if cand.count > prefix.count, cand.count > (best?.count ?? 0) { best = cand }
+            search = r.upperBound
+        }
+        return best
+    }
+
+    func linkUnderTap(_ locInView: CGPoint) -> String? {
+        guard let cell = cellAt(locInView) else { return nil }
+        return linkAt(row: cell.row, col: cell.col)
+    }
+
+    #if DEBUG
+    /// HOP_LINK_SCAN=<file>: what a tap on each cell would open, one line per
+    /// distinct link — the real lookup, without having to aim a finger.
+    func debugScanLinks(to path: String) {
+        let t = getTerminal()
+        var seen: [String] = []
+        for r in 0..<t.rows {
+            for c in stride(from: 0, to: t.cols, by: 2) {
+                if let l = linkAt(row: r, col: c, log: false), !seen.contains(l) { seen.append(l) }
+            }
+        }
+        try? (seen.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    #endif
+
+    func linkAt(row: Int, col: Int, log: Bool = true) -> String? {
+        let t = getTerminal()
+        // Rows padded to the grid width; linkHit(rows:) joins wrapped ones
+        // (an app's indented continuation included) and maps the tap exactly.
+        var rows: [String] = []
+        rows.reserveCapacity(t.rows)
         for r in 0..<t.rows {
             var line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
             if line.count > t.cols { line = String(line.prefix(t.cols)) }
-            joined += line.padding(toLength: t.cols, withPad: " ", startingAt: 0)
+            rows.append(line.padding(toLength: t.cols, withPad: " ", startingAt: 0))
         }
-        return linkHit(atOffset: row * t.cols + col, in: joined)
+        // Explicit hyperlinks first (OSC 8): Codex SHORTENS long URLs on
+        // screen ("https://hop.zhoulab.io/view/Accessibility-for…") and the
+        // visible text is all the scan below can see — so a tap opened a
+        // truncated, dead address (Jian: "tap link to open in codex still
+        // broken"). The escape carries the full URL; SwiftTerm keeps it.
+        let explicit = t.link(at: .screen(Position(col: col, row: row)), mode: .explicitOnly)
+        var hit = explicit ?? linkHit(rows: rows, row: row, col: col)
+        // No embedded link, but the visible one is truncated: the full URL
+        // is usually printed in full somewhere else (scrollback, an earlier
+        // line). Take the longest URL there that starts with the visible
+        // prefix; otherwise drop the "…" rather than open garbage.
+        // The scan stops AT the ellipsis (not a URL character), so the hit
+        // itself looks whole; the screen text right after it says otherwise.
+        let screenText = rows.joined()
+        if explicit == nil, let h = hit,
+           h.hasSuffix("…") || h.hasSuffix("...") || screenText.contains(h + "…") || screenText.contains(h + "...") {
+            let stem = h
+                .replacingOccurrences(of: "…", with: "")
+                .replacingOccurrences(of: "...", with: "")
+            hit = fullURL(withPrefix: stem) ?? stem
+            if log { KBLog.record("tap link truncated on screen: \(String(h.suffix(24))) → \(hit == stem ? "no full form found" : "recovered")") }
+        }
+        guard log else { return hit }
+        KBLog.record("tap explicit=\(explicit != nil)")
+        KBLog.record("tap r\(row) c\(col) drawn=\(drawnCols)x\(drawnRows) cap=\(capCols)x\(capRows) "
+            + "grid=\(t.cols)x\(t.rows) pan=\(peerSizedGrid) cursor=r\(t.buffer.y)c\(t.buffer.x) "
+            + "mouse=\(remoteTakesMouse) alt=\(remoteAltScreen) anchor=\(historyAnchor.map(String.init) ?? "nil") "
+            + "link=\(hit.map { String($0.prefix(30)) } ?? "nil")")
+        return hit
     }
 
     @objc private func handleChromeTap(_ g: UITapGestureRecognizer) {
@@ -3412,6 +4222,11 @@ final class HopTermView: TerminalView {
         return g.location(in: window).y - onScreen.minY < chromeReach
     }
 
+    /// Diagnostics only: which tap recognizers fire, and when, relative to a hold.
+    @objc private func tapObserved(_ g: UITapGestureRecognizer) {
+        selectMark("tap fired ours=\(g === clickTap || g === chromeTap || g === chromeTapTwoFinger) taps=\(g.numberOfTapsRequired) touches=\(g.numberOfTouchesRequired) sel=\(selectionActive)")
+    }
+
     @objc private func handleClickTap(_ g: UITapGestureRecognizer) {
         // A tap that lands ON a URL means "open it" in any mode — claude's
         // own output is full of PR links, and sending a synthetic mouse
@@ -3420,20 +4235,92 @@ final class HopTermView: TerminalView {
             open(link)
             return
         }
-        guard remoteTakesMouse else { return }
+        // Same drawn-geometry mapping as the link test above; SGR mouse
+        // cells are 1-based.
+        guard let cell = cellAt(g.location(in: self)) else {
+            let t = getTerminal()
+            walkMark("tap OFF-GRID y=\(Int(g.location(in: self).y)) grid=\(t.cols)x\(t.rows) "
+                + "drawn=\(drawnCols)x\(drawnRows) pan=\(peerSizedGrid)")
+            return
+        }
+        let row = cell.row + 1, col = cell.col + 1
+        let cellW = cell.cellW, cellH = cell.cellH
+        if remoteTakesMouse {
+            onUserIntent?()
+            keyHandler?.scrollInput(clickSequence(col: col, row: row))
+        } else if let walk = arrowWalk(toRow: cell.row, col: cell.col) {
+            // No mouse reporting (Codex): walk the cursor there with arrows.
+            walkMark("walk to r\(cell.row) c\(cell.col) from r\(getTerminal().buffer.y) c\(getTerminal().buffer.x): \(walk.count / 3) arrows")
+            // The tap IS the intent to be at the live edge; a held anchor
+            // would drag the view back the moment the app redraws.
+            if historyAnchor != nil {
+                userScrollInFlight = true
+                historyAnchor = nil
+            }
+            onUserIntent?()
+            keyHandler?.scrollInput(walk)
+        } else {
+            return   // nowhere safe to walk — no haptic, no ghost
+        }
+        // Instant local confirmation. The cursor is CLAUDE's, so it only moves
+        // after a network round-trip — with no local feedback the tap felt
+        // like it missed, so you tapped again and the second click overshot
+        // (Jian: "sometimes it works, sometimes it doesn't … I have to tap
+        // several times"). A haptic + a caret ghost at the tapped cell say
+        // "landed here" before the real cursor catches up.
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        flashTapCaret(col: col, row: row, cellW: cellW, cellH: cellH)
+    }
+
+    /// Tap-to-position for apps WITHOUT mouse reporting — codex and claude
+    /// (both INLINE TUIs, not alt-screen), and shells. Walk the cursor to the
+    /// tapped cell with arrow keys, the way the two-finger trackpad does: in
+    /// a composer the terminal cursor IS the caret.
+    ///
+    /// This used to demand `remoteAltScreen` for any vertical move, which
+    /// silently reduced it to same-line nudges in exactly the apps it was
+    /// built for — codex renders inline, so tapping an earlier line of a
+    /// multiline prompt did nothing at all (Jian: "only works for the last
+    /// line but not prev lines with multiline input"). The bound in
+    /// `cursorWalk` is the real safety rail, not the screen mode.
+    ///
+    /// Only at the live edge: in scrollback the tapped row isn't the row the
+    /// app's cursor is counting from.
+    private func arrowWalk(toRow row: Int, col: Int) -> String? {
+        // A held history anchor USED to refuse the walk outright. Tapping is
+        // the same intent typing is — "put me at the live edge" — and a silent
+        // refusal is indistinguishable from a dead feature, so the anchor
+        // yields instead; the caller drops it before sending.
         let t = getTerminal()
-        // Visible-relative, like the chrome strip: location(in:) carries the
-        // scrollback offset on this scroll view.
-        let loc = g.location(in: self)
-        let x = loc.x - bounds.origin.x
-        let y = loc.y - bounds.origin.y
-        let cellH = drawnCellHeight(viewHeight: bounds.height,
-                                    drawnRows: capRows, terminalRows: t.rows)
-        let cellW = bounds.width / CGFloat(max(1, capCols))
-        let row = min(t.rows, Int(y / max(1, cellH)) + 1)
-        let col = min(t.cols, Int(x / max(1, cellW)) + 1)
-        onUserIntent?()
-        keyHandler?.scrollInput(clickSequence(col: col, row: row))
+        let line = t.getLine(row: row + t.buffer.yDisp)?
+            .translateToString(trimRight: true) ?? ""
+        let walk = cursorWalk(fromRow: t.buffer.y, fromCol: t.buffer.x,
+                              toRow: row, toCol: col, targetLineLength: line.count)
+        if walk == nil {
+            // A refused walk looks exactly like a broken feature, so say why.
+            walkMark("walk refused: r\(row) c\(col) from r\(t.buffer.y) c\(t.buffer.x) lineLen=\(line.count)")
+        }
+        return walk
+    }
+
+    private func flashTapCaret(col: Int, row: Int, cellW: CGFloat, cellH: CGFloat) {
+        let caret = CALayer()
+        caret.frame = CGRect(x: CGFloat(col - 1) * cellW + bounds.origin.x,
+                             y: CGFloat(row - 1) * cellH + bounds.origin.y,
+                             width: max(2, cellW * 0.14), height: cellH)
+        caret.backgroundColor = UIColor(Color.hopGlow).cgColor
+        caret.cornerRadius = 1
+        layer.addSublayer(caret)
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1.0
+        fade.toValue = 0.0
+        fade.duration = 0.4
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { caret.removeFromSuperlayer() }
+        caret.opacity = 0            // land at 0 so it stays gone after the fade
+        caret.add(fade, forKey: "fade")
+        CATransaction.commit()
     }
 
     /// The way OUT, now that the terminal never shows a navigation bar.
@@ -3448,7 +4335,7 @@ final class HopTermView: TerminalView {
     var onBackSwipe: (() -> Void)?
 
     @objc private func handleBackSwipe(_ g: UIScreenEdgePanGestureRecognizer) {
-        if g.state == .began { onBackSwipe?() }
+        if g.state == .began { selectMark("back swipe began"); onBackSwipe?() }
     }
 
     /// "A single touch should trigger autofit" — the coordinator hangs the
@@ -3471,6 +4358,8 @@ final class HopTermView: TerminalView {
     weak var keyHandler: AccessoryKeyHandler?
     private var ctrlButton: UIButton?
     private var altButton: UIButton?
+    private var shiftButton: UIButton?
+    private var cmdButton: UIButton?
     private var repeatTimer: Timer?
 
     /// SwiftTerm's iOS view has no scroll gesture: one pan handler forwards
@@ -3545,7 +4434,7 @@ final class HopTermView: TerminalView {
         for existing in gestureRecognizers ?? [] where existing is UIPanGestureRecognizer {
             existing.isEnabled = false
         }
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
+        let pan = SlopPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
         addGestureRecognizer(pan)
@@ -3572,7 +4461,7 @@ final class HopTermView: TerminalView {
         // axes — so this moves into an empty slot rather than contesting one:
         // it begins only for decisively horizontal drags, never in pan mode,
         // never during a selection, never in the chrome strip.
-        let switchPan = UIPanGestureRecognizer(target: self, action: #selector(handleSwitchPan))
+        let switchPan = SlopPanGestureRecognizer(target: self, action: #selector(handleSwitchPan))
         switchPan.maximumNumberOfTouches = 1
         switchPan.delegate = self
         addGestureRecognizer(switchPan)
@@ -3611,6 +4500,9 @@ final class HopTermView: TerminalView {
         // is now UIEditMenuInteraction.
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleSelectHold))
         hold.minimumPressDuration = 0.45
+        // Same drift budget as the pans' slop: a hold that fails at UIKit's
+        // default 10pt dies to the fingertip settling (see SlopPan…).
+        hold.allowableMovement = 18
         // Delegate = us, for the simultaneity grant: SwiftTerm installs its
         // own long-press on the same view, and without simultaneous
         // recognition exactly one of the two fires — arbitration picked
@@ -3618,11 +4510,26 @@ final class HopTermView: TerminalView {
         hold.delegate = self
         addGestureRecognizer(hold)
         selectHold = hold
+        // A finger lifting after a HOLD is not a tap. Every tap recognizer on
+        // this view — SwiftTerm's own single tap included, whose handler
+        // clears the selection and hides the menu — fired on that release
+        // (~300ms later, after the double-tap window), so in Codex the
+        // selection and the native menu vanished ~250ms after they appeared
+        // (trace: +150ms menu=true sel=true, +400ms both false). Taps now
+        // wait for the hold to FAIL; a recognized hold means no tap.
+        for gr in gestureRecognizers ?? [] where gr is UITapGestureRecognizer && gr !== hold {
+            gr.require(toFail: hold)
+            gr.addTarget(self, action: #selector(tapObserved(_:)))
+        }
 
         let click = UITapGestureRecognizer(target: self, action: #selector(handleClickTap))
         click.delegate = self
         addGestureRecognizer(click)
         clickTap = click
+        click.require(toFail: hold)   // created after the hold: same rule
+        click.addTarget(self, action: #selector(tapObserved(_:)))
+        selectMark("recognizers: " + (gestureRecognizers ?? []).map { g in
+            "\(type(of: g))\(g.isEnabled ? "+" : "-")" }.joined(separator: " "))
         let back = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBackSwipe))
         back.edges = .left
         addGestureRecognizer(back)
@@ -3686,7 +4593,7 @@ final class HopTermView: TerminalView {
             setNeedsLayout()
             layoutIfNeeded()
             let t = getTerminal()
-            KBLog.record("gesture began grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") nat=\(naturalFit().map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+            KBLog.record("gesture began moved=\(Int(hypot(g.translation(in: self).x, g.translation(in: self).y)))pt grid=\(t.cols)x\(t.rows) drawn=\(drawnCols)x\(drawnRows) pinned=\(pinnedGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") nat=\(naturalFit().map { "\($0.cols)x\($0.rows)" } ?? "nil")")
             if let nat = naturalFit(), nat != (t.cols, t.rows) {
                 onPossibleSizeMismatch?(nat.cols, nat.rows)
             }
@@ -3844,33 +4751,90 @@ final class HopTermView: TerminalView {
     /// (drawnCols/Rows, pushed in from sizeChanged) is ground truth for
     /// what draws; the analytic path survives only as the pre-first-layout
     /// fallback, when there is no measurement yet to trust.
+    /// The natural fit measured STRAIGHT from the font + current bounds — no
+    /// dependence on any drawn grid. The ground truth for "what fits at the
+    /// natural font here"; slightly less exact than SwiftTerm's own cell (a
+    /// few columns), so it is the fallback, not the default.
+    /// SwiftTerm's OWN cell recipe (AppleTerminalView.computeFontDimensions),
+    /// reproduced exactly: width of "W", height = ceil(ascent + descent +
+    /// leading) × lineSpacing, both snapped UP to the pixel grid. The old
+    /// estimate ("0" width, UIFont.lineHeight, unsnapped) came out ~2 cols and
+    /// ~2 rows bigger than what SwiftTerm actually fits — so a phone returning
+    /// from a foreign grid claimed 58x34, the PTY took it, and the terminal
+    /// drew 56x32: last two columns and rows cut off (diagnostic 2026-10-03,
+    /// "fit MISMATCH pinned=58x34 natural=56x32").
+    static func cellSize(fontPt: CGFloat, lineSpacing: CGFloat) -> CGSize {
+        let f = UIFont.monospacedSystemFont(ofSize: fontPt, weight: .regular)
+        let w = ("W" as NSString).size(withAttributes: [.font: f]).width
+        let h = ceil((f.ascender - f.descender + f.leading) * lineSpacing)
+        let scale = UIScreen.main.scale
+        return CGSize(width: max(1, ceil(w * scale) / scale), height: max(1, ceil(h * scale) / scale))
+    }
+
+    private func directFit() -> (cols: Int, rows: Int)? {
+        let cell = Self.cellSize(fontPt: naturalFontPt, lineSpacing: lineSpacing)
+        guard cell.width > 1, cell.height > 1 else { return nil }
+        return (max(2, Int(bounds.width / cell.width)), max(2, Int(bounds.height / cell.height)))
+    }
+
     func naturalFit() -> (cols: Int, rows: Int)? {
         guard bounds.width > 10, bounds.height > 10 else { return nil }
-        if drawnCols > 1, drawnRows > 1 {
-            // Through scaledFit, ALWAYS: the drawn numbers are only exact for
-            // the bounds they were measured in, and sizeChanged does not fire
+        let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
+        // The drawn grid is a trustworthy stand-in for the natural fit ONLY
+        // when it was measured at ~the natural font — i.e. it is a real
+        // bounds-fit. When the font is far from natural, it is not: we shrank
+        // the font to ADOPT A FOREIGN grid, whose columns fill the width but
+        // whose ROWS are letterboxed (not a fit). Rescaling that by the font
+        // ratio produced a bogus short claim — trace-convicted: 184x48 drawn
+        // at 4pt rescaled to 73x19 at 10pt, half the height, then confirmed as
+        // OURS. Off-natural → ignore the drawn grid and measure directly.
+        // (Also covers the Aug-18 transient-large-font case: direct is correct
+        // there too, so it no longer needs the drawn-rescale it once relied on.)
+        if drawnCols > 1, drawnRows > 1, abs(measuredFont - naturalFontPt) <= 2.5 {
+            // Through scaledFit: the drawn numbers are only exact for the
+            // bounds they were measured in, and sizeChanged does not fire
             // again when a bounds change lands back on the grid the terminal
-            // already has. Reading them raw at new bounds is how a transient
-            // 344pt keyboard frame's 28 rows got re-asserted against a 572pt
-            // view (the half-screen bug, trace-convicted). The measured cell
-            // scaled to current bounds rounds DOWN at worst — letterbox,
-            // never an undrawable claim.
-            // Ratio against the font the measurement WAS TAKEN AT, not the
-            // live font: those differ exactly when a transient font produced
-            // a bad measurement that outlived it. Fall back to the live font
-            // only before the first measurement recorded one.
-            let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
+            // already has. The measured cell scaled to current bounds rounds
+            // DOWN at worst — letterbox, never an undrawable claim.
             let scaled = abs(measuredFont - naturalFontPt) < 0.1
                 ? 1 : naturalFontPt / measuredFont
-            return scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
-                             drawnCols: drawnCols, drawnRows: drawnRows,
-                             fontRatio: scaled)
+            let byDrawn = scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                                    drawnCols: drawnCols, drawnRows: drawnRows,
+                                    fontRatio: scaled)
+            // Self-heal an ALREADY mis-settled grid: if a bogus short claim was
+            // confirmed as ours (e.g. that 73x19) the drawn grid now trusts
+            // itself at the natural font, so nothing above ever corrects it.
+            // The direct fit is measured from the font, not the lie — if it
+            // says the bounds hold FAR more rows than the drawn grid shows,
+            // the drawn grid is the stale liar. Only a large gap (letterbox,
+            // never rounding) and only when we could own the grid (natural
+            // font ⇒ not observing a shrunk foreign grid). A peer-held
+            // declaration reads direct too, which is the honest natural fit
+            // and never moves the PTY.
+            if let byDrawn, let direct = directFit(),
+               byDrawn.rows < Int(Double(direct.rows) * 0.7) {
+                // Throttled: naturalFit is read many times a second during a
+                // gesture, and an unthrottled heal log floods the diagnostic
+                // ring so a later trace loses all earlier context.
+                healLog("naturalFit heal: drawn \(byDrawn.cols)x\(byDrawn.rows) << direct "
+                    + "\(direct.cols)x\(direct.rows) at natural font — taking direct")
+                return direct
+            }
+            return byDrawn
         }
-        let f = UIFont.monospacedSystemFont(ofSize: naturalFontPt, weight: .regular)
-        let cw = ("0" as NSString).size(withAttributes: [.font: f]).width
-        let ch = f.lineHeight
-        guard cw > 1, ch > 1 else { return nil }
-        return (max(2, Int(bounds.width / cw)), max(2, Int(bounds.height / ch)))
+        if drawnCols > 1, drawnRows > 1 {
+            healLog("naturalFit direct (drawn \(drawnCols)x\(drawnRows) @ \(String(format: "%.1f", measuredFont))pt off-natural \(Int(naturalFontPt)) — not a bounds-fit)")
+        }
+        return directFit()
+    }
+
+    private var lastHealLogAt = Date.distantPast
+    /// KBLog, but at most once every 2s — for the fit-heal messages that fire
+    /// on every gesture frame while a grid is mis-settled.
+    private func healLog(_ msg: String) {
+        guard Date().timeIntervalSince(lastHealLogAt) > 2 else { return }
+        lastHealLogAt = Date()
+        KBLog.record(msg)
     }
 
     override func layoutSubviews() {
@@ -3878,6 +4842,7 @@ final class HopTermView: TerminalView {
         guard let pin = pinnedGrid else { return }
         let t = getTerminal()
         if t.cols != pin.cols || t.rows != pin.rows {
+            walkMark("local resize → \(pin.cols)x\(pin.rows)")
             t.resize(cols: pin.cols, rows: pin.rows)
             t.updateFullScreen()
             setNeedsDisplay(bounds)
@@ -3911,6 +4876,7 @@ final class HopTermView: TerminalView {
             var regrid = ""
             if let pin = self.pinnedGrid, t.cols != pin.cols || t.rows != pin.rows {
                 regrid = " regrid=\(t.cols)x\(t.rows)→\(pin.cols)x\(pin.rows)"
+                walkMark("local resize → \(pin.cols)x\(pin.rows)")
                 t.resize(cols: pin.cols, rows: pin.rows)
             }
             self.resyncViewport()
@@ -4051,14 +5017,28 @@ final class HopTermView: TerminalView {
         let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
         return abs(measuredFont - naturalFontPt) < 0.1 ? 1 : naturalFontPt / measuredFont
     }
-    var capCols: Int {
-        scaledFit(bounds: bounds.size, measuredAt: drawnBounds, drawnCols: drawnCols,
-                  drawnRows: drawnRows, fontRatio: measuredFontRatio)?.cols ?? drawnCols
+    /// The grid the CURRENT bounds+font can draw — the geometry door for the
+    /// pan verdict, letterbox and cell math. Normally SwiftTerm's own measured
+    /// cell (scaledFit of drawn), which is exact. But `drawn` can go stale or
+    /// corrupt across a font storm: trace-convicted, drawn settled at 80x25
+    /// tagged font 10 — physically impossible in 398pt (80 cols needs a 5pt
+    /// cell) — so capRows read 25 for a real 38-row grid and peerSizedGrid put
+    /// a scroll into PAN mode. So: at the NATURAL font, where the true capacity
+    /// IS the font-metric fit, a drawn measurement wildly off that fit is the
+    /// liar — take the direct fit. Off natural (observer's shrunk font) the
+    /// scaled cell is exactly what we render, and direct would be wrong.
+    private func drawableCap() -> (cols: Int, rows: Int)? {
+        let byDrawn = scaledFit(bounds: bounds.size, measuredAt: drawnBounds,
+                                drawnCols: drawnCols, drawnRows: drawnRows,
+                                fontRatio: measuredFontRatio)
+        let measuredFont = drawnFontPt > 0.1 ? drawnFontPt : font.pointSize
+        guard let byDrawn else { return directFit() }
+        guard abs(measuredFont - naturalFontPt) <= 2.5, let d = directFit() else { return byDrawn }
+        let off = { (a: Int, b: Int) in a < Int(Double(b) * 0.7) || a > Int(Double(b) * 1.4) }
+        return (off(byDrawn.rows, d.rows) || off(byDrawn.cols, d.cols)) ? d : byDrawn
     }
-    var capRows: Int {
-        scaledFit(bounds: bounds.size, measuredAt: drawnBounds, drawnCols: drawnCols,
-                  drawnRows: drawnRows, fontRatio: measuredFontRatio)?.rows ?? drawnRows
-    }
+    var capCols: Int { drawableCap()?.cols ?? drawnCols }
+    var capRows: Int { drawableCap()?.rows ?? drawnRows }
 
     /// The user's place in HISTORY, held against the stream. SwiftTerm pins
     /// the viewport to the live edge on every feed — fine when reading live,
@@ -4091,7 +5071,10 @@ final class HopTermView: TerminalView {
     @discardableResult
     func restoreHistoryAnchor() -> Bool {
         guard let anchor = historyAnchor else { return false }
-        if getTerminal().buffer.yDisp != anchor { scrollTo(row: anchor) }
+        if getTerminal().buffer.yDisp != anchor {
+            selectMark("restore anchor \(anchor) from yDisp=\(getTerminal().buffer.yDisp)")
+            scrollTo(row: anchor)
+        }
         return true
     }
 
@@ -4226,10 +5209,7 @@ final class HopTermView: TerminalView {
     private var brakeTouchAt: CFTimeInterval = -1
     private var brakeTouch: Bool { CACurrentMediaTime() - brakeTouchAt < 0.8 }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let chip = copyChip, let t = touches.first,
-           !chip.frame.contains(t.location(in: self)) {
-            hideCopyChip()
-        }
+        if let t = touches.first { let l = t.location(in: self); selectMark("touch began x=\(Int(l.x - bounds.origin.x)) y=\(Int(l.y - bounds.origin.y))") }
         if momentumLink != nil {
             stopMomentum()
             brakeTouchAt = CACurrentMediaTime()
@@ -4241,11 +5221,38 @@ final class HopTermView: TerminalView {
     // NEXT tap starts clean.
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         brakeTouchAt = -1
+        logTouchVerdict("ended", touches)
         super.touchesEnded(touches, with: event)
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         brakeTouchAt = -1
+        logTouchVerdict("cancelled", touches)
         super.touchesCancelled(touches, with: event)
+    }
+    /// Who won a touch: the hold's state plus every recognizer that got past
+    /// .possible. One line per touch, device-visible via Send diagnostics.
+    private func logTouchVerdict(_ how: String, _ touches: Set<UITouch>) {
+        let held = touches.first.map { CACurrentMediaTime() - $0.timestamp } ?? 0
+        let name: (UIGestureRecognizer) -> String = { [unowned self] g in
+            if g === self.selectHold { return "hold" }
+            if g === self.scrollPan { return "scroll" }
+            if g === self.cursorPan { return "cursor" }
+            if g === self.switchPan { return "switch" }
+            if g === self.clickTap { return "click" }
+            return String(describing: type(of: g))
+        }
+        let states = (gestureRecognizers ?? []).compactMap { g -> String? in
+            switch g.state {
+            case .possible: return nil
+            case .began: return "\(name(g))=began"
+            case .changed: return "\(name(g))=changed"
+            case .ended: return "\(name(g))=ended"
+            case .cancelled: return "\(name(g))=cancelled"
+            case .failed: return g === selectHold ? "hold=failed" : nil
+            @unknown default: return nil
+            }
+        }
+        KBLog.record("touch \(how) after \(Int(held * 1000))ms hold=\(selectHold.map { "\($0.state.rawValue)" } ?? "nil") en=\(selectHold?.isEnabled ?? false) sel=\(selectionActive) mouse=\(remoteTakesMouse) alt=\(remoteAltScreen) [\(states.joined(separator: " "))]")
     }
 
     private func startMomentum(pointsPerSecond: CGFloat) {
@@ -4390,9 +5397,10 @@ final class HopTermView: TerminalView {
         case .changed:
             onSessionSwipe?(.moved, dx)
         case .ended:
-            // Distance OR a flick: a fast short swipe is the common gesture.
-            let commit = abs(dx) > 60 || abs(g.velocity(in: self).x) > 600
-            onSessionSwipe?(commit ? .commit : .cancel, dx)
+            // Every release is a release: the lit card decides whether it
+            // switches (see switchDragEnded). Distance and velocity gates
+            // could veto a switch the filmstrip had already armed.
+            onSessionSwipe?(.commit, dx)
         case .cancelled, .failed:
             onSessionSwipe?(.cancel, dx)
         default: break
@@ -4401,6 +5409,10 @@ final class HopTermView: TerminalView {
 
     private var selectHoldPoint: CGPoint = .zero
     private var keyboardWasUpAtHold = true
+    /// A hold that began ON an existing selection is a handle grab until
+    /// proven otherwise; if the finger then moves, the pan owns the gesture.
+    private var hadSelectionAtHold = false
+    private var holdMoved = false
 
     @objc private func handleSelectHold(_ g: UILongPressGestureRecognizer) {
         switch g.state {
@@ -4411,6 +5423,8 @@ final class HopTermView: TerminalView {
             // the tap lands in a moved world (probe-traced: sizeChanged
             // right after present, action never fired).
             keyboardWasUpAtHold = isFirstResponder
+            hadSelectionAtHold = selectionActive
+            holdMoved = false
             _ = becomeFirstResponder()
             selectHoldPoint = g.location(in: self)
             // SwiftTerm's own long-press records the pressed cell
@@ -4423,13 +5437,39 @@ final class HopTermView: TerminalView {
             }
             selectMark("hold-began")
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case .changed:
+            // allowableMovement only gates RECOGNITION; after it the hold
+            // rides along with a drag. Note the drag so the release below
+            // doesn't undo it.
+            let p = g.location(in: self)
+            if hypot(p.x - selectHoldPoint.x, p.y - selectHoldPoint.y) > 12 { holdMoved = true }
         case .ended, .cancelled:
             // Finger up: NOW select the word (the pan it installs can't hurt
-            // a finished gesture) and offer Copy.
-            select(nil)
+            // a finished gesture). SwiftTerm's select() re-presents the
+            // native menu at the selection; our Copy in it (buildMenu) reads
+            // the snapshot taken here.
+            // The release of a hold that GRABBED A HANDLE (a selection was
+            // live, and the finger moved) must not re-select the word under
+            // the original press — that replaced the whole range, so
+            // adjusting one handle threw away the other's adjustment (Jian:
+            // "adjusting left handle resets right handle immediately").
+            // The pan already extended the selection; just capture it.
+            if hadSelectionAtHold && holdMoved {
+                selectMark("hold-ended on handle drag: keeping the pan's selection")
+            } else {
+                select(nil)
+            }
             selectMark("hold-ended sel=\(selectionActive)")
             guard selectionActive else { return }
-            showCopyChip(at: selectHoldPoint)
+            captureSelection()
+            if !keyboardWasUpAtHold { reshowNativeMenuAfterSettle() }
+            selectMark("after-hold alt=\(remoteAltScreen) mouse=\(remoteTakesMouse) captured=\(capturedSelection?.count ?? 0)")
+            for ms in [150, 400, 800, 1500, 2500] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(ms)) { [weak self] in
+                    guard let self else { return }
+                    self.selectMark("+\(ms)ms menu=\(UIMenuController.shared.isMenuVisible) sel=\(self.selectionActive) yDisp=\(self.getTerminal().buffer.yDisp) off=\(Int(self.contentOffset.y))")
+                }
+            }
             // Re-offer after SwiftTerm's selection pan extends the range.
             let pans = (gestureRecognizers ?? []).compactMap { $0 as? UIPanGestureRecognizer }
             selectMark("pans at hold-end: " + pans.map {
@@ -4446,7 +5486,25 @@ final class HopTermView: TerminalView {
         }
     }
 
+    /// A trace that survives on DEVICE. `selectMark` is DEBUG-only and needs
+    /// HOP_SELECT_MARKER set, so it says nothing in Jian's hands; KBLog is the
+    /// ring "Send diagnostics" uploads. Walk traces go to both: tests read the
+    /// marker file, the phone reports the ring. Two fixes shipped blind for
+    /// want of this.
+    func walkMark(_ line: String) {
+        selectMark(line)
+        KBLog.record(line)
+    }
+
     func selectMark(_ line: String) {
+        // ALSO on device, into the diagnostics ring: selection bugs only
+        // reproduce under a real finger (2026-09-27, "long press no longer
+        // triggers the system selector" — green in every simulator probe).
+        // The +Nms follow-ups and resize echoes are the noisy part; keep the
+        // transitions.
+        if !line.hasPrefix("+"), !line.hasPrefix("active_size"), !line.hasPrefix("local resize") {
+            KBLog.record("sel: " + line)
+        }
         #if DEBUG
         if let m = ProcessInfo.processInfo.environment["HOP_SELECT_MARKER"] {
             let prev = (try? String(contentsOfFile: m, encoding: .utf8)) ?? ""
@@ -4459,80 +5517,81 @@ final class HopTermView: TerminalView {
         // .changed spams ~50 lines a drag; transitions are the story.
         if g.state != .changed { selectMark("selPan state=\(g.state.rawValue) sel=\(selectionActive)") }
         guard g.state == .ended, selectionActive else { return }
-        showCopyChip(at: g.location(in: self))
+        captureSelection()
     }
 
-    /// The Copy offer: a hop chip, not the system edit menu. Six probe
-    /// cycles established that UIEditMenuInteraction and SwiftTerm's
-    /// UITextInput conformance fight — presentation churned the keyboard and
-    /// cleared the selection under the menu. The chip is ours: in-process,
-    /// steady, and it CAPTURES the selected text the moment it appears, so
-    /// nothing that happens to the live selection afterwards can lose it.
-    private var copyChip: UIButton?
+    /// THE NATIVE EDIT MENU, with a Copy that works. SwiftTerm's long-press
+    /// presents the system menu (UIMenuController.showMenu, bridged to the
+    /// edit menu on iOS 16+): Paste / Select / Select All at the finger,
+    /// native styling, native placement. Its own Copy was the unreliable
+    /// part — gated on `selection.active` when the menu is built, and
+    /// copying the LIVE selection at tap time, while the selection gets
+    /// cleared under the menu (keyboard churn, the session repainting):
+    /// tap Copy, get nothing. That is why a hop chip once replaced the
+    /// whole menu, and why Jian then missed Paste. Now the menu keeps every
+    /// native item except that Copy and gets ours in front: ungated, and
+    /// it copies the snapshot `captureSelection()` took the moment the word
+    /// was selected (Jian: "if you can use a native copy and it will
+    /// function correctly, it will be the best"). The bridged menu is built
+    /// through UIMenuSystem.context; this responder hook decides its items.
+    private var capturedSelection: String?
 
-    private func showCopyChip(at point: CGPoint) {
-        guard let captured = getSelection(), !captured.isEmpty else { return }
-        copyChip?.removeFromSuperview()
-        var cfg = UIButton.Configuration.filled()
-        cfg.title = "Copy"
-        cfg.image = UIImage(systemName: "doc.on.doc")
-        cfg.imagePadding = 5
-        cfg.baseForegroundColor = .white
-        cfg.background.backgroundColor = .hopRaised
-        cfg.background.cornerRadius = 15
-        cfg.background.strokeColor = UIColor(white: 1, alpha: 0.14)
-        cfg.background.strokeWidth = 0.5
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
-        cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
-            return out
-        }
-        let chip = UIButton(configuration: cfg)
-        chip.accessibilityLabel = "Copy selection"
-        chip.addAction(UIAction { [weak self] _ in
-            UIPasteboard.general.string = captured
-            self?.selectMark("chip-copied \(captured.count) chars")
-            #if DEBUG
-            if let marker = ProcessInfo.processInfo.environment["HOP_COPY_MARKER"] {
-                try? captured.write(toFile: marker, atomically: true, encoding: .utf8)
+    private func captureSelection() {
+        if let text = getSelection(), !text.isEmpty { capturedSelection = text }
+    }
+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard builder.system == .context else { return }
+        // Drop the native Copy (ours replaces it) and Select (the hold
+        // already selected the word under the finger — screenshot showed it
+        // beside a live selection). Paste and Select All stay native.
+        if builder.menu(for: .standardEdit) != nil {
+            let dropped: [Selector] = [#selector(UIResponderStandardEditActions.copy(_:)),
+                                       #selector(UIResponderStandardEditActions.select(_:))]
+            builder.replaceChildren(ofMenu: .standardEdit) { children in
+                children.filter { child in
+                    guard let action = (child as? UICommand)?.action else { return true }
+                    return !dropped.contains(action)
+                }
             }
-            #endif
-            self?.hideCopyChip()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        }, for: .touchUpInside)
-        chip.sizeToFit()
-        // FIXED slot, top-trailing under the chrome strip (where the size
-        // chip taught the eye to look) — NOT at the finger: the system's
-        // text-input menu (Paste/Select/Select All, from SwiftTerm's
-        // UITextInput) presents there and occluded a finger-anchored chip
-        // (screenshot-proven; canPerformAction is public-not-open, so the
-        // system menu cannot be suppressed from a subclass). Hosted on the
-        // WINDOW: both the terminal's subtree and the SwiftUI hosting
-        // boundary are opaque to accessibility — a superview-hosted chip
-        // was invisible to VoiceOver and untappable by tests. The window is
-        // above all of it.
-        guard let win = window else { return }
-        _ = point
-        let size = chip.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        chip.frame = CGRect(x: win.bounds.width - size.width - 12,
-                            y: Self.chromeStrip + 8,
-                            width: size.width, height: size.height)
-        win.addSubview(chip)
-        copyChip = chip
-        selectMark("chip-shown")
-        // Nudge assistive tech at the new element; the SwiftUI hosting
-        // boundary otherwise leaves the chip undiscovered (recorded caveat).
-        UIAccessibility.post(notification: .layoutChanged, argument: chip)
-        // A selection you walked away from shouldn't leave UI behind.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self, weak chip] in
-            if let chip, chip === self?.copyChip { self?.hideCopyChip() }
         }
+        guard builder.menu(for: .root) != nil else { return }
+        let copy = UIAction(title: "Copy") { [weak self] _ in self?.copyCaptured() }
+        builder.insertChild(UIMenu(options: .displayInline, children: [copy]),
+                            atStartOfMenu: .root)
     }
 
-    private func hideCopyChip() {
-        copyChip?.removeFromSuperview()
-        copyChip = nil
+    private func copyCaptured() {
+        // The snapshot first; the live selection only when there is none
+        // (a selection made some way the hold didn't see).
+        let raw = capturedSelection ?? getSelection() ?? ""
+        // A link selected while it was broken across rows pastes as a dead
+        // link unless the layout comes back out; anything that isn't exactly
+        // one URL is copied verbatim.
+        let text = rejoinWrappedURL(raw) ?? raw
+        guard !text.isEmpty else { return }
+        UIPasteboard.general.string = text
+        selectMark("native-copied \(text.count) chars")
+        #if DEBUG
+        if let marker = ProcessInfo.processInfo.environment["HOP_COPY_MARKER"] {
+            try? text.write(toFile: marker, atomically: true, encoding: .utf8)
+        }
+        #endif
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// The keyboard-was-down path: becoming first responder at hold-began
+    /// raises the keyboard, and that layout churn dismisses the menu
+    /// SwiftTerm presented — and the one its select() re-presents on
+    /// finger-up lands mid-animation. Present it once more when still.
+    private func reshowNativeMenuAfterSettle() {
+        let at = selectHoldPoint
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, self.capturedSelection != nil else { return }
+            UIMenuController.shared.showMenu(from: self,
+                                             rect: CGRect(x: at.x, y: at.y, width: 1, height: 1))
+        }
     }
 
     /// The hop keyboard. Sticky across sessions and launches: a keyboard
@@ -4542,6 +5601,9 @@ final class HopTermView: TerminalView {
         get { UserDefaults.standard.bool(forKey: "hopBoard") }
         set { UserDefaults.standard.set(newValue, forKey: "hopBoard") }
     }
+
+    /// An accessory arrow consumed the hop keyboard's one-shot ⇧.
+    func clearBoardShift() { hopBoard?.clearShift() }
 
     func toggleHopBoard() {
         Self.hopBoardPreferred.toggle()
@@ -4555,6 +5617,7 @@ final class HopTermView: TerminalView {
                 let board = HopBoardView()
                 board.onText = { [weak self] t in self?.keyHandler?.typedText(t) }
                 board.onSystemKeyboard = { [weak self] in self?.toggleHopBoard() }
+                board.onShift = { [weak self] on in self?.keyHandler?.setShiftArmed(on) }
                 hopBoard = board
             }
             inputView = hopBoard
@@ -4573,6 +5636,26 @@ final class HopTermView: TerminalView {
     func setCtrlArmed(_ armed: Bool) {
         ctrlButton?.accessibilityValue = armed ? "armed" : nil
         ctrlButton?.setNeedsUpdateConfiguration()
+    }
+
+    /// ⇧ armed — the same sticky-modifier contract as ctrl and alt, and the
+    /// same announcement (a tinted background alone is invisible to
+    /// VoiceOver and to any test that would catch it breaking).
+    func setShiftArmed(_ armed: Bool) {
+        shiftButton?.accessibilityValue = armed ? "armed" : nil
+        shiftButton?.setNeedsUpdateConfiguration()
+    }
+
+    func setCmdArmed(_ armed: Bool) {
+        cmdButton?.accessibilityValue = armed ? "armed" : nil
+        cmdButton?.setNeedsUpdateConfiguration()
+    }
+
+    /// Can this app carry a chord only CSI-u can express (anything with ⌘)?
+    /// Same gate, same reasons, as shiftEnterSequence().
+    var enhancedKeys: Bool {
+        remote.kbdEnhanced || runningAppName.localizedCaseInsensitiveContains("claude")
+            || runningAppName.localizedCaseInsensitiveContains("codex")
     }
 
     private var holdKeys: [ObjectIdentifier: AccessoryKey] = [:]
@@ -4644,7 +5727,7 @@ final class HopTermView: TerminalView {
         // Top hairline: the same light-catching edge the switcher's cards
         // wear, separating the bar from the terminal above it.
         let hairline = UIView()
-        hairline.backgroundColor = UIColor(white: 1, alpha: 0.06)
+        hairline.backgroundColor = UIColor.label.withAlphaComponent(0.06)
         hairline.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(hairline)
         NSLayoutConstraint.activate([
@@ -4661,7 +5744,7 @@ final class HopTermView: TerminalView {
 
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.spacing = 6
+        stack.spacing = 3      // 11 Mac keys have to fit; see the widths below
         stack.translatesAutoresizingMaskIntoConstraints = false
         scroller.addSubview(stack)
 
@@ -4697,42 +5780,49 @@ final class HopTermView: TerminalView {
         // Widths are tuned so esc…→ — the nine you reach for constantly — fit
         // without scrolling; paging, paste and dismiss sit just past the edge.
         let keys: [(String, AccessoryKey, CGFloat, String, AccessoryKey?)] = [
-            ("esc", .esc, 40, "escape", nil),
-            ("tab", .tab, 44, "tab", .shiftTab),
-            ("ctrl", .ctrl, 42, "control", nil),
-            ("alt", .alt, 38, "alt", nil),
-            ("^C", .ctrlC, 38, "control C", nil),
-            // 34pt is the budget, and it is SPENT: 40 and 38 were both tried
-            // after ⌫'s removal freed width, and both push → off the first
-            // screen (screenshot-checked) — the "spare" was already funding the
-            // ⇞ peek that hints the bar scrolls. Fatter arrows would mean
-            // thinner esc/tab/ctrl, which is the same miss rate moved around.
-            ("←", .left, 34, "left arrow", nil),
-            ("↓", .down, 34, "down arrow", nil),
-            ("↑", .up, 34, "up arrow", nil),
-            ("→", .right, 34, "right arrow", nil),
-            // Past the fold: a TAP is redundant with the system delete, but a
-            // HOLD is not — this is the only backspace that repeats.
-            ("⌫", .backspace, 38, "backspace", nil),
-            // Newline WITHOUT submitting — claude's shift+enter, which no iOS
-            // keyboard can produce. Encoded (CSI 13;2u) for apps that speak
-            // the protocol or for claude, plain enter otherwise.
-            ("⇧⏎", .shiftEnter, 44, "shift return", nil),
-            ("⇞", .pageUp, 38, "page up", nil),
-            ("⇟", .pageDown, 38, "page down", nil),
-            ("paste", .paste, 50, "paste", nil),
-            ("⌨", .board, 38, "hop keyboard", nil),
-            ("⌄", .dismiss, 34, "hide keyboard", nil)
+            // A MacBook Pro's own keys, in Mac notation, and NOTHING that
+            // isn't one (Jian: "you need to be able to simulate a full mac
+            // keyboard … other keys that do not exist in a macbook pro
+            // keyboard i also do not need them"). The four modifiers are
+            // sticky and combine, so every Mac chord is reachable; ^C stays
+            // because it is the one chord worth a single tap ("the ctrl+c
+            // shortcut is very convenient though, i want that kept").
+            // MEASURED, not guessed: eleven keys × these widths + 10 × 3pt
+            // gaps + the stack's 8pt lead = 394pt, inside a 402pt phone
+            // (at 4pt gaps → ended at 404 and the layout test caught it).
+            // The arrows give up 3pt each to pay for the modifiers; the gaps
+            // gave up the rest, because a narrower arrow is a missed arrow.
+            ("esc", .esc, 34, "escape", nil),
+            ("tab", .tab, 36, "tab", nil),
+            ("⌃", .ctrl, 32, "control", nil),
+            ("⌥", .alt, 32, "option", nil),
+            ("⇧", .shift, 32, "shift", nil),
+            ("⌘", .cmd, 32, "command", nil),
+            ("^C", .ctrlC, 34, "control C", nil),
+            ("←", .left, 31, "left arrow", nil),
+            ("↓", .down, 31, "down arrow", nil),
+            ("↑", .up, 31, "up arrow", nil),
+            ("→", .right, 31, "right arrow", nil),
+            // Past the fold: real Mac keys that a MacBook reaches with fn,
+            // plus hop's own two (the keyboard swap and dismiss). ⇧⏎ stays
+            // as a one-tap convenience; ⇧ + return now does it too.
+            ("⌫", .backspace, 36, "backspace", nil),
+            ("⇧⏎", .shiftEnter, 42, "shift return", nil),
+            ("⇞", .pageUp, 36, "page up", nil),
+            ("⇟", .pageDown, 36, "page down", nil),
+            ("paste", .paste, 48, "paste", nil),
+            ("⌨", .board, 36, "hop keyboard", nil),
+            ("⌄", .dismiss, 32, "hide keyboard", nil)
         ]
         for (label, key, width, spoken, hold) in keys {
             var cfg = UIButton.Configuration.filled()
             cfg.title = label
-            cfg.baseForegroundColor = .white
+            cfg.baseForegroundColor = .label
             cfg.background.backgroundColor = .hopKey
             cfg.background.cornerRadius = 9
             // The hairline every card in the app now wears; flat fills next
             // to the switcher's lit tiles read as an older generation of UI.
-            cfg.background.strokeColor = UIColor(white: 1, alpha: 0.08)
+            cfg.background.strokeColor = UIColor.label.withAlphaComponent(0.08)
             cfg.background.strokeWidth = 0.5
             cfg.contentInsets = .zero
             // Single glyphs (arrows, ⌫, paging) get two extra points: at 13pt
@@ -4798,6 +5888,8 @@ final class HopTermView: TerminalView {
                 btn.accessibilityHint = "Hold for control combos"
             }
             if key == .alt { altButton = btn }
+            if key == .shift { shiftButton = btn }
+            if key == .cmd { cmdButton = btn }
             // One handler owns the cap's colour in every state, pressed and
             // armed both — the armed setters merely change accessibilityValue
             // (the contract the UI test already holds) and ask for an update.
@@ -4808,12 +5900,48 @@ final class HopTermView: TerminalView {
                 let armed = b.accessibilityValue == "armed"
                 let base: UIColor = armed ? .hopKeyArmed : .hopKey
                 c.background.backgroundColor = b.isHighlighted ? base.hopPressed : base
-                c.baseForegroundColor = armed ? .black : .white
+                // Ink follows the paper: label on a cap, and on the armed
+                // purple the paper's opposite (black on the light-mode
+                // lilac, white on the deep purple light mode uses).
+                c.baseForegroundColor = armed ? .hopArmedInk : .label
                 b.configuration = c
             }
             stack.addArrangedSubview(btn)
         }
         return bar
+    }
+}
+
+/// A one-finger pan with a real dead zone. A settling fingertip drifts a
+/// few points as its pad flattens, and UIKit's pan claims that drift at
+/// ~10pt — on the phone every press-and-hold became a scroll ~30ms after
+/// touch-down, the hold failed on "movement", and block selection was
+/// unreachable (Jian 2026-09-28: "long press no longer triggers the system
+/// selector"; diagnostics: `[scroll=began hold=failed]` on 6/6 presses, green
+/// in every simulator run because a synthetic press never moves). Movement
+/// inside `slop` is withheld from UIKit; past it, the pan sees the full
+/// translation from touch-down and begins at once, so a scroll loses nothing
+/// but its first `slop` points of latency.
+final class SlopPanGestureRecognizer: UIPanGestureRecognizer {
+    var slop: CGFloat = 18
+    private var start: CGPoint?
+    private var released = false
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if start == nil, let t = touches.first { start = t.location(in: view); released = false }
+        super.touchesBegan(touches, with: event)
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        if !released, let s = start, let t = touches.first {
+            let p = t.location(in: view)
+            guard hypot(p.x - s.x, p.y - s.y) >= slop else { return }
+            released = true
+        }
+        super.touchesMoved(touches, with: event)
+    }
+    override func reset() {
+        super.reset()
+        start = nil
+        released = false
     }
 }
 
@@ -4827,7 +5955,7 @@ extension HopTermView: UIGestureRecognizerDelegate {
             // falls into the vertical-dominance rule below, which exists to
             // hand sideways drags to the swipe back — and was refusing the
             // very recognizer that performs it.
-            if g is UIScreenEdgePanGestureRecognizer { return true }
+            if g is UIScreenEdgePanGestureRecognizer { selectMark("edge pan asked to begin"); return true }
             // While a selection is live, the drag belongs to SwiftTerm's
             // selection pan — the recognizer that moves the handles. This
             // hook is the VIEW's, so it is asked about EVERY recognizer on
@@ -4868,7 +5996,16 @@ extension HopTermView: UIGestureRecognizerDelegate {
                 // Mouse mode always arms it (the SGR click path); otherwise
                 // it arms exactly when the finger is ON a link — a plain tap
                 // on text stays a focus tap.
-                return remoteTakesMouse || linkUnderTap(tap.location(in: self)) != nil
+                // Begin exactly when the tap can DO something: report a
+                // mouse click, walk the cursor there, or open a link. This
+                // used to admit only the cursor's own row outside an
+                // alt-screen app, which blocked the multiline case from the
+                // other side — arrowWalk was fixed and taps still did
+                // nothing, because the recognizer never started.
+                if remoteTakesMouse || remoteAltScreen { return true }
+                if let c = cellAt(tap.location(in: self)),
+                   arrowWalk(toRow: c.row, col: c.col) != nil { return true }
+                return linkUnderTap(tap.location(in: self)) != nil
             }
             if inStrip { return false }   // reaching for controls ≠ asking to type
         }
@@ -4880,8 +6017,9 @@ extension HopTermView: UIGestureRecognizerDelegate {
         // brakeTouch covers the case where touchesBegan already stopped the
         // coast before this question was asked (touch delivery is immediate
         // with isScrollEnabled false, so momentumLink is nil by now).
-        if brakeTouch { return false }
+        if brakeTouch { if g === selectHold { KBLog.record("sel: hold refused — brake") }; return false }
         if momentumLink != nil {
+            if g === selectHold { KBLog.record("sel: hold refused — coasting") }
             Logger(subsystem: "io.zhoulab.hop.spike", category: "terminal")
                 .info("coast braked by touch")
             stopMomentum()
@@ -4890,7 +6028,7 @@ extension HopTermView: UIGestureRecognizerDelegate {
         // Press-and-hold selects — but not in the chrome strip (reaching for
         // controls), and never while a coast is being braked (below).
         if g === selectHold {
-            if inChromeStrip(g) { return false }
+            if inChromeStrip(g) { KBLog.record("sel: hold refused — chrome strip y=\(Int(g.location(in: self).y - bounds.origin.y)) reach=\(Int(chromeReach))"); return false }
         }
         // An APPROVED single tap on the terminal body is the user engaging —
         // "a single touch should trigger autofit". This is the one place
@@ -4903,7 +6041,9 @@ extension HopTermView: UIGestureRecognizerDelegate {
            !inChromeStrip(tap) {
             onUserIntent?()
         }
-        return super.gestureRecognizerShouldBegin(g)
+        let ok = super.gestureRecognizerShouldBegin(g)
+        if g === selectHold { KBLog.record("sel: hold shouldBegin → \(ok)") }
+        return ok
     }
 
     /// Coexist with the long-press and tap recognizers, which are how

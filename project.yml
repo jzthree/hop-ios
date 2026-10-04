@@ -41,6 +41,10 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSFaceIDUsageDescription: "hop locks your terminal sessions behind Face ID."
+        # Attach a photo to a session: the camera needs this; the library
+        # picker is the system one and prompts for nothing.
+        NSCameraUsageDescription: "hop can take a photo and hand it to the session you're in."
+        NSPhotoLibraryUsageDescription: "hop can pick a photo and hand it to the session you're in."
         NSLocalNetworkUsageDescription: "hop connects to your hop daemon on the local network."
         UIBackgroundModes: [fetch]
         # Handoff: the open session is donated as a browsing activity whose

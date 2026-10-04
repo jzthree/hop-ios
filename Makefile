@@ -12,23 +12,42 @@ SCHEME = HopSpike
 APP = build/Build/Products/Release-iphoneos/HopSpike.app
 DEBUG_APP = build/Build/Products/Debug-iphoneos/HopSpike.app
 SIMAPP = build-sim/Build/Products/Debug-iphonesimulator/HopSpike.app
-# The daemon accepts its own session secret as a bearer token / cookie, which
-# is how the simulator gets past TOTP during development.
+# The daemon accepts its own session secret as a Bearer token for local IPC
+# (since hop2 0.11.48 it is NOT a valid cookie any more — mint a device token
+# with `hop auth token --label sim` for HOP_DEV_COOKIE instead).
 # Every install should be identifiable on the device — "1.0 (1)" forever meant
 # you couldn't tell whether the phone had the build with the fix in it.
 BUILDNO = $(shell git rev-list --count HEAD)
 GITDESC = $(shell git describe --always --dirty)
 VERSION_FLAGS = CURRENT_PROJECT_VERSION=$(BUILDNO) HOP_GIT_DESCRIBE=$(GITDESC)
 
-TOKEN = $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
+# Prefer a minted device token (`hop auth token --label sim --days 90 > ...`,
+# token line saved to ~/.hop2/.dev-token-sim, mode 600); fall back to the
+# daemon's session secret, which local IPC still honours.
+TOKEN = $(shell cat ~/.hop2/.dev-token-sim 2>/dev/null || python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')))['sessionSecret'])" 2>/dev/null)
+# The daemon every sim launch and UI test talks to. The capture rig
+# (WallCapture, HOP_DEV_SERVER) points the debug build at its own
+# 127.0.0.1 daemon and that URL PERSISTS in the sim container — the next
+# `make uitest` then bounced every test off a dead port with "Could not
+# connect" (2026-09-26, three runs lost). Pin it before each launch.
+SERVER ?= https://hop.zhoulab.io
+# NOT `simctl spawn defaults write`: that lands in the sim's root domain,
+# and the app reads its own container plist. Passing HOP_DEV_SERVER makes the
+# app write the value through its own @AppStorage, which is the one it reads.
+define reset-sim-server
+	-xcrun simctl boot $(SIM) 2>/dev/null
+	-xcrun simctl terminate $(SIM) $(BUNDLE) 2>/dev/null
+	-SIMCTL_CHILD_HOP_DEV_SERVER=$(SERVER) SIMCTL_CHILD_HOP_DEV_COOKIE=$(TOKEN) xcrun simctl launch $(SIM) $(BUNDLE) >/dev/null 2>&1 && sleep 2
+	-xcrun simctl terminate $(SIM) $(BUNDLE) 2>/dev/null
+endef
 # The e2e fixture, addressed by STABLE internal name and resolved to whatever
 # the daemon displays for it right now. Display names churn (three incidents:
 # Orion->hop-ios, Solstice->hop, Meridian->nebula) and every churn used to
 # read as a scroll regression until someone re-pointed a string.
 FIXTURE_INTERNAL ?= Meridian
-FIXTURE = $(shell python3 -c "import json,os,urllib.request;st=json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')));r=urllib.request.Request('http://127.0.0.1:%d/api/sessions'%st['port'],headers={'Cookie':'tunnel_session='+st['sessionSecret']});d=json.load(urllib.request.urlopen(r,timeout=5));ses=d.get('sessions',d);print(next((x['name'] for x in ses if x.get('internalName')=='$(FIXTURE_INTERNAL)'),'$(FIXTURE_INTERNAL)'))" 2>/dev/null || echo $(FIXTURE_INTERNAL))
+FIXTURE = $(shell python3 -c "import json,os,urllib.request;st=json.load(open(os.path.expanduser('~/.hop2/.tunnel-state')));r=urllib.request.Request('http://127.0.0.1:%d/api/sessions'%st['port'],headers={'Authorization':'Bearer '+st['sessionSecret']});d=json.load(urllib.request.urlopen(r,timeout=5));ses=d.get('sessions',d);print(next((x['name'] for x in ses if x.get('internalName')=='$(FIXTURE_INTERNAL)'),'$(FIXTURE_INTERNAL)'))" 2>/dev/null || echo $(FIXTURE_INTERNAL))
 
-.PHONY: gen build test uitest sim install shot archive testflight clean
+.PHONY: gen build test uitest sim install shot archive testflight ship clean
 
 gen:
 	xcodegen
@@ -72,6 +91,7 @@ test: gen
 # xcodebuild's output through grep at the call site loses the test's identity
 # exactly when it matters.
 uitest: gen
+	$(reset-sim-server)
 	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
 	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
@@ -136,11 +156,21 @@ testflight: archive
 	  -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates \
 	  $(ASC_AUTH) -exportPath build/export
 
+# The whole away-from-home loop: archive, upload, wait for processing, add to
+# the Internal tester group (which does NOT get builds automatically). The
+# phone's TestFlight app then offers the update over any network.
+# Build number = a timestamp (yymmddHHMM), not the commit count: uncommitted
+# work keeps the count still, and App Store Connect rejects a reused number.
+SHIPNO := $(shell date +%y%m%d%H%M)
+ship:
+	$(MAKE) testflight BUILDNO=$(SHIPNO) ISSUER=$(or $(ISSUER),254072af-7f14-4065-acd8-d09fe4924553)
+	node tools/testflight-publish.mjs $(SHIPNO)
+
 sim: simbuild
 	-xcrun simctl boot $(SIM) 2>/dev/null
 	-xcrun simctl terminate $(SIM) $(BUNDLE) 2>/dev/null
 	xcrun simctl install $(SIM) $(SIMAPP)
-	SIMCTL_CHILD_HOP_DEV_COOKIE=$(TOKEN) $(if $(OPEN),SIMCTL_CHILD_HOP_DEV_OPEN=$(OPEN),) \
+	SIMCTL_CHILD_HOP_DEV_SERVER=$(SERVER) SIMCTL_CHILD_HOP_DEV_COOKIE=$(TOKEN) $(if $(OPEN),SIMCTL_CHILD_HOP_DEV_OPEN=$(OPEN),) \
 	  $(if $(GROUP),SIMCTL_CHILD_HOP_DEV_GROUP=$(GROUP),) $(if $(SCOPE),SIMCTL_CHILD_HOP_DEV_SCOPE=$(SCOPE),) \
 	  $(if $(SHEET),SIMCTL_CHILD_HOP_DEV_SHEET=$(SHEET),) $(if $(VIEWER),SIMCTL_CHILD_HOP_DEV_VIEWER=$(VIEWER),) $(if $(FILTER),SIMCTL_CHILD_HOP_DEV_FILTER=$(FILTER),) $(if $(OFFLINE),SIMCTL_CHILD_HOP_DEV_OFFLINE=$(OFFLINE),) $(if $(COMPACT),SIMCTL_CHILD_HOP_DEV_COMPACT=$(COMPACT),) $(if $(ATTN),SIMCTL_CHILD_HOP_DEV_ATTENTION=$(ATTN),) $(if $(GONE),SIMCTL_CHILD_HOP_DEV_GONE=$(GONE),) \
 	  xcrun simctl launch $(SIM) $(BUNDLE)

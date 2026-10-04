@@ -1979,3 +1979,26 @@ final class MuteTerminalDelegate: TerminalDelegate {
 
 
 }
+
+/// The size the phone CLAIMS must be the size SwiftTerm actually DRAWS. A
+/// 2-col/2-row overestimate made the PTY 58x34 while the view drew 56x32 —
+/// the last columns and rows cut off (diagnostic 2026-10-03).
+final class CellMetricsTests: XCTestCase {
+    @MainActor
+    func testEstimatedFitEqualsSwiftTermsOwnFit() {
+        for pt in [9.0, 10.0, 11.0, 12.0, 14.0] as [CGFloat] {
+            for size in [CGSize(width: 398, height: 458), CGSize(width: 398, height: 778),
+                         CGSize(width: 398, height: 504), CGSize(width: 874, height: 300)] {
+                let tv = TerminalView(frame: CGRect(origin: .zero, size: size))
+                tv.font = UIFont.monospacedSystemFont(ofSize: pt, weight: .regular)
+                tv.frame = CGRect(origin: .zero, size: size)
+                tv.layoutIfNeeded()
+                let t = tv.getTerminal()
+                let cell = HopTermView.cellSize(fontPt: pt, lineSpacing: tv.lineSpacing)
+                let est = (Int(size.width / cell.width), Int(size.height / cell.height))
+                XCTAssertEqual(est.0, t.cols, "cols at \(pt)pt \(size)")
+                XCTAssertEqual(est.1, t.rows, "rows at \(pt)pt \(size)")
+            }
+        }
+    }
+}

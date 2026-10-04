@@ -20,6 +20,12 @@ enum KBLog {
     static func record(_ line: String) {
         let t = Int(Date().timeIntervalSince(epoch) * 1000) % 600_000
         lines.append("t+\(t)ms \(line)")
+        #if DEBUG
+        if let m = ProcessInfo.processInfo.environment["HOP_KBLOG_MARKER"],
+           let fh = FileHandle(forWritingAtPath: m) ?? { FileManager.default.createFile(atPath: m, contents: nil); return FileHandle(forWritingAtPath: m) }() {
+            fh.seekToEndOfFile(); fh.write(Data("t+\(t)ms \(line)\n".utf8)); try? fh.close()
+        }
+        #endif
         if lines.count > cap { lines.removeFirst(lines.count - cap) }
     }
 

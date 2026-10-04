@@ -39,10 +39,14 @@
 	<string>$(HOP_GIT_DESCRIBE)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>hop can take a photo and hand it to the session you're in.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>hop locks your terminal sessions behind Face ID.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>hop connects to your hop daemon on the local network.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>hop can pick a photo and hand it to the session you're in.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>io.zhoulab.hop.session.handoff</string>

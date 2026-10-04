@@ -87,6 +87,9 @@ final class ScrollUITests: XCTestCase {
         app.launchArguments += ["-hop-ui-testing"]   // steady caret: see TerminalScreen
         app.launchEnvironment["HOP_DEV_OPEN"] = name
         app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        // TEST_RUNNER_HOP_SELECT_MARKER=<file> on xcodebuild → the app's
+        // selectMark() trace, for gesture-arbitration verdicts.
+        if let marker = env["HOP_SELECT_MARKER"] { app.launchEnvironment["HOP_SELECT_MARKER"] = marker }
         app.launch()
         return app
     }
@@ -148,6 +151,54 @@ final class ScrollUITests: XCTestCase {
         XCTAssertEqual(ctrl.value as? String, "", "tapping again disarms rather than sticking")
     }
 
+    /// Desktop parity: parked sessions are BROWSABLE in a folded "Parked · N"
+    /// section at the bottom of the list, not only findable by search.
+    func testParkedSectionListsParkedSessions() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "ParkProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        XCTAssertTrue(daemonPOST("api/sessions/park", ["name": scratch, "parked": true], cookie: cookie))
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        let header = app.buttons["parked section"].firstMatch
+        for _ in 0..<12 where !header.exists { app.swipeUp(); sleep(1) }
+        XCTAssertTrue(header.waitForExistence(timeout: 10), "no Parked section")
+        XCTAssertFalse(app.staticTexts[scratch].exists, "parked row visible while folded")
+        header.tap()
+        XCTAssertTrue(app.staticTexts[scratch].waitForExistence(timeout: 5), "parked session not listed")
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-parked.png"))
+    }
+
+    /// One tap on the pill's name reveals the whole name under it (a
+    /// pill-width title truncates), and the tap must NOT hide the chrome —
+    /// which is where a name tap used to fall through to.
+    func testTapOnTitleRevealsFullName() throws {
+        let app = launchIntoSession(Self.fixture)
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let title = app.staticTexts[Self.fixture].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "title not found")
+        title.tap()
+        let panel = app.otherElements["full session name"].firstMatch
+        let shown = panel.waitForExistence(timeout: 3)
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-fullname.png"))
+        if !shown { print("FULLNAME-PROBE texts: \(app.staticTexts.allElementsBoundByIndex.map(\.label).prefix(12)) others: \(app.otherElements.allElementsBoundByIndex.compactMap { $0.identifier.isEmpty ? nil : $0.identifier }.prefix(12))") }
+        XCTAssertTrue(shown, "full-name panel did not appear on a title tap")
+        XCTAssertTrue(app.buttons["Terminal actions"].exists, "a name tap hid the chrome")
+        // Auto-dismisses.
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: panel, handler: nil)
+        waitForExpectations(timeout: 8)
+    }
+
     /// The terminal's ⋯ must carry the web sheet's session verbs — Rename
     /// was reported missing from inside a session (everything lived only on
     /// the wall's long-press).
@@ -155,24 +206,29 @@ final class ScrollUITests: XCTestCase {
         let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         app.buttons["Terminal actions"].tap()
+        // Standing visual artifact: the open menu, refreshed every run. The
+        // AX tree hid the last failure (a fold nothing hints at); the pixels
+        // did not.
+        XCTAssertTrue(app.buttons["Display"].waitForExistence(timeout: 5),
+                      "Display missing from the terminal menu")
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-menu-current.png"))
+        // Display is a TOP-LEVEL submenu now — text size is two taps.
+        app.buttons["Display"].tap()
         // The text-size stepper keeps the menu OPEN (menuActionDismissBehavior
         // .disabled) — a tap on Smaller must not dismiss. Tap Bigger after to
         // leave the persisted size where it started.
         XCTAssertTrue(app.buttons["Smaller text"].waitForExistence(timeout: 5),
-                      "text-size stepper missing from the terminal menu")
-        // Standing visual artifact: the open menu, refreshed every run. The
-        // AX tree hid the last failure (a fold nothing hints at); the pixels
-        // did not.
-        try? XCUIScreen.main.screenshot().pngRepresentation
-            .write(to: URL(fileURLWithPath: "/tmp/hop-menu-current.png"))
+                      "text-size stepper missing from the Display submenu")
         app.buttons["Smaller text"].tap()
-        XCTAssertTrue(app.buttons["Session"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["Bigger text"].waitForExistence(timeout: 3),
                       "size stepper dismissed the menu")
         app.buttons["Bigger text"].tap()
-        // The session verbs live one level down (the flat 18-row menu
-        // scrolled past the keyboard-up fold and iOS truncated its AX tail —
-        // Reconnect vanished from the tree). The flat door is the title
-        // long-press, covered by its own test.
+        // Back out of Display; Session sits beside it at the top level. The
+        // session verbs' flat door is the title long-press, its own test.
+        app.buttons["Display"].tap()
+        XCTAssertTrue(app.buttons["Session"].waitForExistence(timeout: 5),
+                      "Session missing from the terminal menu")
         app.buttons["Session"].tap()
         XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 5),
                       "Rename missing from the Session submenu")
@@ -637,8 +693,7 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(daemonPOST("api/sessions",
                                  ["name": scratch, "type": "terminal"], cookie: cookie),
                       "scratch create refused")
-        defer { _ = daemonPOST("api/sessions/delete",
-                               ["internalName": scratch], cookie: cookie) }
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
 
         let app = launchIntoSession(scratch)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
@@ -720,8 +775,7 @@ final class ScrollUITests: XCTestCase {
         app.terminate()
 
         // Kill it daemon-side; the cache still remembers it.
-        XCTAssertTrue(daemonPOST("api/sessions/delete",
-                                 ["internalName": scratch], cookie: cookie))
+        XCTAssertTrue(daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie))
 
         // Cold launch straight INTO the dead session: the cache paints the
         // wall, HOP_DEV_OPEN navigates before any live refresh can replace
@@ -819,12 +873,11 @@ final class ScrollUITests: XCTestCase {
         try XCTSkipUnless(!cookie.isEmpty)
         let scratch = "SelectProbe"
         // A prior aborted run can leave the scratch alive; clear, then create.
-        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
         sleep(1)
         XCTAssertTrue(daemonPOST("api/sessions",
                                  ["name": scratch, "type": "terminal"], cookie: cookie))
-        defer { _ = daemonPOST("api/sessions/delete",
-                               ["internalName": scratch], cookie: cookie) }
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
         let marker = "/tmp/hop-select-marker.txt"
         try? FileManager.default.removeItem(atPath: marker)
         try? FileManager.default.removeItem(atPath: "/tmp/hop-selecthold-marker.txt")
@@ -866,10 +919,26 @@ final class ScrollUITests: XCTestCase {
         // identity, reachable by VoiceOver (the superview attempt sat
         // behind the SwiftUI hosting boundary and needed blind
         // coordinate taps).
-        let chip = app.buttons["Copy selection"].firstMatch
-        XCTAssertTrue(chip.waitForExistence(timeout: 6),
-                      "the Copy chip never appeared after long-press")
-        chip.tap()
+        // The NATIVE edit menu, with our Copy in it (buildMenu(with:)) beside
+        // native Paste (Jian: "we shouldn't eliminate the native menu").
+        // Element types of edit-menu items are version-fickle: match any
+        // descendant by exact label.
+        let byLabel = { (l: String) in
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", l)).firstMatch
+        }
+        let copyItem = byLabel("Copy")
+        let menuUp = copyItem.waitForExistence(timeout: 8)
+        sleep(1)
+        // Evidence BEFORE the verdict: a menu that failed to present leaves
+        // a picture of what was there instead.
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-select.png"))
+        XCTAssertTrue(menuUp, "no Copy in the edit menu after long-press")
+        XCTAssertTrue(byLabel("Paste").exists, "native Paste missing from the edit menu")
+        let pressY = app.frame.height * 0.35
+        XCTAssertLessThan(abs(copyItem.frame.midY - pressY), 90,
+                          "menu far from the finger: y \(copyItem.frame.midY) vs press \(pressY)")
+        copyItem.tap()
         var copied = ""
         for _ in 0..<10 where copied.isEmpty {
             usleep(500_000)
@@ -878,6 +947,309 @@ final class ScrollUITests: XCTestCase {
         XCTAssertFalse(copied.isEmpty, "Copy fired but the marker saw nothing")
         XCTAssertTrue(copied.trimmingCharacters(in: .whitespacesAndNewlines).count >= 1,
                       "copied text unexpected: '\(copied)'")
+    }
+
+    /// Typing while reading history: ONE move to the live edge, then still.
+    /// SwiftTerm's send path reveals the caret (jump to the edge) and our
+    /// history anchor used to drag the viewport back after the app's echo —
+    /// per key: box, reading spot, box (Jian, in Codex: "flickering between
+    /// these two"). The Live pill is the witness: it shows while in history,
+    /// so a pill that comes BACK after a keystroke is the fight.
+    func testTypingWhileReadingGoesToTheLiveEdgeOnce() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "TypeReadProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        // Plenty of history, then read it: two drags down land in scrollback.
+        app.typeText("seq 1 400\n")
+        sleep(2)
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
+        let low = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42))
+        top.press(forDuration: 0.05, thenDragTo: low)
+        top.press(forDuration: 0.05, thenDragTo: low)
+        let live = app.buttons["Live"]
+        try XCTSkipUnless(live.waitForExistence(timeout: 5), "no scrollback to read — environment")
+        // One keystroke: the anchor yields, the pill goes...
+        app.typeText("x")
+        XCTAssertTrue(live.waitForNonExistence(timeout: 4), "typing did not take the view to the live edge")
+        // ...and STAYS gone while the shell echoes and more keys land.
+        app.typeText("yz")
+        sleep(2)
+        XCTAssertFalse(live.exists, "the Live pill came back after typing — history anchor fought the keystroke")
+        app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
+    }
+
+    /// Both handles adjust independently, even when each grab starts with
+    /// the natural pause that recognises our long-press: the release of that
+    /// hold used to re-select the word under the press and throw away every
+    /// extension (Jian). Witness: the pasteboard after both drags spans more
+    /// rows than the word, in BOTH directions.
+    func testBothSelectionHandlesAdjustIndependently() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "HandlesProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        let marker = "/tmp/hop-handles-marker.txt"
+        try? FileManager.default.removeItem(atPath: marker)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_COPY_MARKER"] = marker
+        app.launchEnvironment["HOP_SELECT_MARKER"] = "/tmp/hop-handles-trace.txt"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        app.typeText("seq 1000 1040\n")
+        sleep(2)
+        let byLabel = { (l: String) in app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", l)).firstMatch }
+        // Select one number mid-screen.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.35)).press(forDuration: 0.7)
+        XCTAssertTrue(byLabel("Copy").waitForExistence(timeout: 6), "no selection menu after long-press")
+        // RIGHT handle: pause long enough to recognise the hold, then drag down.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.11, dy: 0.365))
+            .press(forDuration: 0.6, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.47)),
+                   withVelocity: .slow, thenHoldForDuration: 0.3)
+        sleep(1)
+        // LEFT handle: same pause, drag up.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.335))
+            .press(forDuration: 0.6, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.25)),
+                   withVelocity: .slow, thenHoldForDuration: 0.3)
+        sleep(1)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-handles.png"))
+        let copy = byLabel("Copy")
+        XCTAssertTrue(copy.waitForExistence(timeout: 5), "no Copy after the handle drags")
+        copy.tap()
+        var copied = ""
+        for _ in 0..<10 where copied.isEmpty {
+            usleep(500_000)
+            copied = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
+        }
+        let rows = copied.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let nums = rows.compactMap { Int($0) }
+        XCTAssertGreaterThanOrEqual(rows.count, 4, "selection did not keep both extensions: \(copied.debugDescription)")
+        if let lo = nums.min(), let hi = nums.max() {
+            XCTAssertLessThan(lo, hi - 2, "range too narrow: \(nums)")
+        }
+    }
+
+    /// A published view can be DOWNLOADED from the viewer: More → Save to
+    /// Files… fetches the file (daemon ?download=1) and presents the system
+    /// exporter. Witness: the menu entry, then the exporter's Cancel.
+    func testViewerOffersSaveToFiles() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = "room"
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        let chip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'published view' OR label BEGINSWITH 'New result'")
+        ).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "views chip missing in room")
+        chip.tap()
+        // Strip rows are ONE combined accessibility element (button trait)
+        // whose label carries title + file name. room's newest rows are
+        // multi-MB videos; scroll the strip until a small DOCUMENT shows.
+        let docRow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] '.md' OR label CONTAINS[c] '.html' OR label CONTAINS[c] '.pdf' OR label CONTAINS[c] '.jpg'")
+        ).firstMatch
+        var found = docRow.waitForExistence(timeout: 6)
+        for _ in 0..<6 where !found {
+            // The strip is the only vertically scrollable list on this screen.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10)))
+            found = docRow.waitForExistence(timeout: 2)
+        }
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-save-strip.png"))
+        XCTAssertTrue(found, "no document row reachable in the strip")
+        docRow.tap()
+        let more = app.buttons["More"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "viewer did not open")
+        more.tap()
+        let save = app.buttons["Save to Files…"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "Save to Files… missing from the viewer menu")
+        save.tap()
+        // The system exporter is a remote sheet. Give the fetch time, then
+        // photograph and probe: our own error alert means the download
+        // failed; any exporter marker means it worked.
+        sleep(8)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-save-to-files.png"))
+        let alert = app.alerts.firstMatch
+        if alert.exists {
+            XCTFail("download failed: \(alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " | "))")
+            return
+        }
+        let markers = ["Cancel", "Save", "Done", "Browse", "Recents", "On My iPhone", "iCloud Drive"]
+        let seen = markers.filter { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", $0)).firstMatch.exists }
+        print("PROBE exporter markers: \(seen)")
+        XCTAssertFalse(seen.isEmpty, "the Files exporter never appeared and no error alert either")
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.exists { cancel.tap() }
+    }
+
+    /// ⇧ on the accessory bar is a sticky modifier (ctrl's contract), and it
+    /// modifies the next arrow — as does an armed ctrl. Witness: `cat -v`
+    /// echoes the bytes the shell actually received.
+    func testShiftKeyAndArmedCtrlModifyTheNextArrow() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "ArrowProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        app.typeText("cat -v\n")
+        sleep(1)
+        let up = app.buttons["up arrow"].firstMatch
+        XCTAssertTrue(up.waitForExistence(timeout: 5))
+        // ⇧ is a sticky modifier like ctrl, not a hold: the arrows send on
+        // touch-down (key repeat), so a long-press alternate never fired.
+        let shift = app.buttons["shift"].firstMatch
+        XCTAssertTrue(shift.waitForExistence(timeout: 5), "no shift key on the accessory bar")
+        // The first screen must still reach → without scrolling: ⇧ took ^C's
+        // slot precisely so no other key moved (the width budget is spent).
+        try? XCUIScreen.main.screenshot().pngRepresentation
+            .write(to: URL(fileURLWithPath: "/tmp/hop-bar.png"))
+        let right = app.buttons["right arrow"].firstMatch
+        XCTAssertTrue(right.exists && right.isHittable, "→ fell off the first screen")
+        XCTAssertLessThan(right.frame.maxX, app.frame.width + 1, "→ is past the fold")
+        shift.tap()
+        XCTAssertEqual(shift.value as? String, "armed", "shift did not arm")
+        up.tap()                            // armed shift → shift+up
+        // A cleared accessibilityValue reads back as "" here, not nil.
+        XCTAssertNotEqual(shift.value as? String, "armed", "shift did not clear after one arrow")
+        app.typeText("\n")
+        app.buttons["control"].firstMatch.tap()
+        up.tap()                            // armed ctrl → ctrl+up
+        app.typeText("\n")
+        sleep(2)
+        var screen = ""
+        for _ in 0..<6 where !screen.contains("1;5A") {
+            screen = daemonScreen(ofDisplay: scratch, cookie: cookie)
+            if !screen.contains("1;5A") { sleep(1) }
+        }
+        XCTAssertTrue(screen.contains("^[[1;2A"), "⇧ then ↑ did not send shift+up; screen: \(screen.suffix(200))")
+        XCTAssertTrue(screen.contains("^[[1;5A"), "ctrl-armed ↑ did not send ctrl+up; screen: \(screen.suffix(200))")
+        app.typeText("\u{4}")                // ctrl-d: leave cat
+    }
+
+    /// The live screen text of a session addressed by DISPLAY name (scratch
+    /// sessions get minted internal names; /api/sessions/screen wants those).
+    private func daemonScreen(ofDisplay name: String, cookie: String) -> String {
+        func get(_ path: String) -> Data? {
+            guard let url = URL(string: "https://hop.zhoulab.io/\(path)") else { return nil }
+            var req = URLRequest(url: url)
+            req.setValue("tunnel_session=\(cookie)", forHTTPHeaderField: "Cookie")
+            var out: Data?; let sem = DispatchSemaphore(value: 0)
+            URLSession.shared.dataTask(with: req) { d, _, _ in out = d; sem.signal() }.resume()
+            _ = sem.wait(timeout: .now() + 10); return out
+        }
+        guard let list = get("api/sessions?scope=all"),
+              let obj = try? JSONSerialization.jsonObject(with: list) as? [String: Any],
+              let sessions = obj["sessions"] as? [[String: Any]],
+              let hit = sessions.first(where: { ($0["name"] as? String) == name }),
+              let internalName = hit["internalName"] as? String,
+              let enc = internalName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let scr = get("api/sessions/screen?name=\(enc)"),
+              let sobj = try? JSONSerialization.jsonObject(with: scr) as? [String: Any],
+              let data = sobj["data"] as? String else { return "" }
+        // Strip CSI/OSC so `^[[1;2A` (cat -v's printable form) survives intact.
+        return data.replacingOccurrences(of: #"\u{1b}\[[0-9;?]*[A-Za-z]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\u{1b}\][^\u{7}]*\u{7}"#, with: "", options: .regularExpression)
+    }
+
+    /// Tap-to-position on an EARLIER line of a multiline buffer — the case
+    /// that did nothing at all while the walk demanded an alternate screen
+    /// (codex and claude are inline, so it never applied). Witness: a zsh
+    /// continuation buffer `echo aaaa\` / `bbbb`, tapped back on line one,
+    /// where a typed Z must land BEFORE the tail instead of after it.
+    func testTapWalksToAnEarlierLineOfMultilineInput() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "MultilineProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_SELECT_MARKER"] = "/tmp/hop-multiline-trace.txt"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        // Fill the screen so the prompt sits at the BOTTOM: after `clear` it
+        // sits at the TOP, and every tap below it is a walk the bound
+        // correctly refuses — which is what the trace showed.
+        app.typeText("seq 1 200\n")
+        sleep(2)
+        sleep(1)
+        // A real two-line buffer: zsh continues the line after a trailing \.
+        app.typeText("echo aaaa\\\n")
+        sleep(1)
+        app.typeText("bbbb")
+        sleep(1)
+        // Tap back onto line one. Several y offsets bracket the row; stop as
+        // soon as the app reports a walk that actually changed rows.
+        var walked = false
+        for y in [0.545, 0.555, 0.535, 0.565, 0.525, 0.575] where !walked {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: y)).tap()
+            usleep(400_000)
+            let trace = (try? String(contentsOfFile: "/tmp/hop-multiline-trace.txt", encoding: .utf8)) ?? ""
+            for line in trace.split(separator: "\n") where line.contains("walk to r") {
+                let n = line.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+                if n.count >= 4, n[0] != n[2] { walked = true }
+            }
+        }
+        let trace = (try? String(contentsOfFile: "/tmp/hop-multiline-trace.txt", encoding: .utf8)) ?? ""
+        try XCTSkipUnless(walked, "no tap landed on line one — layout, not the walk: \(trace)")
+        app.typeText("Z\n")
+        sleep(2)
+        var screen = ""
+        for _ in 0..<8 where !screen.contains("Z") {
+            screen = daemonScreen(ofDisplay: scratch, cookie: cookie)
+            if !screen.contains("Z") { sleep(1) }
+        }
+        XCTAssertTrue(screen.contains("Z"), "the Z never reached the shell: \(screen.suffix(200))")
+        XCTAssertFalse(screen.contains("bbbbZ"),
+                       "the caret never left the last line — Z landed at the end: \(screen.suffix(200))")
     }
 
     /// The other half of the selection contract: the handles a long-press
@@ -891,12 +1263,11 @@ final class ScrollUITests: XCTestCase {
         let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
         try XCTSkipUnless(!cookie.isEmpty)
         let scratch = "SelectDragProbe"
-        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
         sleep(1)
         XCTAssertTrue(daemonPOST("api/sessions",
                                  ["name": scratch, "type": "terminal"], cookie: cookie))
-        defer { _ = daemonPOST("api/sessions/delete",
-                               ["internalName": scratch], cookie: cookie) }
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
         let marker = "/tmp/hop-selectdrag-marker.txt"
         try? FileManager.default.removeItem(atPath: marker)
 
@@ -931,7 +1302,7 @@ final class ScrollUITests: XCTestCase {
         for attempt in 0..<3 where copied.isEmpty {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.07, dy: 0.35))
                 .press(forDuration: 0.7)
-            let chip = app.buttons["Copy selection"].firstMatch
+            let chip = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
             XCTAssertTrue(chip.waitForExistence(timeout: 6),
                           "no selection to drag — the press never selected (attempt \(attempt))")
 
@@ -944,7 +1315,7 @@ final class ScrollUITests: XCTestCase {
             // each try: the chip is replaced on re-offer, so a handle resolved
             // before the swap dies at tap time with "no matches".
             for _ in 0..<8 where copied.isEmpty {
-                let c = app.buttons["Copy selection"].firstMatch
+                let c = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
                 if c.waitForExistence(timeout: 1), c.isHittable { c.tap() }
                 usleep(500_000)
                 let got = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
@@ -1022,12 +1393,11 @@ final class ScrollUITests: XCTestCase {
         let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
         try XCTSkipUnless(!cookie.isEmpty)
         let scratch = "HalfOpenProbe"
-        _ = daemonPOST("api/sessions/delete", ["internalName": scratch], cookie: cookie)
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
         sleep(1)
         XCTAssertTrue(daemonPOST("api/sessions",
                                  ["name": scratch, "type": "terminal"], cookie: cookie))
-        defer { _ = daemonPOST("api/sessions/delete",
-                               ["internalName": scratch], cookie: cookie) }
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
 
         let app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
@@ -1131,10 +1501,17 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
         // Live half: the menu carries no Reconnect while the socket is good.
         app.buttons["Terminal actions"].tap()
-        XCTAssertTrue(app.buttons["Smaller text"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Display"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Reconnect"].exists,
                        "Reconnect shown while verified-live")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        // Dismiss by tapping TERMINAL, left of the menu — a tap at 90%
+        // height lands on the keyboard (up under -hop-ui-testing), which
+        // closes nothing; the menu then stayed open into the outage half,
+        // gained its Reconnect row live, and the next ⋯ tap TOGGLED it shut.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.45)).tap()
+        let closed = NSPredicate(format: "exists == false")
+        expectation(for: closed, evaluatedWith: app.buttons["Display"], handler: nil)
+        waitForExpectations(timeout: 5)
         // Outage half: the drop fires and keeps dropping; Reconnect must
         // surface. Tapping it forces an immediate attempt (skipping the
         // backoff); the remaining drops absorb it and recovery follows.
@@ -1144,8 +1521,14 @@ final class ScrollUITests: XCTestCase {
         XCTAssertTrue(banner.waitForExistence(timeout: 15), "no outage banner")
         app.buttons["Terminal actions"].tap()
         let reconnect = app.buttons["Reconnect"]
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 5),
-                      "Reconnect missing from the menu during an outage")
+        let surfaced = reconnect.waitForExistence(timeout: 5)
+        if !surfaced {
+            // The failure state, kept: the pixels at the moment the row was
+            // missing (2026-09-26: they showed the menu had never CLOSED —
+            // the live-half dismissal tap was landing on the keyboard).
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-reconnect-menu.png"))
+        }
+        XCTAssertTrue(surfaced, "Reconnect missing from the menu during an outage")
         reconnect.tap()
         let gone = NSPredicate(format: "exists == false")
         expectation(for: gone, evaluatedWith: banner, handler: nil)
@@ -1383,8 +1766,14 @@ extension ScrollUITests {
         // session itself. (A runner-owned sentinel was tried and is
         // impossible: the iOS test process is sandboxed off the host's
         // ~/.hop2, and the daemon has no upload endpoint by design.)
-        let row = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS 'live server' OR label CONTAINS[c] '.md'")
+        // Match ANY published row — by the live-server caption or by any
+        // extension. Pinning it to '.md' made this fail for a reason that
+        // had nothing to do with the strip: room publishes mp4s now, so
+        // the newest rows carry no .md at all.
+        let row = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS 'live server' OR label CONTAINS[c] '.md' "
+                  + "OR label CONTAINS[c] '.html' OR label CONTAINS[c] '.mp4' "
+                  + "OR label CONTAINS[c] '.pdf' OR label CONTAINS[c] '.jpg'")
         ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 8), "strip rows never rendered")
 
@@ -1397,13 +1786,19 @@ extension ScrollUITests {
         let menu = app.buttons["Terminal actions"].firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 5), "menu button missing while strip open")
         menu.tap()
-        let menuItem = app.buttons["Copy screen"].firstMatch
+        let menuItem = app.buttons["Copy"].firstMatch
         XCTAssertTrue(menuItem.waitForExistence(timeout: 5),
                       "menu did not open while the views strip was expanded — bar is dead")
         // Dismiss the menu through an item with no chrome side effects
         // (Copy screen), not a body tap — a body tap is itself a collapse
         // now, by design, and Find would take the top edge.
+        // Find would open the find bar (which hides the chrome) and Views
+        // would collapse the strip; Copy → This screen only touches the
+        // pasteboard, which is what this test needs.
         menuItem.tap()
+        let copyScreen = app.buttons["This screen"].firstMatch
+        XCTAssertTrue(copyScreen.waitForExistence(timeout: 4), "Copy submenu did not open")
+        copyScreen.tap()
         sleep(1)
         XCTAssertTrue(row.exists, "using the menu must not collapse the strip")
 
@@ -1427,7 +1822,7 @@ extension ScrollUITests {
         // first draft looked for while the switcher sat fully rendered.
         let left = app.staticTexts["Briefing"].waitForExistence(timeout: 8)
             || app.textFields["Filter sessions"].waitForExistence(timeout: 4)
-            || app.searchFields.firstMatch.waitForExistence(timeout: 4)
+            || app.textFields["Search sessions by name"].waitForExistence(timeout: 4)
         if !left {
             try? XCUIScreen.main.screenshot().pngRepresentation.write(
                 to: URL(fileURLWithPath: "/tmp/views-freeze.png"))
@@ -1438,4 +1833,105 @@ extension ScrollUITests {
         }
         XCTAssertTrue(left, "back tap did not leave the session")
     }
+
+    /// The reported bug the sibling test misses: BACK must leave the session
+    /// while the views strip is STILL EXPANDED — the sibling collapses first,
+    /// so a body-tap/collapse gesture stealing the back tap goes uncaught
+    /// (Jian: "back button when hop view expanded still does not work").
+    func testBackLeavesSessionWhileViewsStripExpanded() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = "room"
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        // Come up with the strip ALREADY expanded, so no chip tap precedes
+        // the back tap to muddy which gesture won.
+        app.launchEnvironment["HOP_DEV_SHEET"] = "viewstrip"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+
+        // Prove the strip is open before we test back.
+        let row = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'live server' OR label CONTAINS[c] '.md'")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 12), "strip rows never rendered — not expanded")
+
+        // Tap BACK with the strip still open.
+        let back = app.buttons["Back to sessions"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "back button unreachable")
+        back.tap()
+
+        let left = app.staticTexts["Briefing"].waitForExistence(timeout: 8)
+            || app.textFields["Filter sessions"].waitForExistence(timeout: 4)
+            || app.textFields["Search sessions by name"].waitForExistence(timeout: 4)
+        if !left {
+            // Did the back tap merely COLLAPSE the strip instead of leaving?
+            let stillOnTerminal = app.buttons["escape"].exists
+            let stripGone = !row.exists
+            let tree = app.descendants(matching: .any).allElementsBoundByIndex.prefix(50)
+                .map { "\($0.elementType.rawValue) '\($0.identifier)' '\($0.label.prefix(40))'" }
+                .joined(separator: "\n")
+            try? "onTerminal=\(stillOnTerminal) stripGone=\(stripGone)\n\(tree)"
+                .write(toFile: "/tmp/back-expanded-tree.txt", atomically: true, encoding: .utf8)
+        }
+        XCTAssertTrue(left, "back tap did not leave the session while strip expanded")
+    }
+
+    /// Tap-to-position without mouse mode: a tap on the cursor's own row
+    /// walks the caret there with arrow keys (Codex has no mouse mode; a
+    /// shell is the same case). Witness: type `echo abcdef`, tap left of
+    /// the caret on the prompt row, type Z, run it — the output carries the
+    /// Z somewhere BEFORE the end, which only a moved caret can produce.
+    func testTapWalksTheCaretOnTheCursorRow() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "WalkProbe"
+        _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie)
+        sleep(1)
+        XCTAssertTrue(daemonPOST("api/sessions", ["name": scratch, "type": "terminal"], cookie: cookie))
+        defer { _ = daemonPOST("api/sessions/delete", ["name": scratch, "internalName": scratch], cookie: cookie) }
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_SELECT_MARKER"] = "/tmp/hop-walk-trace.txt"
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 8))
+        sleep(1)
+        // Push the prompt to the BOTTOM row (keyboard up: the terminal ends
+        // just above the accessory bar), where its y is predictable.
+        app.typeText("seq 1 200\n")
+        sleep(2)
+        app.typeText("echo abcdef")
+        sleep(1)
+        // Tap at the far left of the bottom rows: many cells left of the
+        // caret. Several y's bracket the row height so one lands on it.
+        for y in [0.57, 0.58, 0.59, 0.56, 0.60] {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: y)).tap()
+            usleep(300_000)
+            let trace = (try? String(contentsOfFile: "/tmp/hop-walk-trace.txt", encoding: .utf8)) ?? ""
+            if trace.contains("walk to") { break }
+        }
+        let trace = (try? String(contentsOfFile: "/tmp/hop-walk-trace.txt", encoding: .utf8)) ?? ""
+        try XCTSkipUnless(trace.contains("walk to"), "no tap landed on the cursor row — layout, not the walk: \(trace)")
+        // The app's contract is the arrows it sends: the tap was far LEFT of
+        // the caret, so the walk must go left — "walk to rR cA from rR cB"
+        // with A < B, on the same row. (The shell's reaction is its own.)
+        let m = trace.range(of: #"walk to r(\d+) c(\d+) from r(\d+) c(\d+): (\d+) arrows"#, options: .regularExpression)
+            .map { String(trace[$0]) } ?? ""
+        let nums = m.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        XCTAssertEqual(nums.count, 5, "walk mark malformed: \(m)")
+        if nums.count == 5 {
+            XCTAssertEqual(nums[0], nums[2], "walk changed rows: \(m)")
+            XCTAssertLessThan(nums[1], nums[3], "walk did not go left: \(m)")
+            XCTAssertEqual(nums[4], nums[3] - nums[1], "arrow count ≠ column distance: \(m)")
+        }
+        app.typeText("\u{15}")   // ctrl-u: clear the line, nothing runs
+    }
+
 }

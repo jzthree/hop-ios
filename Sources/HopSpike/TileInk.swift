@@ -38,7 +38,7 @@ enum TileInk {
     }
 
     /// The tile's default ink — what colourless text renders as.
-    static let base = Color(hex: 0xe6edf3).opacity(0.85)
+    static let base = Color.hopInk.opacity(0.85)
 
     /// The visible window of a screen as styled text. `range` comes from
     /// TileTypography, so the coloured render shows exactly the rows the

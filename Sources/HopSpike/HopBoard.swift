@@ -54,6 +54,8 @@ enum HopBoardLayout {
 final class HopBoardView: UIInputView {
     var onText: ((String) -> Void)?
     var onSystemKeyboard: (() -> Void)?
+    /// ⇧ toggled (true) or consumed (false) — the accessory arrows listen.
+    var onShift: ((Bool) -> Void)?
 
     /// Portrait keeps comfortable 50pt rows; landscape compresses to
     /// leave the terminal MORE rows than the system keyboard would — a
@@ -73,6 +75,11 @@ final class HopBoardView: UIInputView {
     private enum Plane { case letters, numbers, symbols }
     private var plane: Plane = .letters
     private var shifted = false
+    func clearShift() {
+        guard shifted else { return }
+        shifted = false
+        rebuild()
+    }
     private var repeatTimer: Timer?
     private let column = UIStackView()
 
@@ -134,6 +141,7 @@ final class HopBoardView: UIInputView {
             third.addArrangedSubview(controlKey(shifted ? "⬆" : "⇧", spoken: "shift", width: 42) { [weak self] in
                 guard let self else { return }
                 self.shifted.toggle()
+                self.onShift?(self.shifted)
                 self.rebuild()
             })
         case .numbers:
@@ -196,6 +204,7 @@ final class HopBoardView: UIInputView {
             // letter only.
             if self.shifted, self.plane == .letters {
                 self.shifted = false
+                self.onShift?(false)
                 self.rebuild()
             }
         }, for: .touchUpInside)
@@ -245,11 +254,11 @@ final class HopBoardView: UIInputView {
     private func baseKey(label: String, spoken: String, prominent: Bool) -> UIButton {
         var cfg = UIButton.Configuration.filled()
         cfg.title = label
-        cfg.baseForegroundColor = .white
+        cfg.baseForegroundColor = .label
         cfg.background.backgroundColor = prominent
-            ? UIColor(white: 1, alpha: 0.09) : .hopKey
+            ? UIColor.label.withAlphaComponent(0.09) : .hopKey
         cfg.background.cornerRadius = 7
-        cfg.background.strokeColor = UIColor(white: 1, alpha: 0.08)
+        cfg.background.strokeColor = UIColor.label.withAlphaComponent(0.08)
         cfg.background.strokeWidth = 0.5
         cfg.contentInsets = .zero
         let font = UIFont.monospacedSystemFont(ofSize: label.count > 2 ? 13 : 17,
