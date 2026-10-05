@@ -64,9 +64,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// One-tap pulse follow-up: a session in the item's folder running the
-    /// launch command mybot prepared. Reopens it if it already exists.
+    /// One-tap pulse follow-up, in order of preference:
+    /// 1. the live session that already owns the item gets a one-line
+    ///    message (typed as the owner, so hop never refuses it);
+    /// 2. an earlier follow-up session for the item is reopened;
+    /// 3. only then a new session runs the launch command mybot prepared.
     func startPulseFollowUp(_ action: MybotPulseAction) async -> String? {
+        if let owner = action.targetInternalName, let message = action.message,
+           sessions.contains(where: { $0.internalName == owner }) {
+            return await QuickReply.send(message, to: owner, model: self) ? owner : nil
+        }
         if let s = sessions.first(where: { $0.name == action.sessionName }) { return s.internalName }
         guard await createSession(name: action.sessionName,
                                   cwd: action.cwd.isEmpty ? nil : action.cwd) else { return nil }

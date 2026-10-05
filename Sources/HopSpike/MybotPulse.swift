@@ -26,6 +26,11 @@ struct MybotPulseAction: Equatable {
     let cwd: String
     let sessionName: String
     let command: String
+    /// The live hop session that already owns this item, if any — the
+    /// preferred destination: a one-line message instead of a new agent.
+    let targetInternalName: String?
+    let targetName: String?
+    let message: String?
 }
 
 struct MybotPulse: Identifiable, Equatable {
@@ -64,7 +69,10 @@ struct MybotPulseFeed: Equatable {
                       let command = a["command"] as? String else { continue }
                 actions[id] = MybotPulseAction(id: id, label: (a["label"] as? String) ?? "Follow up",
                                                cwd: (a["cwd"] as? String) ?? "", sessionName: name,
-                                               command: command)
+                                               command: command,
+                                               targetInternalName: a["target_internal_name"] as? String,
+                                               targetName: a["target_name"] as? String,
+                                               message: a["message"] as? String)
             }
             return MybotPulse(engine: engine, label: (p["label"] as? String) ?? engine, date: date,
                               title: (p["title"] as? String) ?? "Morning pulse",
@@ -210,6 +218,11 @@ struct MybotPulsePage: View {
         }
     }
 
+    private func buttonTitle(_ action: MybotPulseAction) -> String {
+        if let target = action.targetName { return "Send to \(target)" }
+        return existing.contains(action.sessionName) ? "Open follow-up" : action.label
+    }
+
     @ViewBuilder
     private func controls(section: MybotPulseSection, pulse: MybotPulse) -> some View {
         HStack(spacing: 12) {
@@ -225,8 +238,9 @@ struct MybotPulsePage: View {
                             if ok { dismiss() } else { failed = "hop didn't accept the new session. Check the connection and try again." }
                         }
                     } label: {
-                        Label(existing.contains(action.sessionName) ? "Open follow-up" : action.label,
-                              systemImage: existing.contains(action.sessionName) ? "arrow.right.circle" : "arrow.up.forward.app")
+                        Label(buttonTitle(action),
+                              systemImage: action.targetName != nil ? "arrowshape.turn.up.right"
+                                  : existing.contains(action.sessionName) ? "arrow.right.circle" : "arrow.up.forward.app")
                             .font(.footnote.weight(.semibold))
                     }
                     .buttonStyle(.bordered).tint(Color.hopGlow)
