@@ -12,8 +12,9 @@
        a quiet hour is a hash comparison and no model call, and an hour whose
        changes the agent judges non-newsworthy keeps the current edition.
        :40 keeps the pre-wake edition landing before ~7:00. -->
-  <key>StartCalendarInterval</key>
-  <dict><key>Minute</key><integer>40</integer></dict>
+	<!-- Every ten minutes; the generator itself decides whether anything landed (its news gate) and skips otherwise. -->
+	<key>StartInterval</key>
+	<integer>600</integer>
   <key>RunAtLoad</key><false/>
 </dict>
 </plist>

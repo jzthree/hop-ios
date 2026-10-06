@@ -61,7 +61,10 @@ const OUTS = process.argv[2] ? [process.argv[2]] : (() => {
 // Opus, at the maintainer's word: "lag is not a problem, user will not see it until
 // done." The digest is generated on a schedule and read later, so judgement
 // is the only axis that matters — nobody is waiting on the spinner.
-const MODEL = process.env.DIGEST_MODEL || "opus";
+// Sonnet by default now that editions run every ten minutes: the page's
+// structure and word budgets are enforced in code, so the cheaper, faster
+// model carries the judgement calls well enough; DIGEST_MODEL overrides.
+const MODEL = process.env.DIGEST_MODEL || "sonnet";
 
 const api = async (p, init = {}) => {
   const r = await fetch(BASE + p, {
@@ -155,7 +158,9 @@ const run = (bin, args, input) =>
     const env = { ...process.env };
     delete env.HOP_SESSION;
     delete env.CLAUDE_CODE_SESSION_ID;
-    const p = execFile(bin, args, { maxBuffer: 32 * 1024 * 1024, timeout: 240000, env },
+    // Under the ten-minute cadence a run may take a few minutes; the cap
+    // stays inside the interval so runs never overlap.
+    const p = execFile(bin, args, { maxBuffer: 32 * 1024 * 1024, timeout: 540000, env },
       (err, stdout) => (err ? reject(err) : resolve(stdout)));
     if (input) { p.stdin.write(input); p.stdin.end(); }
   });
@@ -410,6 +415,12 @@ const main = async () => {
       user_last_looked_seconds_ago: s.lastUserSeenAt
         ? Math.round((Date.now() - s.lastUserSeenAt) / 1000) : null,
       _lastSeenMs: s.lastUserSeenAt || 0,
+      // For the NEWS gate below (stripped before the payload): when the last
+      // turn ended, when the agent last asked, when it last published.
+      _turnAtMs: Number(s.turnAt) || 0,
+      _askAtMs: Number(s.askAt) || 0,
+      _viewAtMs: s.views?.latestAt ? (Number(s.views.latestAt) < 1e11 ? Number(s.views.latestAt) * 1000 : Number(s.views.latestAt)) : 0,
+      _phase: s.agentPhase || null,
       // Only when there is something to say — an empty box is the normal
       // state and does not need a line in the payload.
       ...(composer && (composer.typed || composer.suggestion)
@@ -480,7 +491,7 @@ const main = async () => {
       unseenBudget -= extract.length;
     }
   }
-  for (const s of seen) delete s._lastSeenMs;
+  for (const s of seen) { delete s._lastSeenMs; delete s._turnAtMs; delete s._askAtMs; delete s._viewAtMs; delete s._phase; }
   // Always, not only under DIGEST_DEBUG: "why did the briefing skip X" is
   // answered by this line, and a run that logs only its item count cannot.
   console.log(`[${new Date().toISOString().slice(0, 16)}] changed=${changed.map((s) => s.name).join(",") || "-"}`
@@ -519,6 +530,26 @@ const main = async () => {
     }
     return null;
   })();
+
+  // The NEWS gate, for a ten-minute cadence. Screens change constantly while
+  // agents work, and that is not news — the chief of staff does not brief
+  // every ten minutes that people are still typing. An edition is warranted
+  // only when something LANDED since the previous one: a turn ended, an
+  // agent asked, a result was published, a session newly wants the reader,
+  // or an unseen session is missing from the page — or the previous edition
+  // is past the hourly floor. State is NOT saved on this suppression, so a
+  // landing seen as a screen change is still a change on the next run.
+  const prevAt = prevEdition?.generated_at ? Date.parse(prevEdition.generated_at) : 0;
+  const landed = changed.filter((s) =>
+    s._turnAtMs > prevAt || s._askAtMs > prevAt || s._viewAtMs > prevAt
+    || (s.wants_you && !state.rangBefore?.[s.session]));
+  const uncovered = mustCover.filter((s) => !onPage.has(s.session));
+  const HOURLY_FLOOR_MS = 60 * 60 * 1000;
+  if (prevAt && landed.length === 0 && uncovered.length === 0 && Date.now() - prevAt < HOURLY_FLOOR_MS) {
+    console.log(`[${new Date().toISOString().slice(0, 16)}] working, nothing landed since the ${new Date(prevAt).toISOString().slice(11, 16)}Z edition — suppressed (changed=${changed.map((s) => s.name).join(",")})`);
+    return;
+  }
+  if (landed.length) console.log(`landed since last edition: ${landed.map((s) => s.name).join(",")}`);
 
   // The paper's own back-issues: past editions, newest first, so the writer
   // KNOWS what the reader has been told across the last days — a thread can
@@ -778,7 +809,9 @@ ${JSON.stringify(changed, null, 1)}
 
 Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
 
+  const t0 = Date.now();
   const raw = await run("claude", ["-p", "--model", MODEL], prompt);
+  console.log(`model ${MODEL}: prompt ${Math.round(prompt.length / 1024)} KB, ${Math.round((Date.now() - t0) / 1000)}s`);
   const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
   const digest = JSON.parse(json);
   digest.model = MODEL;
