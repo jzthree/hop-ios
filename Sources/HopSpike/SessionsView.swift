@@ -497,16 +497,6 @@ struct SessionsView: View {
                         .listRowSeparator(.hidden)
                 }
             }
-            // mybot's pulse sits under the briefing: the briefing is what the
-            // fleet needs from you, the pulse is ideas and loose ends.
-            if let feed = model.mybotPulse, let first = feed.pulses.first, filter.isEmpty {
-                Section {
-                    MybotPulseCard(pulse: first) { showingPulse = true }
-                        .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 6, trailing: 10))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-            }
             if showTiles {
                 // The wall honours project grouping the same way the list
                 // does — `sections` is one unlabelled bucket when grouping is
