@@ -50,10 +50,14 @@ struct MybotPulse: Identifiable, Equatable {
 struct MybotPulseFeed: Equatable {
     let generatedAt: String
     let pulses: [MybotPulse]
+    /// The owner's Discord DM with mybot, where every pulse is already part
+    /// of the conversation — "Discuss" continues there.
+    var discussURL: URL?
 
     init?(json: [String: Any]) {
         guard let raw = json["pulses"] as? [[String: Any]] else { return nil }
         generatedAt = (json["generated_at"] as? String) ?? ""
+        discussURL = (json["discuss_url"] as? String).flatMap(URL.init(string:))
         pulses = raw.compactMap { p in
             guard let engine = p["engine"] as? String, let date = p["date"] as? String else { return nil }
             let sections = ((p["sections"] as? [[String: Any]]) ?? []).enumerated().map { i, s in
@@ -146,6 +150,7 @@ struct MybotPulsePage: View {
     let existing: Set<String>
     let onFollowUp: (MybotPulseAction) async -> Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @AppStorage("mybotPulseEngine") private var engine = "claude"
     @State private var launching: String?
     @State private var failed: String?
@@ -247,6 +252,22 @@ struct MybotPulsePage: View {
                 }
             }
             Spacer()
+            if let url = feed.discussURL {
+                Button {
+                    // Start the question; the pulse itself is already in the DM.
+                    let subject = section.title.isEmpty
+                        ? String(section.body.replacingOccurrences(of: "**", with: "").prefix(70)) + "…"
+                        : section.title
+                    UIPasteboard.general.string = "About “\(subject)” (\(pulse.label) pulse, \(pulse.date)): "
+                    copied = "discuss-" + section.id
+                    openURL(url)
+                } label: {
+                    Label(copied == "discuss-" + section.id ? "Paste in chat" : "Discuss",
+                          systemImage: "bubble.left.and.text.bubble.right")
+                        .font(.footnote)
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
             Button {
                 let text = section.title.isEmpty ? section.body : "\(section.title)\n\n\(section.body)"
                 UIPasteboard.general.string = text
