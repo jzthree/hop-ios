@@ -47,9 +47,16 @@ struct MybotPulse: Identifiable, Equatable {
     var articleCount: Int { sections.filter { $0.kind == "article" }.count }
 }
 
+struct MybotPulseDay: Equatable {
+    let date: String
+    let pulses: [MybotPulse]
+}
+
 struct MybotPulseFeed: Equatable {
     let generatedAt: String
     let pulses: [MybotPulse]
+    /// Newest day first: today's pulses, then up to two weeks back.
+    var days: [MybotPulseDay] = []
     /// The owner's Discord DM with mybot, where every pulse is already part
     /// of the conversation — "Discuss" continues there.
     var discussURL: URL?
@@ -58,7 +65,19 @@ struct MybotPulseFeed: Equatable {
         guard let raw = json["pulses"] as? [[String: Any]] else { return nil }
         generatedAt = (json["generated_at"] as? String) ?? ""
         discussURL = (json["discuss_url"] as? String).flatMap(URL.init(string:))
-        pulses = raw.compactMap { p in
+        pulses = Self.parse(raw)
+        if pulses.isEmpty { return nil }
+        days = [MybotPulseDay(date: pulses[0].date, pulses: pulses)]
+        for day in (json["history"] as? [[String: Any]]) ?? [] {
+            let dayPulses = Self.parse((day["pulses"] as? [[String: Any]]) ?? [])
+            if let date = day["date"] as? String, !dayPulses.isEmpty {
+                days.append(MybotPulseDay(date: date, pulses: dayPulses))
+            }
+        }
+    }
+
+    private static func parse(_ raw: [[String: Any]]) -> [MybotPulse] {
+        raw.compactMap { p in
             guard let engine = p["engine"] as? String, let date = p["date"] as? String else { return nil }
             let sections = ((p["sections"] as? [[String: Any]]) ?? []).enumerated().map { i, s in
                 MybotPulseSection(id: (s["id"] as? String) ?? "s\(i)",
@@ -82,7 +101,6 @@ struct MybotPulseFeed: Equatable {
                               title: (p["title"] as? String) ?? "Morning pulse",
                               sections: sections, actions: actions)
         }
-        if pulses.isEmpty { return nil }
     }
 }
 
@@ -143,6 +161,22 @@ struct MybotPulseCard: View {
     }
 }
 
+enum PulseDayLabel {
+    /// "Today", "Yesterday", or "Mon Oct 12" (long: "Monday, Oct 12").
+    static func text(_ day: String, long: Bool = false) -> String {
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd"
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        guard let date = parser.date(from: day) else { return day }
+        let f = DateFormatter()
+        f.dateFormat = long ? "EEEE, MMM d" : "EEE MMM d"
+        let cal = Calendar.current
+        let name = cal.isDateInToday(date) ? "Today" : cal.isDateInYesterday(date) ? "Yesterday" : ""
+        if name.isEmpty { return f.string(from: date) }
+        return long ? "\(name) — \(f.string(from: date))" : name
+    }
+}
+
 /// The full page: native reading, selectable text, copy, one-tap follow-ups.
 struct MybotPulsePage: View {
     let feed: MybotPulseFeed
@@ -155,8 +189,13 @@ struct MybotPulsePage: View {
     @State private var launching: String?
     @State private var failed: String?
     @State private var copied: String?
+    /// Which day is open: 0 = newest, 1 = the day before, …
+    @State private var dayIndex = 0
 
-    private var pulse: MybotPulse? { feed.pulses.first { $0.engine == engine } ?? feed.pulses.first }
+    private var dayPulses: [MybotPulse] {
+        feed.days.indices.contains(dayIndex) ? feed.days[dayIndex].pulses : feed.pulses
+    }
+    private var pulse: MybotPulse? { dayPulses.first { $0.engine == engine } ?? dayPulses.first }
 
     var body: some View {
         NavigationStack {
@@ -170,15 +209,36 @@ struct MybotPulsePage: View {
                     .padding(.horizontal, 18).padding(.vertical, 14)
                 }
             }
+            .id(dayIndex)  // a new day opens at its top
             .background(Color(.systemGroupedBackground))
             .navigationTitle(pulse?.title ?? "Morning pulse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                if feed.pulses.count > 1 {
+                if feed.days.count > 1 {
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button { dayIndex += 1 } label: { Image(systemName: "chevron.left") }
+                            .disabled(dayIndex + 1 >= feed.days.count)
+                            .accessibilityLabel("Previous day")
+                        Spacer()
+                        Menu {
+                            ForEach(Array(feed.days.enumerated()), id: \.element.date) { index, day in
+                                Button(PulseDayLabel.text(day.date, long: true)) { dayIndex = index }
+                            }
+                        } label: {
+                            Text(PulseDayLabel.text(feed.days[min(dayIndex, feed.days.count - 1)].date))
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        Spacer()
+                        Button { dayIndex -= 1 } label: { Image(systemName: "chevron.right") }
+                            .disabled(dayIndex == 0)
+                            .accessibilityLabel("Next day")
+                    }
+                }
+                if dayPulses.count > 1 {
                     ToolbarItem(placement: .principal) {
                         Picker("Engine", selection: $engine) {
-                            ForEach(feed.pulses) { Text($0.label).tag($0.engine) }
+                            ForEach(dayPulses) { Text($0.label).tag($0.engine) }
                         }
                         .pickerStyle(.segmented).frame(width: 170)
                     }
