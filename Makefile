@@ -124,9 +124,10 @@ install: build
 # Build and install with YOUR OWN Apple ID — for anyone who is not on the
 # team this project is signed with. A free Apple ID works:
 #   make install-personal TEAM=<your team id> DEVICE=<your iPhone's id>
-# TEAM: Xcode → Settings → Accounts → your Apple ID → the team's ID (a free
-# account appears as "<Name> (Personal Team)"; or: security find-identity
-# -v -p codesigning, the 10-character code in parentheses).
+# TEAM: your signing certificate's team (OU) —
+#   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+# No certificate yet? Xcode → Settings → Accounts → your Apple ID → Manage
+# Certificates → + → Apple Development, then run that again.
 # DEVICE: xcrun devicectl list devices (the Identifier column).
 # The bundle id is made unique to your team, and push notifications and
 # passkey login are left out — a free account cannot sign them. Free-account
