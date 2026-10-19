@@ -121,6 +121,29 @@ install: build
 	  echo "attempt $$i: $$(echo "$$out" | grep -oE 'DeviceLocked|disconnected immediately' | head -1)"; sleep 8; \
 	done; echo "install failed — unlock the phone or plug in a cable"; exit 1
 
+# Build and install with YOUR OWN Apple ID — for anyone who is not on the
+# team this project is signed with. A free Apple ID works:
+#   make install-personal TEAM=<your team id> DEVICE=<your iPhone's id>
+# TEAM: Xcode → Settings → Accounts → your Apple ID → the team's ID (a free
+# account appears as "<Name> (Personal Team)"; or: security find-identity
+# -v -p codesigning, the 10-character code in parentheses).
+# DEVICE: xcrun devicectl list devices (the Identifier column).
+# The bundle id is made unique to your team, and push notifications and
+# passkey login are left out — a free account cannot sign them. Free-account
+# builds expire after 7 days: run it again to renew.
+PERSONAL_BUNDLE = io.hop.personal.$(shell echo '$(TEAM)' | tr 'A-Z' 'a-z')
+PERSONAL_APP = build-personal/Build/Products/Release-iphoneos/HopSpike.app
+install-personal: gen
+	@test -n "$(TEAM)" || (echo "TEAM=<your team id> required — see the comment above install-personal"; exit 1)
+	@test -n "$(filter-out FA720813-48B6-5E57-984D-C76733368A9D,$(DEVICE))" || (echo "DEVICE=<your iPhone id> required — xcrun devicectl list devices"; exit 1)
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+	  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+	  -derivedDataPath build-personal $(VERSION_FLAGS) \
+	  DEVELOPMENT_TEAM=$(TEAM) PRODUCT_BUNDLE_IDENTIFIER=$(PERSONAL_BUNDLE) \
+	  CODE_SIGN_ENTITLEMENTS=Personal.entitlements build
+	xcrun devicectl device install app --device $(DEVICE) "$(PERSONAL_APP)"
+	-xcrun devicectl device process launch --terminate-existing --device $(DEVICE) $(PERSONAL_BUNDLE)
+
 # Delivery over cellular. `make install` needs the phone on the Mac's network;
 # TestFlight installs from anywhere, including 5G, and is the same explicit App
 # ID that Push needs — so it unblocks APNs at the same time.

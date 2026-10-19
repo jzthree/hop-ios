@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- make install-personal: a free Apple ID cannot sign push (aps-environment)
+     or associated domains (passkey login), so a personal build carries none.
+     Password + authenticator login works the same; notifications do not. -->
+<plist version="1.0">
+<dict/>
+</plist>
