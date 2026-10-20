@@ -2014,4 +2014,18 @@ final class TerminalReplyTests: XCTestCase {
         let keys = ["y", "\r", "ls\r", "\u{1b}[A", "\u{1b}", "\u{1b}[13;2u", "\u{1b}[12;40Rx", "\u{1b}[<64;40;12M"]
         for k in keys { XCTAssertFalse(TerminalScreen.Coordinator.isTerminalReply(k), "key: \(k.debugDescription)") }
     }
+
+    /// Same answers as hop web's shortModelName — the chip says the model.
+    func testShortModelName() {
+        XCTAssertEqual(shortModelName("claude-opus-5-5"), "opus")
+        XCTAssertEqual(shortModelName("claude-fable-5-1"), "fable")
+        XCTAssertEqual(shortModelName("claude-opus-5"), "opus")
+        XCTAssertEqual(shortModelName("claude-3-5-sonnet-20241022"), "sonnet")
+        XCTAssertEqual(shortModelName("claude-opus-5-5[1m]"), "opus")
+        XCTAssertEqual(shortModelName("gpt-6-astra"), "astra")
+        XCTAssertEqual(shortModelName("gpt-6.1-sol"), "sol")
+        XCTAssertEqual(shortModelName("o3"), "o3")
+        XCTAssertNil(shortModelName(nil))
+        XCTAssertNil(shortModelName(""))
+    }
 }

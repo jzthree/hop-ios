@@ -1433,9 +1433,9 @@ struct SessionRow: View {
                         .lineLimit(2)
                         .minimumScaleFactor(0.75)
                         .fixedSize(horizontal: false, vertical: true)
-                    if !session.runningApp.isEmpty {
-                        let tint = appTint(session.runningApp)
-                        Text(session.runningApp)
+                    if !session.appChip.isEmpty {
+                        let tint = appTint(session.agentApp)
+                        Text(session.appChip)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(tint.opacity(0.16), in: Capsule())

@@ -1496,6 +1496,8 @@ struct HopSession: Identifiable {
     /// The agent the daemon knows this session runs ("claude" / "codex"),
     /// from the hooks' records — the process name often says only "zsh".
     let agent: String?
+    /// The model the agent runs, from its transcript ("claude-opus-5-5").
+    let agentModel: String?
     /// ms stamp of the last turn end (null when none) — the key the local
     /// read override is checked against, so it never outlives the turn.
     let turnAt: Double?
@@ -1554,6 +1556,7 @@ struct HopSession: Identifiable {
         attentionNote = (json["attentionNote"] as? String) ?? ""
         agentPhase = json["agentPhase"] as? String
         agent = json["agent"] as? String
+        agentModel = json["agentModel"] as? String
         turnAt = (json["turnAt"] as? NSNumber)?.doubleValue
         // Opening a session IS reading it: the daemon's witness agrees on
         // its next answer, but the tile should not wait for the poll. A
@@ -1578,6 +1581,12 @@ struct HopSession: Identifiable {
     /// What the session runs, as far as anyone knows: the daemon's agent
     /// record first, the foreground process second.
     var agentApp: String { agent ?? runningApp }
+
+    /// The chip on the row and tile: the MODEL when the transcript names one
+    /// ("opus", "astra", "sol" — what actually tells sessions apart, as on
+    /// the web wall), else the app. Shown even while the agent's own process
+    /// is not in front.
+    var appChip: String { shortModelName(agentModel) ?? runningApp }
 
     var runningApp: String {
         let p = foregroundProcess.trimmingCharacters(in: .whitespaces)
@@ -1675,4 +1684,20 @@ struct Checkback: Identifiable, Equatable {
         default: return ""
         }
     }
+}
+
+/// "claude-opus-5-5" → "opus", "gpt-6.1-sol" → "sol" (hop web's
+/// switcherModel.shortModelName, same rules).
+func shortModelName(_ model: String?) -> String? {
+    guard var m = model?.lowercased(), !m.isEmpty else { return nil }
+    if let r = m.range(of: #"\[.*\]$"#, options: .regularExpression) { m.removeSubrange(r) }
+    if let r = m.range(of: #"^claude-(\d[\d.-]*-)?[a-z]+"#, options: .regularExpression) {
+        let head = String(m[r])
+        return head.components(separatedBy: "-").last(where: { $0.range(of: #"^[a-z]+$"#, options: .regularExpression) != nil && $0 != "claude" })
+    }
+    if m.range(of: #"^gpt-[\d.]+-[a-z][a-z-]*$"#, options: .regularExpression) != nil,
+       let dash = m.range(of: #"^gpt-[\d.]+-"#, options: .regularExpression) {
+        return String(m[dash.upperBound...])
+    }
+    return m.hasPrefix("claude-") ? String(m.dropFirst(7)) : m
 }

@@ -114,9 +114,9 @@ struct SessionTile: View {
                     .font(.system(size: 9, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            if !session.runningApp.isEmpty {
-                let tint = appTint(session.runningApp)
-                Text(session.runningApp)
+            if !session.appChip.isEmpty {
+                let tint = appTint(session.agentApp)
+                Text(session.appChip)
                     .font(.system(size: 9, weight: .semibold))
                     .padding(.horizontal, 6).padding(.vertical, 1.5)
                     .background(tint.opacity(0.16), in: Capsule())
