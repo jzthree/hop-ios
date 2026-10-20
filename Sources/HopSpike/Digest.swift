@@ -259,7 +259,7 @@ struct DigestCard: View {
                 Image(systemName: "chevron.right")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
-            .padding(.vertical, 5)
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -354,24 +354,30 @@ struct DigestCard: View {
                 ForEach(["decide", "watch", "done"], id: \.self) { slot in
                     let rows = visibleItems.filter { $0.slot == slot }
                     if !rows.isEmpty {
-                        Text(slot == "decide" ? "DECIDE" : slot == "watch" ? "WATCH" : "DONE")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .tracking(1)
-                            .foregroundStyle(slot == "decide" ? Color.hopAttention : slot == "watch" ? Color.orange : Color.hopLive)
-                            .padding(.top, 2)
-                            .modifier(BriefingRow())
-                        ForEach(rows) { item in swipeable(item) { storyRow(item, edition: digest.generatedAt) } }
+                        // The slot label rides INSIDE its first story's row:
+                        // as a row of its own it was stretched to the list's
+                        // minimum row height — the blank bands (Jian: "too
+                        // much blank space").
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { i, item in
+                            swipeable(item) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if i == 0 { slotLabel(slot) }
+                                    storyRow(item, edition: digest.generatedAt)
+                                }
+                            }
+                        }
                     }
                 }
                 let also = visibleItems.filter { $0.slot == "also" }
                 if !also.isEmpty {
-                    Text("ALSO")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .tracking(1)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
-                        .modifier(BriefingRow())
-                    ForEach(also) { item in swipeable(item) { alsoRow(item) } }
+                    ForEach(Array(also.enumerated()), id: \.element.id) { i, item in
+                        swipeable(item) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if i == 0 { slotLabel("also") }
+                                alsoRow(item)
+                            }
+                        }
+                    }
                 }
             } else {
                 ForEach(visibleItems) { item in swipeable(item) { storyRow(item, edition: digest.generatedAt) } }
@@ -406,6 +412,15 @@ struct DigestCard: View {
                 .modifier(BriefingRow())
             }
         }
+    }
+
+    private func slotLabel(_ slot: String) -> some View {
+        Text(slot.uppercased())
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .tracking(1)
+            .foregroundStyle(slot == "decide" ? Color.hopAttention : slot == "watch" ? Color.orange
+                             : slot == "done" ? Color.hopLive : Color.secondary)
+            .padding(.top, 4)
     }
 
     private var header: some View {
@@ -480,11 +495,11 @@ struct DigestCard: View {
 /// Every briefing row shares the card's look: raised background, no
 /// separators, tight insets — the Section's rounded group is the card.
 struct BriefingRow: ViewModifier {
-    var top: CGFloat = 3
+    var top: CGFloat = 4
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .listRowInsets(EdgeInsets(top: top, leading: 14, bottom: 3, trailing: 12))
+            .listRowInsets(EdgeInsets(top: top, leading: 14, bottom: 4, trailing: 12))
             .listRowBackground(Color.hopRaised)
             .listRowSeparator(.hidden)
     }

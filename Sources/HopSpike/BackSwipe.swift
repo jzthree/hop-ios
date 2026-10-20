@@ -20,10 +20,17 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
         interactivePopGestureRecognizer?.delegate = self
     }
 
-    /// Only when there is somewhere to go back TO. Left unguarded, the gesture
-    /// fires on the root and leaves the stack in a state where the next push
-    /// does nothing.
+    /// Never pops: the left-edge swipe opens the session drawer instead
+    /// (Jian: "swipe from edge sometimes triggers returning to session
+    /// view"). This recogniser is consulted on EVERY edge swipe, chrome and
+    /// key bar included, so it is the one place that hears them all: it
+    /// RELAYS — to the session's drawer inside a terminal, to the wall's
+    /// drawer on the list. (A second, window-level edge pan for the wall lost
+    /// to this one whenever UIKit asked this one first.) It must still refuse
+    /// on the root: popping there breaks the next push.
     public func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        viewControllers.count > 1
+        NotificationCenter.default.post(name: viewControllers.count > 1 ? .hopOpenDrawer : .hopOpenWallDrawer,
+                                        object: nil)
+        return false
     }
 }

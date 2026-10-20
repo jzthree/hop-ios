@@ -5339,3 +5339,15 @@ LESSON: test against a REAL session with history, not a fresh probe.
    already applies. Fixing it there fixes every consumer: the web switcher
    tiles, the iOS row previews, and the iOS fast paint, which all read the same
    grid.
+
+- **2026-10-19 · build 2610191951 — a session you sit in no longer freezes on a
+  dead socket.** Jian: alphagenome "disconnected and does not come back until i
+  return to the tile view and open again." The Mac's network was down
+  23:40–23:52 UTC; the socket went half-open and nothing noticed — the wake
+  ping only runs on foreground, the typing probe only after a keystroke. Now
+  (matching hop web's socketLiveness): a quiet-socket watchdog in the terminal
+  coordinator pings after 15s of server silence while foreground (5s pong
+  deadline), and HayClient gives each upgrade a 12s hello deadline instead of
+  URLSession's 60s. Sim-verified through a freezable loopback proxy: freeze →
+  "Reconnecting…" within ~30s; thaw → green on its own within ~25s; a quiet
+  live session stays green (no false alarms).

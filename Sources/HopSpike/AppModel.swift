@@ -926,6 +926,92 @@ final class AppModel: ObservableObject {
     /// finish arrives as a bellSeq bump the existing notifier turns into an
     /// alert. Best-effort refresh so the toggle reflects the new state at once.
     @discardableResult
+    // MARK: check-backs — hop types a message into a session later
+    // (`hop checkback`). The phone lists, schedules and cancels them.
+    func fetchCheckbacks() async -> [Checkback]? {
+        guard let url = baseURL?.appendingPathComponent("api/checkbacks") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = obj["items"] as? [[String: Any]] else { return nil }
+        return items.compactMap(Checkback.init(json:))
+    }
+    /// `trigger` is the API's own shape: ["in": "30m"] / ["at": "15:00"] / ["idle": true].
+    func scheduleCheckback(session: String, message: String, trigger: [String: Any]) async -> Bool {
+        var body: [String: Any] = ["internalName": session, "session": session, "message": message]
+        for (k, v) in trigger { body[k] = v }
+        let ok = await post("api/checkbacks", body)
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
+    func cancelCheckback(id: String) async -> Bool {
+        let ok = await post("api/checkbacks/cancel", ["id": id])
+        if ok { await refreshSessions(silent: true) }
+        return ok
+    }
+
+    // MARK: Codex desktop app ⇄ hop — the app's threads on the Mac hop runs
+    // on, continued here (resume, or a fork while the app holds the thread),
+    // and a hop codex session handed back to the app.
+    func fetchCodexAppThreads() async -> [CodexAppThread]? {
+        guard let url = baseURL?.appendingPathComponent("api/codex/desktop") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        guard let (data, resp) = try? await urlSession.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = obj["threads"] as? [[String: Any]] else { return nil }
+        return items.compactMap(CodexAppThread.init(json:))
+    }
+
+    /// The hop session now carrying the thread (new, or the one that already
+    /// ran it), or nil with actionError set.
+    func continueCodexThread(_ id: String) async -> String? {
+        let obj = await postReturning("api/codex/continue", ["id": id])
+        guard let name = obj?["internalName"] as? String else { return nil }
+        await refreshSessions(silent: true)
+        return name
+    }
+
+    /// Opens the session's thread in the Codex app on the Mac. `handOff`
+    /// stops & parks the session first so the app can continue it.
+    func openInCodexApp(internalName: String, handOff: Bool) async -> Bool {
+        let obj = await postReturning("api/codex/open-in-app",
+                                      ["internalName": internalName, "handOff": handOff])
+        if obj != nil { await refreshSessions(silent: true) }
+        return obj != nil
+    }
+
+    private func postReturning(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
+        guard let url = baseURL?.appendingPathComponent(path) else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("user", forHTTPHeaderField: "x-hop-actor")   // same declaration as post()
+        if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        actionError = nil
+        do {
+            let (data, resp) = try await urlSession.data(for: req)
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 500) else {
+                actionError = (obj?["error"] as? String) ?? "Request failed"
+                return nil
+            }
+            return obj ?? [:]
+        } catch {
+            actionError = error.localizedDescription
+            return nil
+        }
+    }
+
     func setNotifyOnFinish(_ s: HopSession, on: Bool) async -> Bool {
         let ok = await post("api/sessions/notify",
                             ["internalName": s.internalName, "notifyOnFinish": on])
@@ -958,7 +1044,12 @@ final class AppModel: ObservableObject {
         req.setValue("user", forHTTPHeaderField: "x-hop-actor")   // same declaration as post()
         if let token = accessToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         var body: [String: Any] = ["internalName": internalName]
-        if let target { body["target"] = target }
+        // A target is always the trajectory handoff (`condense`): a new
+        // session that reads the condensed conversation first. Into the
+        // other tool that is the only way across; into the SAME tool it is
+        // "continue in fresh Claude/Codex" — without condense the daemon
+        // treated claude→claude as a plain fork (the web always sent it).
+        if let target { body["target"] = target; body["condense"] = true }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         actionError = nil
         do {
@@ -1376,6 +1467,10 @@ struct HopSession: Identifiable {
     /// from the terminal's ⋯ menu). Server-owned so it's the same on every
     /// client; the finish itself arrives as a bellSeq bump.
     let notifyOnFinish: Bool
+    /// Pending check-backs hop will type into this session (`hop checkback`).
+    let checkbacks: Int
+    /// How much the human uses it (daemon's decayed score; "Most used").
+    let interactionScore: Double
     /// What the agent is asking the human right now, if anything (permission,
     /// a question, a plan to approve) — the daemon passes the Claude/Codex
     /// hook's message through so the notification can say it. `askAt` is the
@@ -1441,6 +1536,8 @@ struct HopSession: Identifiable {
         parked = (json["parked"] as? Bool) ?? false
         archived = (json["archived"] as? Bool) ?? false
         notifyOnFinish = (json["notifyOnFinish"] as? Bool) ?? false
+        checkbacks = (json["checkbacks"] as? Int) ?? 0
+        interactionScore = (json["interactionScore"] as? Double) ?? Double((json["interactionScore"] as? Int) ?? 0)
         askMessage = json["askMessage"] as? String
         askAt = (json["askAt"] as? NSNumber)?.doubleValue
         attentionReason = (json["attentionReason"] as? String) ?? ""
@@ -1500,4 +1597,67 @@ struct ScreenPreview: Equatable {
     /// Styled runs per row (TileInk). Empty when the daemon has no colour
     /// for this session — the tile falls back to plain text.
     let colorRows: [[ColorRun]]
+}
+
+
+/// One scheduled check-back. `line` is the daemon's own description of the
+/// trigger ("at 3:00 PM (in 2h)", "when the agent is next idle").
+struct Checkback: Identifiable, Equatable {
+    let id: String
+    let session: String
+    let message: String
+    let status: String          // pending / delivered / cancelled
+    let line: String
+    let createdBy: String
+    let fired: Bool
+    let doneAt: Double          // delivered or cancelled, ms
+    let sortKey: Double         // next fire time (ms) for ordering pending ones
+
+    init?(json o: [String: Any]) {
+        guard let id = o["id"] as? String, let session = o["session"] as? String,
+              let message = o["message"] as? String else { return nil }
+        self.id = id
+        self.session = session
+        self.message = message
+        status = (o["status"] as? String) ?? "pending"
+        line = (o["line"] as? String) ?? ""
+        createdBy = (o["createdBy"] as? String) ?? "user"
+        fired = (o["firedAt"] as? NSNumber) != nil
+        doneAt = ((o["deliveredAt"] as? NSNumber) ?? (o["cancelledAt"] as? NSNumber) ?? (o["createdAt"] as? NSNumber))?.doubleValue ?? 0
+        let t = (o["trigger"] as? [String: Any]) ?? [:]
+        sortKey = ((t["at"] as? NSNumber) ?? (t["next"] as? NSNumber))?.doubleValue ?? .greatestFiniteMagnitude
+        whenText = Checkback.describe(trigger: t, now: Date().timeIntervalSince1970 * 1000)
+    }
+
+    /// The trigger in words — mirrors the web's describeTrigger.
+    let whenText: String
+
+    static func describe(trigger t: [String: Any], now: Double) -> String {
+        let num = { (k: String) in (t[k] as? NSNumber)?.doubleValue ?? 0 }
+        let clock = { (ms: Double) -> String in
+            let d = Date(timeIntervalSince1970: ms / 1000)
+            let f = DateFormatter()
+            f.dateFormat = Calendar.current.isDateInToday(d) ? "h:mm a" : "EEE h:mm a"
+            return f.string(from: d)
+        }
+        let span = { (ms: Double) -> String in
+            let m = Int((abs(ms) / 60000).rounded())
+            if m < 1 { return "now" }
+            if m < 60 { return "\(m) min" }
+            let h = m / 60, r = m % 60
+            return r == 0 ? "\(h) h" : "\(h) h \(r) min"
+        }
+        let rel = { (ms: Double) -> String in ms >= now ? "in " + span(ms - now) : span(now - ms) + " ago" }
+        switch (t["kind"] as? String) ?? "" {
+        case "at": return "at \(clock(num("at"))) (\(rel(num("at"))))"
+        case "every":
+            var s = "every \(span(num("everyMs"))) · next \(rel(num("next")))"
+            if num("until") > 0 { s += " · until \(clock(num("until")))" }
+            return s
+        case "idle": return num("afterMs") > 0 ? "when idle for \(span(num("afterMs")))" : "when the agent is next idle"
+        case "file": return "when \((t["path"] as? String) ?? "a file") \(num("baselineMtime") > 0 ? "changes" : "exists")"
+        case "cmd": return "when `\((t["command"] as? String) ?? "")` succeeds"
+        default: return ""
+        }
+    }
 }

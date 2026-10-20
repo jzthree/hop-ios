@@ -81,6 +81,7 @@ struct TerminalHostView: View {
     @State private var taglineShown = false
     @State private var taglineText = ""
     @State private var killConfirmShown = false
+    @State private var codexHandOffShown = false
     /// The pill's live travel during a fleet-switch swipe. The web switcher
     /// has no equivalent of this: the pill follows the finger and names the
     /// session you would land on, so the swipe is never blind.
@@ -139,6 +140,73 @@ struct TerminalHostView: View {
     /// Where floating status UI (outage banner, "take mine") may start: just
     /// under the bar when it's shown (its measured height includes the
     /// island inset), else just under the island.
+    /// The floating deliveries card (FloatingViewPreview): the session's
+    /// recent `hop view` results, paged in a corner, until the reader closes
+    /// it with ✕ (Jian: "always show it until the user explicitly closes it").
+    @State private var floatIndex = 0
+    @State private var floatTick = 0          // re-evaluate after seen-state changes
+    /// Per session: the newest delivery time the reader CLOSED the card at.
+    /// The card stays away until something newer than that lands.
+    private static let floatClosedKey = "floatClosedAt"
+    private static let floatMax = 12
+
+    private var floatClosedAt: Double {
+        ((UserDefaults.standard.dictionary(forKey: Self.floatClosedKey) as? [String: Double]) ?? [:])[session.internalName] ?? -1
+    }
+    private func setFloatClosedAt(_ t: Double) {
+        var m = (UserDefaults.standard.dictionary(forKey: Self.floatClosedKey) as? [String: Double]) ?? [:]
+        m[session.internalName] = t
+        UserDefaults.standard.set(m, forKey: Self.floatClosedKey)
+    }
+
+    /// Recent file deliveries, newest first (live servers are not deliveries).
+    private var floatDeliveries: [FloatingDelivery] {
+        _ = floatTick
+        return sessionViews
+            .filter { !$0.isServer }
+            .sorted { $0.mtime > $1.mtime }
+            .prefix(Self.floatMax)
+            .compactMap { item in
+                URL(string: model.normalizedServerURL + item.path).map { FloatingDelivery(item: item, url: $0) }
+            }
+    }
+    private var floatUnreadIDs: Set<String> {
+        _ = floatTick
+        return Set(floatDeliveries.filter { ViewSeen.itemState($0.item) != .seen }.map(\.id))
+    }
+    private var floatVisible: Bool {
+        guard let newest = floatDeliveries.first, artifactViewing == nil else { return false }
+        return newest.item.mtime > floatClosedAt
+    }
+
+    /// First sight of a session's deliveries: old results the reader has
+    /// already seen (or that are hours old) shouldn't pop up on entry — only
+    /// deliveries that are new to them. Recorded once, as if closed there.
+    private func seedFloatBaseline() {
+        guard floatClosedAt < 0, let newest = floatDeliveries.first else { return }
+        let fresh = Date().timeIntervalSince1970 - newest.item.mtime < 30 * 60
+        if !fresh || floatUnreadIDs.isEmpty { setFloatClosedAt(newest.item.mtime) }
+        floatTick += 1
+    }
+
+    private func checkNewDelivery() {
+        Task {
+            await loadSessionViews()
+            seedFloatBaseline()
+            // A NEW delivery lands on page 1, so the card shows it.
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { floatIndex = 0; floatTick += 1 }
+        }
+    }
+
+    private func openFloating(_ f: FloatingDelivery) {
+        // The card stays (it is hidden only while the viewer covers it).
+        if let i = sessionViews.firstIndex(where: { $0.path == f.item.path }) {
+            artifactViewing = ArtifactViewing(items: sessionViews, index: i, serverURL: model.normalizedServerURL)
+        } else {
+            artifactViewing = ArtifactViewing(items: [f.item], index: 0, serverURL: model.normalizedServerURL)
+        }
+    }
+
     private var overlayTop: CGFloat {
         chromeShown && !landscapePhone && chromeHeightNow > 0 ? chromeHeightNow : windowTopInset()
     }
@@ -148,6 +216,55 @@ struct TerminalHostView: View {
     /// ~14 monospaced characters, and a tap there used to fall through to
     /// the bar background and HIDE the chrome — the opposite of "show me".
     @State private var fullNameShown = false
+    @State private var checkbacksShown = false
+    /// The Slack-style session drawer (SessionDrawer).
+    @State private var drawerOpen = false
+    /// Whether to hand the keyboard back when the drawer closes without a pick.
+    @State private var keyboardUpBeforeDrawer = false
+
+    @ViewBuilder private var drawerLayer: some View {
+        if drawerOpen {
+            SessionDrawer(currentInternal: session.internalName,
+                          onPick: { name in
+                              withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { drawerOpen = false }
+                              if name != session.internalName { model.requestedSession = name }
+                          },
+                          onAllSessions: { drawerOpen = false; dismiss() },
+                          onClose: {
+                              drawerMark("drawer close")
+                              withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { drawerOpen = false }
+                              if keyboardUpBeforeDrawer {
+                                  NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
+                              }
+                          })
+                .environmentObject(model)
+                .transition(.move(edge: .leading))
+                .zIndex(10)
+                .onAppear { drawerMark("drawer appeared") }
+        }
+    }
+
+    private func drawerMark(_ line: String) {
+        #if DEBUG
+        guard let path = ProcessInfo.processInfo.environment["HOP_SELECT_MARKER"],
+              let h = FileHandle(forWritingAtPath: path) ?? {
+                  FileManager.default.createFile(atPath: path, contents: nil); return FileHandle(forWritingAtPath: path) }()
+        else { return }
+        h.seekToEndOfFile(); h.write(Data((line + "\n").utf8)); try? h.close()
+        #endif
+    }
+
+    private func openDrawer() {
+        // Two edge recognizers can both report one swipe.
+        guard !drawerOpen else { return }
+        drawerMark("drawer open (was \(drawerOpen)) in \(session.internalName)")
+        // The keyboard would cover the bottom of the list. The terminal's
+        // own resign: a nil-targeted resignFirstResponder left it up.
+        keyboardUpBeforeDrawer = UIResponder.hopKeyboardShown
+        NotificationCenter.default.post(name: .hopDropKeyboard, object: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { drawerOpen = true }
+    }
     /// Last bell-driven views refresh — the throttle for bellNudgesViews().
     @State private var lastBellRefresh = Date.distantPast
     @State private var viewers: [HayClient.Viewer] = []
@@ -256,6 +373,13 @@ struct TerminalHostView: View {
                        chromeAutoHide: chromeAutoHideEnabled, landscape: landscapePhone,
                        chromeHeightNow: chromeShown && !landscapePhone ? chromeHeightNow : 0,
                        onSessionSwipe: { phase, dx in
+                           // The drawer's swipe-to-close reaches the terminal's
+                           // UIKit pans underneath; it must not ALSO switch
+                           // sessions (closing the drawer landed you elsewhere).
+                           if drawerOpen {
+                               if phase != .moved { switchDragEnded(0, released: false) }
+                               return
+                           }
                            switch phase {
                            case .moved: switchDragMoved(dx)
                            case .commit: switchDragEnded(dx, released: true)
@@ -304,7 +428,9 @@ struct TerminalHostView: View {
                                }
                            }
                        },
-                       onBackSwipe: { dismiss() },
+                       // Left-edge swipe opens the session drawer (Slack-
+                       // style); the ‹ button in the bar is the way back.
+                       onBackSwipe: { openDrawer() },
                        onOpenLink: { link in openLinkSmart(link) },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
@@ -352,7 +478,14 @@ struct TerminalHostView: View {
                        })
     }
 
+    // The drawer sits OUTSIDE the main chain: one more modifier there tipped
+    // the type-checker over its time budget.
     var body: some View {
+        mainBody.overlay { drawerLayer }
+            .onReceive(NotificationCenter.default.publisher(for: .hopOpenDrawer)) { _ in openDrawer() }
+    }
+
+    private var mainCore: some View {
         screen
             .saturation(bannerVisible ? 0.55 : 1)
             .opacity(bannerVisible ? 0.82 : 1)
@@ -392,7 +525,7 @@ struct TerminalHostView: View {
                           .compactMap({ ($0 as? UIWindowScene)?.screen.bounds.height }).first
                 else { return }
                 let up = end.origin.y < screen
-                let dur = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? -1
+                let dur: Double = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? -1
                 KBLog.record("kbFrame endY=\(Int(end.origin.y)) h=\(Int(end.height)) screen=\(Int(screen)) up=\(up) dur=\(dur)")
                 // Every keyboard-frame event schedules the settle check; the
                 // check debounces itself, so only the burst's last survivor
@@ -421,6 +554,23 @@ struct TerminalHostView: View {
                     }
                 }
                 Button("Cancel", role: .cancel) {}
+            }
+            // Codex lets one process write a thread: the app can only take
+            // it over once this session's codex stops, so the hand-off is
+            // Stop & park (resumable) plus opening the app on the Mac.
+            .confirmationDialog("Hand \(session.name) to the Codex app?", isPresented: $codexHandOffShown,
+                                titleVisibility: .visible) {
+                Button("Stop here & open in Codex app") {
+                    Task {
+                        if await model.openInCodexApp(internalName: session.internalName, handOff: true) { dismiss() }
+                    }
+                }
+                Button("Just show it in the app") {
+                    Task { _ = await model.openInCodexApp(internalName: session.internalName, handOff: false) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Opens on the Mac. The app can continue the conversation only after it stops here; it's parked, and opening it in hop again picks it back up.")
             }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
@@ -562,6 +712,28 @@ struct TerminalHostView: View {
                     .transition(.opacity)
                 }
             }
+            // Recent `hop view` deliveries float in a corner, PiP-style,
+            // until closed.
+            .overlay {
+                if floatVisible {
+                    FloatingViewPreview(deliveries: floatDeliveries,
+                                        unreadCount: floatUnreadIDs.count,
+                                        unreadIDs: floatUnreadIDs,
+                                        index: $floatIndex,
+                                        topInset: overlayTop, bottomInset: 64,
+                                        onOpen: { openFloating($0) },
+                                        onClose: {
+                                            withAnimation(.easeOut(duration: 0.15)) {
+                                                setFloatClosedAt(floatDeliveries.first?.item.mtime ?? Date().timeIntervalSince1970)
+                                                floatTick += 1
+                                            }
+                                        })
+                }
+            }
+            .onAppear { checkNewDelivery() }
+            // Back from the viewer: seen-state changed under the card.
+            .onChange(of: artifactViewing == nil) { _, closed in if closed { floatTick += 1 } }
+            .onChange(of: liveSession.views?.latestAt) { _, _ in checkNewDelivery() }
             .overlay(alignment: .top) {
                 if fullNameShown {
                     VStack(alignment: .leading, spacing: 4) {
@@ -602,6 +774,9 @@ struct TerminalHostView: View {
             .onChange(of: findOpen) { _, open in
                 if open { findFocused = true }
             }
+            .sheet(isPresented: $checkbacksShown) {
+                CheckbacksSheet(session: liveSession).environmentObject(model)
+            }
             // Landscape gives every point to the terminal — Jian's rule, and
             // the keyboard already eats half the height there. Rotating
             // dismisses the chrome even under the test-mode pin (the pin
@@ -612,6 +787,11 @@ struct TerminalHostView: View {
                     withAnimation(.easeOut(duration: 0.2)) { chromeShown = false }
                 }
             }
+    }
+
+    // Second half of the chain (split for the type-checker).
+    private var mainBody: some View {
+        mainCore
             .safeAreaInset(edge: .top, spacing: 0) {
                 if findOpen {
                     // Same material as the chrome pill — the last stock strip
@@ -1564,6 +1744,8 @@ struct TerminalHostView: View {
                 await model.setNotifyOnFinish(liveSession, on: want)
                 refreshMenuSnapshot(force: true)   // your own toggle shows at once
             }
+        case .checkbacks:
+            checkbacksShown = true
         case .find:
             findOpen.toggle()
         case .copyScreen:
@@ -1610,6 +1792,8 @@ struct TerminalHostView: View {
             Task { if await model.setParked(liveSession, parked: true) { dismiss() } }
         case .kill:
             killConfirmShown = true
+        case .codexApp:
+            codexHandOffShown = true
         }
     }
 
@@ -1654,12 +1838,13 @@ struct TerminalActionsMenu: View, Equatable {
         var createdBy: String
     }
     enum Action {
-        case reconnect, views, toggleNotify
+        case reconnect, views, toggleNotify, checkbacks
         case find, copyScreen, copyAll, takePhoto, choosePhoto
         case fork(target: String?)
         case toggleFitWidth, fontStep(Int), toggleTheme, toggleAutoHide, toggleKeepAwake
         case control(ControlAction)
         case rename, tagline, moveToFolder(String?), toggleOrigin, park, kill
+        case codexApp
     }
 
     let inputs: Inputs
@@ -1705,20 +1890,24 @@ struct TerminalActionsMenu: View, Equatable {
         // Crossing tools: the conversation is extracted to a document the
         // new agent reads first (context handoff, not a resume — hop2
         // b81b17a). Same daemon call as the web sheet's "Continue in…".
-        // Hidden only when the tool is KNOWN to be the target: the daemon
-        // reports `zsh` as the foreground process for a claude session
-        // (claude runs under the shell), so runningApp is usually empty
-        // here and both are offered — the daemon knows what a session
-        // really runs and refuses a same-tool handoff with a clear error.
-        if i.runningApp != "codex" {
-            Button { act(.fork(target: "codex")) } label: {
-                Label("Continue in Codex…", systemImage: "arrow.right.doc.on.clipboard")
+        // runningApp is often empty for a claude session (the daemon sees
+        // `zsh` in front), so the "fresh" label is best-effort; the daemon
+        // knows what a session really runs and does the right handoff.
+        if i.runningApp == "codex" {
+            Button { act(.codexApp) } label: {
+                Label("Hand off to Codex app…", systemImage: "macwindow")
             }
         }
-        if i.runningApp != "claude" {
-            Button { act(.fork(target: "claude")) } label: {
-                Label("Continue in Claude…", systemImage: "arrow.right.doc.on.clipboard")
-            }
+        // Both, always: into the SAME tool it is a fresh session that reads
+        // the condensed trajectory instead of the full, context-heavy
+        // history (Jian: useful to "continue in claude from claude").
+        Button { act(.fork(target: "codex")) } label: {
+            Label(i.runningApp == "codex" ? "Continue in fresh Codex…" : "Continue in Codex…",
+                  systemImage: "arrow.right.doc.on.clipboard")
+        }
+        Button { act(.fork(target: "claude")) } label: {
+            Label(i.runningApp == "claude" ? "Continue in fresh Claude…" : "Continue in Claude…",
+                  systemImage: "arrow.right.doc.on.clipboard")
         }
     }
 
@@ -1793,6 +1982,10 @@ struct TerminalActionsMenu: View, Equatable {
                 Button { act(.toggleNotify) } label: {
                     Label(i.notifyOnFinish ? "Stop notifying" : "Notify when finished",
                           systemImage: i.notifyOnFinish ? "bell.fill" : "bell")
+                }
+                // Have hop type something into this session later.
+                Button { act(.checkbacks) } label: {
+                    Label("Check back later…", systemImage: "alarm")
                 }
             }
             Section {
@@ -1944,6 +2137,12 @@ extension Notification.Name {
     /// not restore the terminal's keyboard on its own, so the session came
     /// back unusable until you tapped it.
     static let hopRefocusTerminal = Notification.Name("hopRefocusTerminal")
+    /// The session drawer opening: the keyboard would cover half of it.
+    static let hopDropKeyboard = Notification.Name("hopDropKeyboard")
+    /// A left-edge swipe anywhere in a session (relayed by BackSwipe).
+    static let hopOpenDrawer = Notification.Name("hopOpenDrawer")
+    /// The same swipe on the session list (no terminal pushed).
+    static let hopOpenWallDrawer = Notification.Name("hopOpenWallDrawer")
     static let hopCopyAll = Notification.Name("hopCopyAll")
     /// Text handed to the terminal by the app (object: String) — an uploaded
     /// photo's path, pasted into the composer.
@@ -2549,6 +2748,7 @@ struct TerminalScreen: UIViewRepresentable {
                     self.setStatus(.live)
                     self.claimSizeOnAttach()
                     self.replayPending()
+                    self.startQuietWatch()
                     // How much history the snapshot actually delivered. This is
                     // the number that decides whether find and copy-all can
                     // reach anything, so it's worth being able to look it up
@@ -2806,6 +3006,8 @@ struct TerminalScreen: UIViewRepresentable {
                                                    name: .hopJumpToLive, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(refocusTerminal),
                                                    name: .hopRefocusTerminal, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(dropKeyboard),
+                                                   name: .hopDropKeyboard, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(insertText(_:)),
                                                    name: .hopInsertText, object: nil)
             #if DEBUG
@@ -3063,12 +3265,40 @@ struct TerminalScreen: UIViewRepresentable {
 
         func detach() {
             alive = false
+            quietWatch?.cancel()
+            quietWatch = nil
             stopReclaimRetry()
             typingTimer?.invalidate()
             if typingActive { client.sendTyping(false) }
             retryTask?.cancel()
             NotificationCenter.default.removeObserver(self)
             client.close()
+        }
+
+        /// Quiet-socket watchdog. A socket can die half-open while you SIT
+        /// in a session — the Mac sleeps or loses its network, the tunnel
+        /// drops — and nothing on this side notices: no receive fails, no
+        /// send fails, the dot stays green and the screen just stops. The
+        /// wake ping only runs on a return to the foreground and the typing
+        /// probe only after a keystroke, so a session you were reading
+        /// stayed frozen until you backed out to the list and reopened it
+        /// (Jian, alphagenome, 10/19 — the Mac's network was down
+        /// 23:40–23:52 UTC). Every 10s while foreground and live: if the
+        /// server has said nothing for 15s, ping it; no pong → the normal
+        /// reconnect machinery. A pong costs a few bytes and changes nothing.
+        private var quietWatch: Task<Void, Never>?
+        private func startQuietWatch() {
+            guard quietWatch == nil else { return }
+            quietWatch = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard let self, self.alive else { return }
+                    guard self.isLive, !self.sessionEnded,
+                          UIApplication.shared.applicationState == .active,
+                          Date().timeIntervalSince(self.lastInboundAt) > 15 else { continue }
+                    self.client.verifyLiveness(timeout: 5)
+                }
+            }
         }
 
         /// Reconnect on our own — IMMEDIATELY the first time (0s, 1s, 2s,
@@ -3288,6 +3518,10 @@ struct TerminalScreen: UIViewRepresentable {
             deliver(text)
         }
 
+        @objc private func dropKeyboard() {
+            _ = view?.resignFirstResponder()
+        }
+
         @objc private func refocusTerminal() {
 
             guard let v = view, v.window != nil, !v.isFirstResponder else { return }
@@ -3421,7 +3655,31 @@ struct TerminalScreen: UIViewRepresentable {
         // ── TerminalViewDelegate ──
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
             guard let text = String(bytes: data, encoding: .utf8) else { return }
+            // The EMULATOR answering an app's query (cursor position, device
+            // attributes, focus, colours) is not the user typing. It used to
+            // run the keystroke path — reclaim the size (user:true) and mark
+            // typing — so every Codex redraw-and-query made the phone grab
+            // the size, the desk's own answer grabbed it back, and the PTY
+            // flipped 56x32 <-> 114x33 every 20–40ms (diagnostic 2026-10-05).
+            if Self.isTerminalReply(text) {
+                // While another device holds the size, ITS emulator answers
+                // the app; a second answer from us only feeds the loop.
+                if peerHoldsSize { return }
+                client.sendInput(text)
+                return
+            }
             typedText(text)
+        }
+
+        /// A payload made ONLY of terminal-generated reports (mirrors hop2
+        /// rooms.ts PURE_MOUSE_REPORT, minus mouse — taps send those on purpose).
+        static let replyPattern = try! NSRegularExpression(pattern:
+            "^(?:\\x1b\\[\\d+;\\d+R|\\x1b\\[[?>=][\\d;]*c|\\x1b\\[[IO]|\\x1b\\[\\??[\\d;]+\\$y"
+            + "|\\x1b\\[\\?\\d+u|\\x1b\\[\\d+n|\\x1b\\[\\d+(?:;\\d+)*t"
+            + "|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)|\\x1bP[^\\x1b]*\\x1b\\\\)+$")
+        static func isTerminalReply(_ text: String) -> Bool {
+            let r = NSRange(text.startIndex..., in: text)
+            return replyPattern.firstMatch(in: text, range: r) != nil
         }
 
         /// The one path every typed character takes, from either keyboard:
@@ -5414,6 +5672,28 @@ final class HopTermView: TerminalView {
     private var hadSelectionAtHold = false
     private var holdMoved = false
 
+    private var holdCell: (screenRow: Int, col: Int, yDisp: Int)?
+
+    /// Select the word under the held cell (SwiftTerm's word rules: letters,
+    /// digits, `.` `_` `-`), at its true buffer row. A press on blank selects
+    /// nothing rather than a stray range.
+    private func selectWordAtHoldCell() {
+        guard let h = holdCell else { return }
+        let t = getTerminal()
+        guard let line = t.getLine(row: h.screenRow + (h.yDisp - t.buffer.yDisp))?
+            .translateToString(trimRight: false) else { return }
+        let chars = Array(line)
+        guard h.col >= 0, h.col < chars.count else { clearSelection(); return }
+        let isWord: (Character) -> Bool = { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-" }
+        guard isWord(chars[h.col]) else { clearSelection(); return }
+        var left = h.col, right = h.col
+        while left > 0, isWord(chars[left - 1]) { left -= 1 }
+        while right < chars.count, isWord(chars[right]) { right += 1 }
+        let row = h.screenRow + h.yDisp
+        setSelectionRange(start: Position(col: left, row: row), end: Position(col: right, row: row))
+        selectMark("hold word r\(row) c\(left)..<\(right) yDisp=\(h.yDisp) \"\(String(chars[left..<right]))\"")
+    }
+
     @objc private func handleSelectHold(_ g: UILongPressGestureRecognizer) {
         switch g.state {
         case .began:
@@ -5427,6 +5707,18 @@ final class HopTermView: TerminalView {
             holdMoved = false
             _ = becomeFirstResponder()
             selectHoldPoint = g.location(in: self)
+            // The pressed cell in BUFFER coordinates, by hop's own mapping:
+            // SwiftTerm derives the row from the raw contentOffset, which in
+            // hop's managed viewport disagrees with the scrollback position
+            // — so in a scrolled plain shell the word it picked was rows
+            // away (a zero-width sliver; "long-press select works in Claude
+            // Code but not in a regular terminal"). Alt-screen apps have no
+            // scrollback, which is why Claude was fine.
+            if let c = cellAt(selectHoldPoint) {
+                holdCell = (screenRow: c.row, col: c.col, yDisp: getTerminal().buffer.yDisp)
+            } else {
+                holdCell = nil
+            }
             // SwiftTerm's own long-press records the pressed cell
             // (lastLongSelect). NOTHING may mutate the recognizer set here:
             // select() adds the selection pan, and adding a recognizer
@@ -5457,7 +5749,8 @@ final class HopTermView: TerminalView {
             if hadSelectionAtHold && holdMoved {
                 selectMark("hold-ended on handle drag: keeping the pan's selection")
             } else {
-                select(nil)
+                select(nil)              // SwiftTerm: menu + selection pan
+                selectWordAtHoldCell()   // …and the RIGHT word
             }
             selectMark("hold-ended sel=\(selectionActive)")
             guard selectionActive else { return }
@@ -6056,9 +6349,30 @@ extension HopTermView: UIGestureRecognizerDelegate {
         !(other is UIScreenEdgePanGestureRecognizer)
     }
 
-    /// And when the two do overlap, the swipe back wins outright.
+    /// And when the two do overlap, the edge swipe wins outright: OUR
+    /// recognizers wait for it to fail. This used to be written backwards
+    /// (`shouldBeRequiredToFailBy` — "the edge waits for US"), so a sideways
+    /// drag from the edge was taken by the scroll/switch pans and the edge
+    /// gesture never fired: the swipe-back test had been failing for weeks,
+    /// and the session drawer could not open. The edge recognizer fails at
+    /// once for a touch that doesn't start at the edge, so nothing else waits.
     func gestureRecognizer(_ g: UIGestureRecognizer,
-                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+                           shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         other is UIScreenEdgePanGestureRecognizer
+    }
+}
+
+extension UIResponder {
+    /// Whether the software keyboard is on screen, tracked from the system's
+    /// show/hide notifications (installed on first read).
+    static var hopKeyboardShown: Bool { KeyboardWatch.shared.shown }
+}
+
+private final class KeyboardWatch {
+    static let shared = KeyboardWatch()
+    var shown = false
+    private init() {
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in self?.shown = true }
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in self?.shown = false }
     }
 }

@@ -104,6 +104,18 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
         for s in sessions {
             guard s.attention, shouldNotify(bellSeq: s.bellSeq,
                                             lastNotified: notified[s.internalName]) else { continue }
+            // NOISE that taught the reader to ignore hop's notifications
+            // (Jian: "the iOS notification has not been that helpful"):
+            //  - a mid-turn ping: Codex rings while it works; nothing needs you
+            //  - an agent-created worker (fleet scratch) — unless you asked to
+            //    be told when it finishes (⋯ → Notify when finished)
+            // Recorded as handled so they never pile up later either.
+            let isAsk = s.freshAsk != nil
+            if !isAsk && (s.attentionReason == "working"
+                          || (s.createdBy == "agent" && !s.notifyOnFinish)) {
+                notified[s.internalName] = s.bellSeq
+                continue
+            }
             let content = UNMutableNotificationContent()
             // A question beats a screen snippet: "Claude needs your permission
             // to use Bash" / the AskUserQuestion text itself (Jian: "whenever
@@ -115,8 +127,13 @@ final class HopNotifier: NSObject, ObservableObject, UNUserNotificationCenterDel
             } else if s.attentionReason == "finished" {
                 // Codex rings the bell at the end of every turn: say so,
                 // rather than "wants your attention" over a finished screen.
+                // WHAT it finished: the agent's own last message (recorded
+                // by the Stop / notify hooks), not just "Finished a turn".
                 content.title = "\(s.name) finished"
-                content.body = s.tagline.isEmpty ? "Finished a turn" : s.tagline
+                let said = s.attentionNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                content.body = !said.isEmpty ? said
+                    : (s.tagline.isEmpty ? "Finished a turn" : s.tagline)
+                if !said.isEmpty, !s.tagline.isEmpty { content.subtitle = s.tagline }
             } else if s.attentionReason == "working" {
                 content.title = "\(s.name) is still working"
                 content.body = s.tagline.isEmpty ? "Pinged mid-turn; nothing needs you yet" : s.tagline

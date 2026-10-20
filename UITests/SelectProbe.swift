@@ -104,4 +104,47 @@ final class SelectProbe: XCTestCase {
         top.press(forDuration: 0.05, thenDragTo: low)
         XCTAssertTrue(app.buttons["Live"].waitForExistence(timeout: 5), "drag did not scroll")
     }
+
+    /// Plain shell (no alt screen, no mouse mode): a drifting hold must select.
+    func testHoldSelectsInPlainShellWithDrift() throws {
+        let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        try XCTSkipUnless(!cookie.isEmpty)
+        let scratch = "ShellSelectProbe"
+        _ = post("api/sessions/delete", ["name": scratch], cookie)
+        sleep(1)
+        XCTAssertTrue(post("api/sessions", ["name": scratch, "type": "terminal"], cookie))
+        defer { _ = post("api/sessions/delete", ["name": scratch], cookie) }
+        let m = "/tmp/hop-probe-shell.txt"
+        try? FileManager.default.removeItem(atPath: m)
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_OPEN"] = scratch
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launchEnvironment["HOP_SELECT_MARKER"] = m
+        let copied = "/tmp/hop-probe-copy.txt"
+        try? FileManager.default.removeItem(atPath: copied)
+        app.launchEnvironment["HOP_COPY_MARKER"] = copied
+        app.launch()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        sleep(1)
+        app.typeText("for i in $(seq 1 60); do echo selectable-word-$i; done\n")
+        sleep(2)
+        app.buttons["hide keyboard"].firstMatch.tap()
+        sleep(1)
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.45))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 6, dy: 10)), withVelocity: 60, thenHoldForDuration: 0.9)
+        let ok = copyShown(app)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-probe-shell.png"))
+        print("PROBE-TRACE shell:\n" + ((try? String(contentsOfFile: m, encoding: .utf8)) ?? "<none>"))
+        XCTAssertTrue(ok, "a drifting hold did not select in a plain shell")
+        // The selection is the WORD under the finger, not a stray range.
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Copy")).firstMatch.tap()
+        sleep(1)
+        let text = (try? String(contentsOfFile: copied, encoding: .utf8)) ?? ""
+        print("COPIED: \(text.debugDescription)")
+        XCTAssertTrue(text.range(of: "^selectable-word-\\d+$", options: .regularExpression) != nil,
+                      "copied \(text.debugDescription), not the word under the finger")
+    }
 }

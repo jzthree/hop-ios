@@ -2002,3 +2002,16 @@ final class CellMetricsTests: XCTestCase {
         }
     }
 }
+
+/// Emulator replies are not keystrokes (the 2026-10-05 flicker loop).
+final class TerminalReplyTests: XCTestCase {
+    @MainActor
+    func testRepliesAreRecognisedAndKeysAreNot() {
+        let replies = ["\u{1b}[12;40R", "\u{1b}[?62;22c", "\u{1b}[>1;10;0c", "\u{1b}[I", "\u{1b}[O",
+                       "\u{1b}[?2026;2$y", "\u{1b}[?1u", "\u{1b}[0n",
+                       "\u{1b}]11;rgb:0d0d/1111/1717\u{07}", "\u{1b}P>|xterm(1)\u{1b}\\", "\u{1b}[12;40R\u{1b}[?1u"]
+        for r in replies { XCTAssertTrue(TerminalScreen.Coordinator.isTerminalReply(r), "reply: \(r.debugDescription)") }
+        let keys = ["y", "\r", "ls\r", "\u{1b}[A", "\u{1b}", "\u{1b}[13;2u", "\u{1b}[12;40Rx", "\u{1b}[<64;40;12M"]
+        for k in keys { XCTAssertFalse(TerminalScreen.Coordinator.isTerminalReply(k), "key: \(k.debugDescription)") }
+    }
+}

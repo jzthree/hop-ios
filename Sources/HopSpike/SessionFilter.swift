@@ -9,10 +9,11 @@ enum SessionScope: String, CaseIterable {
 
 /// How the wall arranges itself. Folder = the user's own server-side filing.
 enum GroupMode: String, CaseIterable {
-    case recent, project, folder
+    case recent, used, project, folder
     var label: String {
         switch self {
         case .recent: return "Recent"
+        case .used: return "Active"
         case .project: return "By project"
         case .folder: return "By folder"
         }
@@ -20,6 +21,7 @@ enum GroupMode: String, CaseIterable {
     var icon: String {
         switch self {
         case .recent: return "clock"
+        case .used: return "flame"
         case .project: return "externaldrive"
         case .folder: return "folder"
         }
@@ -625,4 +627,17 @@ func shouldDeclareSize(cols: Int, rows: Int, now: TimeInterval,
     if let last = lastSent, last.cols == cols, last.rows == rows,
        now - last.at < repeatWindow { return false }
     return true
+}
+
+/// "Most used": by how often the HUMAN interacts with each session — opens on
+/// any device, prompts — the daemon's decayed score, so the phone and the web
+/// agree. Below the threshold the score is noise and recency orders instead.
+func groupSessionsByUse(_ sessions: [HopSession]) -> [(label: String, rows: [HopSession])] {
+    let used = sessions.filter { $0.interactionScore >= 0.5 }
+        .sorted { $0.interactionScore != $1.interactionScore ? $0.interactionScore > $1.interactionScore : $0.lastActivityAt > $1.lastActivityAt }
+    let rare = sessions.filter { $0.interactionScore < 0.5 }.sorted { $0.lastActivityAt > $1.lastActivityAt }
+    var out: [(label: String, rows: [HopSession])] = []
+    if !used.isEmpty { out.append((label: "Active", rows: used)) }
+    if !rare.isEmpty { out.append((label: "Less active", rows: rare)) }
+    return out
 }

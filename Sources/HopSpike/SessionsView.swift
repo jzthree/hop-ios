@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import TipKit
 
@@ -20,6 +21,8 @@ struct SessionsView: View {
     @State private var filter = ProcessInfo.processInfo.environment["HOP_DEV_FILTER"] ?? ""
     /// The Parked section starts folded, like the desktop's "▸ parked · N".
     @State private var parkedOpen = false
+    /// The session whose check-backs sheet is open.
+    @State private var checkbackTarget: HopSession?
     @State private var scope: SessionScope = {
         switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
         case "all": return .all
@@ -63,6 +66,7 @@ struct SessionsView: View {
         return switcherTiles
     }
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
+    @State private var showCodexApp = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "codex"
     // Same dev hook the Account sheet uses, so a screenshot check can reach
     // the fleet-wide list without a gesture.
     @State private var showArtifacts = {
@@ -200,6 +204,7 @@ struct SessionsView: View {
         guard filter.isEmpty else { return [(label: "", rows: visible)] }
         switch groupMode {
         case .recent: return [(label: "", rows: visible)]
+        case .used: return groupSessionsByUse(visible)
         case .project: return groupSessionsByProject(visible)
         case .folder: return groupSessionsByFolder(visible, folders: model.folders)
         }
@@ -221,23 +226,20 @@ struct SessionsView: View {
                 }
             }
         } label: { Label("Fork session", systemImage: "arrow.triangle.branch") }
-        if session.runningApp != "codex" {
+        // Both, always — into the same tool it is a fresh session that reads
+        // the condensed trajectory (see AppModel.forkSession's condense).
+        ForEach(["codex", "claude"], id: \.self) { target in
             Button {
                 Task {
-                    if let fork = await model.forkSession(session.internalName, target: "codex") {
+                    if let fork = await model.forkSession(session.internalName, target: target) {
                         model.requestedSession = fork
                     }
                 }
-            } label: { Label("Continue in Codex…", systemImage: "arrow.right.doc.on.clipboard") }
-        }
-        if session.runningApp != "claude" {
-            Button {
-                Task {
-                    if let fork = await model.forkSession(session.internalName, target: "claude") {
-                        model.requestedSession = fork
-                    }
-                }
-            } label: { Label("Continue in Claude…", systemImage: "arrow.right.doc.on.clipboard") }
+            } label: {
+                let tool = target == "codex" ? "Codex" : "Claude"
+                Label(session.runningApp == target ? "Continue in fresh \(tool)…" : "Continue in \(tool)…",
+                      systemImage: "arrow.right.doc.on.clipboard")
+            }
         }
     }
 
@@ -312,10 +314,15 @@ struct SessionsView: View {
             moveToMenu(session)
             Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
             Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
+            Button { checkbackTarget = session } label: {
+                Label(session.checkbacks > 0 ? "Check-backs (\(session.checkbacks))…" : "Check back later…", systemImage: "alarm")
+            }
+            // Park ⇄ Unpark: a parked row (the folded section, or a search
+            // hit) used to offer "Park" again, and unparking meant opening it.
             Button {
-                Task { _ = await model.setParked(session, parked: true) }
+                Task { _ = await model.setParked(session, parked: !session.parked) }
             } label: {
-                Label("Park", systemImage: "moon.zzz")
+                Label(session.parked ? "Unpark" : "Park", systemImage: session.parked ? "sun.max" : "moon.zzz")
             }
             // Desktop's "Stop & park (resumable)": frees the process, keeps
             // the conversation — opening it later resumes.
@@ -350,11 +357,11 @@ struct SessionsView: View {
             // out of the working set, still running, still searchable.
             // Opening it again (via search) unparks it — that half existed.
             Button {
-                Task { _ = await model.setParked(session, parked: true) }
+                Task { _ = await model.setParked(session, parked: !session.parked) }
             } label: {
-                Label("Park", systemImage: "moon.zzz")
+                Label(session.parked ? "Unpark" : "Park", systemImage: session.parked ? "sun.max" : "moon.zzz")
             }
-            .tint(.indigo)
+            .tint(session.parked ? .orange : .indigo)
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             // Triage without opening anything. Three agents each waiting on a
@@ -546,6 +553,9 @@ struct SessionsView: View {
                                 moveToMenu(session)
                                 Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
                                 Button { startTagline(session) } label: { Label("Edit tagline", systemImage: "text.quote") }
+                                Button { checkbackTarget = session } label: {
+                                    Label(session.checkbacks > 0 ? "Check-backs (\(session.checkbacks))…" : "Check back later…", systemImage: "alarm")
+                                }
                                 Button {
                                     Task { _ = await model.setParked(session, parked: true) }
                                 } label: {
@@ -663,6 +673,9 @@ struct SessionsView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .contentMargins(.horizontal, 6, for: .scrollContent)
         .listSectionSpacing(14)
+        // Short rows (briefing lines, the Parked header) size to their
+        // content; the default 44pt minimum padded them into blank bands.
+        .environment(\.defaultMinListRowHeight, 10)
     }
 
     /// Parked sessions in the current You / Agents / All scope — the same
@@ -827,6 +840,10 @@ struct SessionsView: View {
                 Button { showArtifacts = true } label: {
                     Label("Views", systemImage: "tray.full")
                 }
+                // The Codex desktop app's threads on the Mac, continued here.
+                Button { showCodexApp = true } label: {
+                    Label("Codex app threads", systemImage: "macwindow")
+                }
                 Divider()
                 Button { showAccount = true } label: {
                     Label("Server & account", systemImage: "person.crop.circle")
@@ -842,7 +859,43 @@ struct SessionsView: View {
 
     // MARK: body
 
+    /// The Slack-style drawer, reachable from the wall too (Jian: "we
+    /// should be able to swipe in the session view too"). A left-edge swipe
+    /// opens it while the list is showing; inside a terminal, TerminalScreen
+    /// owns the edge and its own drawer.
+    @State private var wallDrawerOpen = false
+
     var body: some View {
+        stack
+            #if DEBUG
+            .onChange(of: path) { old, new in HopSceneDelegate.mark("path \(old) -> \(new)") }
+            .onChange(of: model.requestedSession) { _, w in HopSceneDelegate.mark("requestedSession \(w ?? "nil")") }
+            .onChange(of: notifier.pendingOpen) { _, w in HopSceneDelegate.mark("pendingOpen \(w ?? "nil")") }
+            #endif
+            .background(EdgeSwipeCatcher(enabled: path.isEmpty && !wallDrawerOpen) {
+                NotificationCenter.default.post(name: .hopOpenWallDrawer, object: nil)
+            })
+            .onReceive(NotificationCenter.default.publisher(for: .hopOpenWallDrawer)) { _ in
+                guard path.isEmpty, !wallDrawerOpen else { return }
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { wallDrawerOpen = true }
+            }
+            .overlay {
+                if wallDrawerOpen && path.isEmpty {
+                    SessionDrawer(currentInternal: "",
+                                  onPick: { name in
+                                      wallDrawerOpen = false
+                                      model.requestedSession = name
+                                  },
+                                  onAllSessions: { withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { wallDrawerOpen = false } },
+                                  onClose: { withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { wallDrawerOpen = false } })
+                        .environmentObject(model)
+                        .transition(.move(edge: .leading))
+                }
+            }
+    }
+
+    private var stack: some View {
         NavigationStack(path: $path) {
             listView
                 // ALWAYS visible, not pull-to-reveal: with an inline title the
@@ -945,6 +998,10 @@ struct SessionsView: View {
                             ?? internalName
                     })
                 }
+                .sheet(isPresented: $showCodexApp) {
+                    CodexAppSheet { name in model.requestedSession = name }
+                        .environmentObject(model)
+                }
                 .sheet(isPresented: $showAccount) {
                     // .medium clipped the last row once diagnostics arrived;
                     // sized to the content instead of a fixed half-sheet.
@@ -954,6 +1011,9 @@ struct SessionsView: View {
                 // to something that asked which of three options you wanted.
                 // The sheet shows the last meaningful rows in colour — the
                 // question itself — above the composer.
+                .sheet(item: $checkbackTarget) { target in
+                    CheckbacksSheet(session: target).environmentObject(model)
+                }
                 .sheet(item: $replyTarget) { target in
                     ReplySheet(session: target,
                                screen: model.screens[target.internalName],
@@ -1182,9 +1242,18 @@ struct SessionsView: View {
     ///
     /// Waits for the list to know the session, so the destination isn't pushed
     /// against a list that simply hasn't loaded yet.
+    private static var devOpenUsed = false
+
     private func openPendingSession() async {
-        guard let want = model.requestedSession ?? notifier.pendingOpen
-                ?? ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] else { return }
+        // The dev hook opens ONCE per launch: re-firing every time the list
+        // reappeared bounced a test (or a dev) straight back into that
+        // session after "All sessions" / Back.
+        var devOpen: String? = nil
+        if !Self.devOpenUsed, let d = ProcessInfo.processInfo.environment["HOP_DEV_OPEN"] {
+            devOpen = d
+            Self.devOpenUsed = true
+        }
+        guard let want = model.requestedSession ?? notifier.pendingOpen ?? devOpen else { return }
         var target: String?
         for _ in 0..<40 {
             // Same folding contract as the warm doors (hop2 e4bdd86) — but
@@ -1353,14 +1422,17 @@ struct SessionRow: View {
             }
             .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(session.name)
                         .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                        // At accessibility sizes a name wrapped mid-word
-                        // ("Sol-" / "stice"), which reads as a broken row.
-                        // Shrink first, truncate second, never hyphenate.
-                        .lineLimit(1)
+                        // TWO lines, at Jian's word: the title matters more
+                        // than the preview, so a long one wraps rather than
+                        // truncating. Still shrink before truncating — at
+                        // accessibility sizes a one-word name wrapped
+                        // mid-word ("Sol-" / "stice").
+                        .lineLimit(2)
                         .minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
                     if !session.runningApp.isEmpty {
                         let tint = appTint(session.runningApp)
                         Text(session.runningApp)
@@ -1368,6 +1440,14 @@ struct SessionRow: View {
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(tint.opacity(0.16), in: Capsule())
                             .foregroundStyle(tint)
+                    }
+                    // Check-backs waiting on it (the web's ⏰ chip). Long-press
+                    // → Check-backs… lists and cancels them.
+                    if session.checkbacks > 0 {
+                        Text("⏰ \(session.checkbacks)")
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("\(session.checkbacks) check-back\(session.checkbacks == 1 ? "" : "s") waiting")
                     }
                     if session.createdBy == "agent" {
                         Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
@@ -1445,4 +1525,66 @@ struct SessionRow: View {
     /// should actually say. Shared with the tiles via sessionSpokenSummary —
     /// the two switcher modes must SOUND the same, whatever they look like.
     var spokenSummary: String { sessionSpokenSummary(session) }
+}
+
+/// The wall's own left-edge pan, on the WINDOW (the wall is a List at the
+/// root of a NavigationStack; the system's back-swipe recogniser is not
+/// reliably consulted where there is nothing to pop). BackSwipe relays the
+/// same swipe when UIKit does ask it; whichever hears it first opens the
+/// drawer, and the receiver ignores the second.
+struct EdgeSwipeCatcher: UIViewRepresentable {
+    var enabled: Bool
+    var onSwipe: () -> Void
+
+    func makeUIView(context: Context) -> CatcherView { CatcherView() }
+    func updateUIView(_ v: CatcherView, context: Context) {
+        v.enabled = enabled
+        v.onSwipe = onSwipe
+    }
+
+    final class CatcherView: UIView, UIGestureRecognizerDelegate {
+        var enabled = false
+        var onSwipe: () -> Void = {}
+        private weak var installedOn: UIWindow?
+        private lazy var pan: UIScreenEdgePanGestureRecognizer = {
+            let g = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handle(_:)))
+            g.edges = .left
+            g.cancelsTouchesInView = true   // the drag must not ALSO tap the row under it
+            g.delegate = self
+            return g
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let old = installedOn, old !== window { old.removeGestureRecognizer(pan) }
+            if let w = window, installedOn !== w { w.addGestureRecognizer(pan); installedOn = w }
+        }
+
+        // The delegate's shouldBegin, not a guard in the handler: an edge pan
+        // that RECOGNIZES (even to do nothing) beats the terminal's own.
+        override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            g === pan ? enabled : super.gestureRecognizerShouldBegin(g)
+        }
+
+        /// A rightward drag from the edge is also a row's leading swipe
+        /// (Reply) to the List; other pans wait for this one to decline,
+        /// which it does at once for a touch that starts away from the edge.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            g === pan && enabled && other is UIPanGestureRecognizer && !(other is UIScreenEdgePanGestureRecognizer)
+        }
+
+        /// Alongside the system's back-swipe recogniser, never instead of it:
+        /// when UIKit asked that one first, this one used to never begin.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            other is UIScreenEdgePanGestureRecognizer
+        }
+
+        @objc private func handle(_ g: UIScreenEdgePanGestureRecognizer) {
+            // An edge pan only BEGINS once the finger has travelled inward,
+            // so began is already a committed swipe.
+            if g.state == .began, enabled { onSwipe() }
+        }
+    }
 }

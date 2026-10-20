@@ -137,6 +137,7 @@ struct HopApp: App {
         // Locked from the first frame: the fleet must never flash before
         // the gate on a cold launch.
         BioLock.shared.armOnLaunch()
+        _ = UIResponder.hopKeyboardShown   // start tracking keyboard show/hide (session drawer)
         // Dev-only: set the navigation request HERE, before any view exists,
         // so `make sim OPEN=X` exercises the real cold-launch path — the one a
         // quick action or a notification tap takes, where onChange can never

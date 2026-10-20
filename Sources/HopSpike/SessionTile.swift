@@ -86,9 +86,14 @@ struct SessionTile: View {
                 .sonar(when: !session.attention && session.live
                             && (session.phase == .working || (session.phase == nil && session.busy)),
                        color: session.phase == .working ? .hopWorking : .hopLive)
+            // Up to TWO lines, at Jian's word: the title is what you read a
+            // tile for, more than its screen, so a long name wraps and the
+            // terminal below gives up the line. Short names stay one line.
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
-                .lineLimit(1)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             // Someone is ON this session right now — the desk browser, the
             // CLI, another phone. The eye is presence at wall distance.
             if session.attached {
@@ -104,6 +109,11 @@ struct SessionTile: View {
                     .foregroundStyle(Color.hopGlow.opacity(0.8))
             }
             Spacer(minLength: 4)
+            if session.checkbacks > 0 {
+                Text("⏰\(session.checkbacks)")
+                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             if !session.runningApp.isEmpty {
                 let tint = appTint(session.runningApp)
                 Text(session.runningApp)

@@ -108,6 +108,12 @@ struct ArtifactSheet: View {
                 } else if let url {
                     if isNativeMedia {
                         ArtifactPlayerView(url: url)
+                            // Video is immersive: get the bar out of the
+                            // picture once playback is under way.
+                            .task(id: url) {
+                                try? await Task.sleep(for: .seconds(2))
+                                withAnimation(.easeInOut(duration: 0.25)) { chromeHidden = true }
+                            }
                     } else if isImage {
                         // Native, zoomable: an image in a web view is a
                         // page ABOUT an image. Pinch, pan, double-tap.
@@ -230,6 +236,20 @@ struct ArtifactSheet: View {
                 .disabled(viewing.index == viewing.items.count - 1)
                 .accessibilityLabel("Next view")
             }
+            // An explicit way to hide the bar. Tapping the content does it
+            // for pages and images, but a video's native player takes every
+            // tap for its own controls — so over video the bar could never be
+            // hidden (Jian: "when playing video from hop view I cannot hide
+            // the top bar"). The pull-down handle brings it back.
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { chromeHidden = true }
+            } label: {
+                Image(systemName: "chevron.compact.up")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Hide controls")
             Menu {
                 if let url {
                     // The FILE, not a link: the daemon's ?download=1 serves the
@@ -361,21 +381,55 @@ struct ArtifactImageView: View {
 /// media stack makes its own requests and inherits nothing from SwiftUI.
 struct ArtifactPlayerView: View {
     let url: URL
+    /// The floating preview plays silently and loops, with no controls.
+    var muted = false
+    var showsControls = true
     @State private var player: AVPlayer?
 
     var body: some View {
-        VideoPlayer(player: player)
-            .background(Color.black)
-            .task {
-                guard player == nil else { return }
-                let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
-                let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
-                let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                player = fresh
-                fresh.play()
+        Group {
+            if showsControls {
+                VideoPlayer(player: player)
+            } else {
+                PlayerLayerView(player: player)
             }
-            .onDisappear { player?.pause() }
+        }
+        .background(Color.black)
+        .task {
+            guard player == nil else { return }
+            let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+            let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: cookies])
+            let fresh = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+            fresh.isMuted = muted
+            if !showsControls {
+                // Loop the silent preview.
+                NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
+                                                       object: fresh.currentItem, queue: .main) { _ in
+                    fresh.seek(to: .zero); fresh.play()
+                }
+            }
+            player = fresh
+            fresh.play()
+        }
+        .onDisappear { player?.pause() }
     }
+}
+
+/// A bare AVPlayerLayer: video with no controls and no tap handling.
+struct PlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer?
+    final class LayerView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+    func makeUIView(context: Context) -> LayerView {
+        let v = LayerView()
+        v.playerLayer.videoGravity = .resizeAspectFill
+        v.backgroundColor = .black
+        v.isUserInteractionEnabled = false
+        return v
+    }
+    func updateUIView(_ v: LayerView, context: Context) { v.playerLayer.player = player }
 }
 
 struct ArtifactWebView: UIViewRepresentable {
@@ -385,12 +439,20 @@ struct ArtifactWebView: UIViewRepresentable {
     /// frame, so a chrome-hidden read still uses the whole screen and the
     /// page merely scrolls up under the top edge.
     var topInset: CGFloat = 0
+    /// False for the floating preview: a WKWebView's own scroll view ignores
+    /// SwiftUI's allowsHitTesting and stole the card's drag on device
+    /// (Jian: "the scrolling gesture conflicts with dragging").
+    var interactive = true
 
     func makeCoordinator() -> Coordinator { Coordinator(loading: $loading) }
 
     func makeUIView(context: Context) -> WKWebView {
         let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         web.navigationDelegate = context.coordinator
+        if !interactive {
+            web.isUserInteractionEnabled = false
+            web.scrollView.isScrollEnabled = false
+        }
         // hop's own surface under the page, not WebKit's white — the white
         // flash between open and first paint read as a different app.
         web.isOpaque = false

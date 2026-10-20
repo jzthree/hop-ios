@@ -162,7 +162,22 @@ final class HayClient: NSObject {
         }
 #endif
         receiveLoop(generation)
+        // Handshake deadline. An upgrade into a dead path (the Mac asleep or
+        // offline behind the tunnel) can sit in CONNECTING for a minute —
+        // URLSession's own timeout — with the banner saying "Reconnecting…"
+        // the whole time. No hello in 12s → this attempt is dead; the normal
+        // retry takes over. hop web's socketLiveness does the same (8s); the
+        // extra room here is cellular plus a daemon reviving a session's
+        // agent before it answers.
+        let attempt = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self, attempt == self.generation, self.helloGeneration != attempt else { return }
+            self.killDeadSocket()
+        }
     }
+
+    /// The generation whose socket has said hello.
+    private var helloGeneration = -1
 
     func sendInput(_ text: String) {
         sendJSON(["type": "input", "data": text], lostPayload: text)
@@ -344,6 +359,7 @@ final class HayClient: NSObject {
         switch type {
         case "hello":
             connectedAt = Date()
+            helloGeneration = generation
             clientId = obj["clientId"] as? String
             // The room's size BEFORE we join. Carried so the client can tell
             // whether its attach claim actually reshaped a session someone

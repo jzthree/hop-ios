@@ -1616,16 +1616,165 @@ final class ScrollUITests: XCTestCase {
     /// covers the whole terminal, so without yielding to the edge gesture the
     /// way out of a session also flings wheel events at the agent — and with
     /// momentum, keeps flinging them after the screen is gone.
-    func testSwipeBackLeavesTheSessionInsteadOfScrolling() throws {
+    /// The left-edge swipe opens the Slack-style session drawer (it used to
+    /// go back to the list; the ‹ button does that now). From the drawer:
+    /// filter, jump to another session, or "All sessions" back to the wall.
+    func testEdgeSwipeOpensTheSessionDrawer() throws {
         let app = launchIntoSession(Self.fixture)
         XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 25))
+        // A cold launch can also continue the last Handoff activity (the
+        // previous test's session) a beat later; let navigation settle.
+        sleep(5)
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
         edge.press(forDuration: 0.05, thenDragTo: right)
-        // Back at the list: the key bar is gone and sessions are listed again.
-        XCTAssertTrue(app.buttons["New session"].waitForExistence(timeout: 10),
-                      "swipe from the edge didn't leave the session")
-        XCTAssertFalse(app.buttons["escape"].exists, "key bar survived the swipe back")
+        let drawer = app.textFields["drawer filter"]
+        XCTAssertTrue(app.textFields["drawer filter"].waitForExistence(timeout: 8), "edge swipe did not open the drawer")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS ', current'")).firstMatch.exists,
+                      "the current session is not marked in the drawer")
+        XCTAssertFalse(app.keys["q"].waitForExistence(timeout: 2), "the keyboard covers the open drawer")
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer.png"))
+        // Swipe left over the session LIST closes it (the ScrollView used to
+        // swallow this), and so does a left swipe over the dimmed side.
+        let inList = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.6))
+        let farLeft = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.6))
+        inList.press(forDuration: 0.05, thenDragTo: farLeft)
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "left swipe on the list did not close the drawer")
+        XCTAssertTrue(app.keys["q"].waitForExistence(timeout: 4), "closing the drawer did not bring the keyboard back")
+        sleep(1)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer-closed.png"))
+        edge.press(forDuration: 0.05, thenDragTo: right)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8), "edge swipe did not reopen the drawer after a swipe-close")
+        // Full screen in portrait: no dimmed side; the close button closes.
+        app.buttons["drawer close"].tap()
+        XCTAssertTrue(drawer.waitForNonExistence(timeout: 5), "close button did not close the drawer")
+        edge.press(forDuration: 0.05, thenDragTo: right)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        // Jump: filter to another session and pick it.
+        let filter = app.textFields["drawer filter"]
+        filter.tap()
+        filter.typeText("hop-ios")
+        let target = app.buttons["drawer row hop-ios"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "filter did not find hop-ios")
+        target.tap()
+        XCTAssertTrue(app.staticTexts["hop-ios"].waitForExistence(timeout: 15), "picking a row did not switch sessions")
+        XCTAssertFalse(drawer.exists, "drawer stayed open after picking")
+        // An edge swipe that starts on the top bar or the key row (outside
+        // the terminal body) must open the drawer too — it used to be the
+        // system's back swipe and dropped you on the wall.
+        for y in [0.1] {
+            sleep(1)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: y))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: y)))
+            XCTAssertTrue(drawer.waitForExistence(timeout: 5), "edge swipe at y=\(y) did not open the drawer")
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS ', current'")).firstMatch.exists,
+                          "edge swipe at y=\(y) left the session")
+            app.buttons["drawer close"].tap()
+            XCTAssertTrue(drawer.waitForNonExistence(timeout: 5))
+        }
+        // All sessions → the wall.
+        edge.press(forDuration: 0.05, thenDragTo: right)
+        XCTAssertTrue(app.buttons["drawer all sessions"].waitForExistence(timeout: 8))
+        app.buttons["drawer all sessions"].tap()
+        sleep(2)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer-all.png"))
+        XCTAssertTrue(app.textFields["Search sessions by name"].waitForExistence(timeout: 10)
+                      || app.searchFields.firstMatch.waitForExistence(timeout: 2),
+                      "All sessions did not return to the wall")
+        XCTAssertFalse(app.buttons["escape"].exists, "still in a terminal")
+    }
+
+    /// The drawer from the WALL: a left-edge swipe on the session list opens
+    /// it, it has its own arrangement menu, and picking a row opens that
+    /// session.
+    func testEdgeSwipeOnTheWallOpensTheDrawer() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        // The app reopens the last session at launch; go back to the wall.
+        if app.buttons["escape"].waitForExistence(timeout: 15) {
+            edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+            XCTAssertTrue(app.buttons["drawer all sessions"].waitForExistence(timeout: 8))
+            app.buttons["drawer all sessions"].tap()
+        }
+        XCTAssertTrue(app.textFields["Search sessions by name"].waitForExistence(timeout: 25), "wall did not load")
+        sleep(2)
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        let drawer = app.textFields["drawer filter"]
+        let opened = drawer.waitForExistence(timeout: 8)
+        if !opened { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-wall-noswipe.png")) }
+        XCTAssertTrue(opened, "edge swipe on the wall did not open the drawer")
+        app.buttons["drawer arrange"].tap()
+        sleep(1)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer-menu.png"))
+        let active = app.buttons["Active"].firstMatch
+        XCTAssertTrue(active.waitForExistence(timeout: 5), "arrange menu has no Active option")
+        active.tap()
+        XCTAssertTrue(app.buttons["drawer arrange"].label.contains("Active"), "arrangement did not change")
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer-wall.png"))
+        app.buttons["drawer arrange"].tap()
+        app.buttons["Folder"].firstMatch.tap()
+        drawer.tap()
+        drawer.typeText("hop-ios")
+        let target = app.buttons["drawer row hop-ios"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 5))
+        target.tap()
+        XCTAssertTrue(app.buttons["escape"].waitForExistence(timeout: 20), "picking from the wall drawer did not open the session")
+    }
+
+    /// Park ⇄ Unpark from the drawer's long-press menu (leaves hop-ios as
+    /// it found it: unparked).
+    func testDrawerParksAndUnparks() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["HOP_DEV_COOKIE"] = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        app.launchArguments += ["-hop-ui-testing"]
+        app.launchEnvironment["HOP_DEV_SCOPE"] = "all"
+        app.launch()
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        if app.buttons["escape"].waitForExistence(timeout: 15) {
+            edge.press(forDuration: 0.05, thenDragTo: right)
+            XCTAssertTrue(app.buttons["drawer all sessions"].waitForExistence(timeout: 8))
+            app.buttons["drawer all sessions"].tap()
+        }
+        XCTAssertTrue(app.textFields["Search sessions by name"].waitForExistence(timeout: 25))
+        sleep(2)
+        edge.press(forDuration: 0.05, thenDragTo: right)
+        let filter = app.textFields["drawer filter"]
+        if !filter.waitForExistence(timeout: 8) {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-park-noswipe.png"))
+            XCTFail("wall edge swipe did not open the drawer"); return
+        }
+        filter.tap(); filter.typeText("hop-ios")
+        let row = app.buttons["drawer row hop-ios"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        if ProcessInfo.processInfo.environment["PARK_VIA_API"] == "1" {
+            var req = URLRequest(url: URL(string: "https://hop.zhoulab.io/api/sessions/park")!)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("user", forHTTPHeaderField: "x-hop-actor")
+            req.setValue("tunnel_session=\(ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? "")", forHTTPHeaderField: "Cookie")
+            req.httpBody = #"{"internalName":"Orion","parked":true}"#.data(using: .utf8)
+            let done = expectation(description: "park")
+            URLSession.shared.dataTask(with: req) { _, r, _ in print("PARKAPI", (r as? HTTPURLResponse)?.statusCode ?? -1); done.fulfill() }.resume()
+            wait(for: [done], timeout: 10)
+        } else {
+            row.press(forDuration: 1.2)
+            XCTAssertTrue(app.buttons["Park"].waitForExistence(timeout: 5), "no Park in the drawer row menu")
+            app.buttons["Park"].tap()
+        }
+        let parked = app.buttons.matching(NSPredicate(format: "label CONTAINS 'hop-ios, parked' OR label CONTAINS 'hop-ios, wants you, parked'")).firstMatch
+        let marked = parked.waitForExistence(timeout: 10)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/hop-drawer-parked.png"))
+        print("PARKPROBE", app.buttons.matching(NSPredicate(format: "label CONTAINS 'hop-ios'")).allElementsBoundByIndex.map { "\($0.identifier)=\($0.label)" })
+        XCTAssertTrue(marked, "row not marked parked")
+        app.buttons["drawer row hop-ios"].firstMatch.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Unpark"].waitForExistence(timeout: 5), "parked row offers no Unpark")
+        app.buttons["Unpark"].tap()
+        XCTAssertTrue(parked.waitForNonExistence(timeout: 10), "row still parked after Unpark")
     }
 
     /// Touching a coasting terminal must STOP it and do nothing else, the way
