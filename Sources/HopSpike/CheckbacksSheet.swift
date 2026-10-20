@@ -156,3 +156,89 @@ struct CheckbacksSheet: View {
         await load()
     }
 }
+
+/// Every pending check-back on every session (hop web's "Scheduled" panel
+/// for all sessions): grouped by session, soonest first; tap a session's
+/// header to open it, swipe a row to cancel.
+struct AllCheckbacksSheet: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [Checkback]?
+    @State private var failed = false
+    @State private var busy: String?
+
+    private var groups: [(session: String, name: String, items: [Checkback])] {
+        let pending = (items ?? []).filter { $0.status == "pending" }
+        let by = Dictionary(grouping: pending, by: \.session)
+        return by.map { key, list in
+            let sorted = list.sorted { $0.sortKey < $1.sortKey }
+            let name = model.sessions.first(where: { $0.internalName == key })?.name ?? key
+            return (key, name, sorted)
+        }
+        .sorted { ($0.items.first?.sortKey ?? .greatestFiniteMagnitude) < ($1.items.first?.sortKey ?? .greatestFiniteMagnitude) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if items == nil {
+                    ProgressView()
+                } else if failed {
+                    Text("Could not load check-backs.").foregroundStyle(.secondary)
+                } else if groups.isEmpty {
+                    Text("Nothing scheduled.").foregroundStyle(.secondary)
+                }
+                ForEach(groups, id: \.session) { g in
+                    Section {
+                        ForEach(g.items) { c in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(c.whenText).font(.caption.weight(.semibold)).foregroundStyle(Color.hopGlow).lineLimit(2)
+                                Text(c.message).font(.subheadline).lineLimit(3)
+                                Text((c.fired ? "fired · waiting for the agent to be idle" : "waiting")
+                                     + " · by " + (c.createdBy == "agent" ? "the agent" : "you"))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                            .opacity(busy == c.id ? 0.4 : 1)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) { Task { await cancel(c) } } label: {
+                                    Label("Cancel", systemImage: "xmark.circle")
+                                }
+                            }
+                        }
+                    } header: {
+                        Button {
+                            dismiss()
+                            model.requestedSession = g.session
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(g.name).font(.system(.footnote, design: .monospaced).weight(.semibold))
+                                Image(systemName: "chevron.right").font(.caption2)
+                            }
+                        }
+                        .textCase(nil)
+                    }
+                }
+            }
+            .navigationTitle("⏰ Scheduled")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .task { await load() }
+            .refreshable { await load() }
+        }
+    }
+
+    private func load() async {
+        if let got = await model.fetchCheckbacks() { items = got; failed = false } else { items = []; failed = true }
+    }
+
+    private func cancel(_ c: Checkback) async {
+        busy = c.id
+        _ = await model.cancelCheckback(id: c.id)
+        busy = nil
+        await load()
+        await model.refreshSessions(silent: true)
+    }
+}

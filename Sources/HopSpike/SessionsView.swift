@@ -67,6 +67,7 @@ struct SessionsView: View {
     }
     @State private var showAccount = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "account"
     @State private var showCodexApp = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "codex"
+    @State private var showAllCheckbacks = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "scheduled"
     // Same dev hook the Account sheet uses, so a screenshot check can reach
     // the fleet-wide list without a gesture.
     @State private var showArtifacts = {
@@ -840,6 +841,10 @@ struct SessionsView: View {
                 Button { showArtifacts = true } label: {
                     Label("Views", systemImage: "tray.full")
                 }
+                // Every check-back hop will type, across the fleet.
+                Button { showAllCheckbacks = true } label: {
+                    Label("Scheduled", systemImage: "alarm")
+                }
                 // The Codex desktop app's threads on the Mac, continued here.
                 Button { showCodexApp = true } label: {
                     Label("Codex app threads", systemImage: "macwindow")
@@ -997,6 +1002,9 @@ struct SessionsView: View {
                         model.sessions.first(where: { $0.internalName == internalName })?.name
                             ?? internalName
                     })
+                }
+                .sheet(isPresented: $showAllCheckbacks) {
+                    AllCheckbacksSheet().environmentObject(model)
                 }
                 .sheet(isPresented: $showCodexApp) {
                     CodexAppSheet { name in model.requestedSession = name }
