@@ -82,6 +82,7 @@ struct TerminalHostView: View {
     @State private var taglineText = ""
     @State private var killConfirmShown = false
     @State private var codexHandOffShown = false
+    @State private var claudeHandOffShown = false
     /// The pill's live travel during a fleet-switch swipe. The web switcher
     /// has no equivalent of this: the pill follows the finger and names the
     /// session you would land on, so the swipe is never blind.
@@ -124,7 +125,7 @@ struct TerminalHostView: View {
             viewsCount: liveSession.views?.count,
             notifyOnFinish: liveSession.notifyOnFinish,
             viewerNames: viewers.map(\.name),
-            runningApp: liveSession.runningApp)
+            runningApp: liveSession.agentApp)
         if next != menuSnap { menuSnap = next }
         menuSnapAt = Date()
     }
@@ -571,6 +572,19 @@ struct TerminalHostView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Opens on the Mac. The app can continue the conversation only after it stops here; it's parked, and opening it in hop again picks it back up.")
+            }
+            // The Claude app adopts the CLI conversation in place, so claude
+            // stops here first (one writer), exactly like the Codex hand-off.
+            .confirmationDialog("Hand \(session.name) to the Claude app?", isPresented: $claudeHandOffShown,
+                                titleVisibility: .visible) {
+                Button("Stop here & open in Claude app") {
+                    Task {
+                        if await model.openInDesktopApp("claude", internalName: session.internalName, handOff: true) { dismiss() }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Opens on the Mac and continues there. It's parked here; opening it in hop again picks it back up.")
             }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
@@ -1794,6 +1808,8 @@ struct TerminalHostView: View {
             killConfirmShown = true
         case .codexApp:
             codexHandOffShown = true
+        case .claudeApp:
+            claudeHandOffShown = true
         }
     }
 
@@ -1845,6 +1861,7 @@ struct TerminalActionsMenu: View, Equatable {
         case control(ControlAction)
         case rename, tagline, moveToFolder(String?), toggleOrigin, park, kill
         case codexApp
+        case claudeApp
     }
 
     let inputs: Inputs
@@ -1896,6 +1913,11 @@ struct TerminalActionsMenu: View, Equatable {
         if i.runningApp == "codex" {
             Button { act(.codexApp) } label: {
                 Label("Hand off to Codex app…", systemImage: "macwindow")
+            }
+        }
+        if i.runningApp == "claude" {
+            Button { act(.claudeApp) } label: {
+                Label("Hand off to Claude app…", systemImage: "macwindow")
             }
         }
         // Both, always: into the SAME tool it is a fresh session that reads

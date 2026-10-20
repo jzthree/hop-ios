@@ -237,7 +237,7 @@ struct SessionsView: View {
                 }
             } label: {
                 let tool = target == "codex" ? "Codex" : "Claude"
-                Label(session.runningApp == target ? "Continue in fresh \(tool)…" : "Continue in \(tool)…",
+                Label(session.agentApp == target ? "Continue in fresh \(tool)…" : "Continue in \(tool)…",
                       systemImage: "arrow.right.doc.on.clipboard")
             }
         }

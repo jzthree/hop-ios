@@ -982,7 +982,14 @@ final class AppModel: ObservableObject {
     /// Opens the session's thread in the Codex app on the Mac. `handOff`
     /// stops & parks the session first so the app can continue it.
     func openInCodexApp(internalName: String, handOff: Bool) async -> Bool {
-        let obj = await postReturning("api/codex/open-in-app",
+        await openInDesktopApp("codex", internalName: internalName, handOff: handOff)
+    }
+
+    /// Same for the Claude desktop app, which adopts the CLI conversation in
+    /// place (the daemon stops claude here and copies the transcript into
+    /// the app's store when it lives in another config dir).
+    func openInDesktopApp(_ app: String, internalName: String, handOff: Bool) async -> Bool {
+        let obj = await postReturning("api/\(app)/open-in-app",
                                       ["internalName": internalName, "handOff": handOff])
         if obj != nil { await refreshSessions(silent: true) }
         return obj != nil
@@ -1486,6 +1493,9 @@ struct HopSession: Identifiable {
     /// turn ended — the daemon's own seen witness, so the phone and the desk
     /// agree on what has been read.
     let agentPhase: String?
+    /// The agent the daemon knows this session runs ("claude" / "codex"),
+    /// from the hooks' records — the process name often says only "zsh".
+    let agent: String?
     /// ms stamp of the last turn end (null when none) — the key the local
     /// read override is checked against, so it never outlives the turn.
     let turnAt: Double?
@@ -1543,6 +1553,7 @@ struct HopSession: Identifiable {
         attentionReason = (json["attentionReason"] as? String) ?? ""
         attentionNote = (json["attentionNote"] as? String) ?? ""
         agentPhase = json["agentPhase"] as? String
+        agent = json["agent"] as? String
         turnAt = (json["turnAt"] as? NSNumber)?.doubleValue
         // Opening a session IS reading it: the daemon's witness agrees on
         // its next answer, but the tile should not wait for the poll. A
@@ -1563,6 +1574,10 @@ struct HopSession: Identifiable {
         }
         return display
     }
+
+    /// What the session runs, as far as anyone knows: the daemon's agent
+    /// record first, the foreground process second.
+    var agentApp: String { agent ?? runningApp }
 
     var runningApp: String {
         let p = foregroundProcess.trimmingCharacters(in: .whitespaces)
