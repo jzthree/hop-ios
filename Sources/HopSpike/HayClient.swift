@@ -87,6 +87,10 @@ final class HayClient: NSObject {
             .init(name: "cols", value: String(cols)),
             .init(name: "rows", value: String(rows)),
             .init(name: "sizeClaim", value: sizeClaim ? "attach" : nil),
+            // Whether anyone is LOOKING: a backgrounded app's reconnect says
+            // 0, so the daemon doesn't stamp the session "seen" (the briefing
+            // reads those stamps to decide what you have already read).
+            .init(name: "visible", value: UIApplication.shared.applicationState == .background ? "0" : "1"),
             // A phone doesn't need a desktop's worth of replay: hop's default
             // tail is 1.5 MB raw, which measured 2.4 MB on the wire as JSON and
             // yielded ONE screen on a TUI session. The param is `replay` (bytes)
