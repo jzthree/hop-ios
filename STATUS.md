@@ -5397,3 +5397,19 @@ LESSON: test against a REAL session with history, not a fresh probe.
   responder, the attach and sheet-dismiss refocus paths skip it, a tap on the
   terminal still raises the keyboard, and turning upright restores it if it
   was up. Sim-checked with HOP_DEV_COMPACT=1 (no keyboard on attach).
+- **2026-10-31 · rotation keeps the right size and page.** Jian: "size is
+  wrong after switching back and forth between portrait and landscape."
+  Reproduced with UITests/RotateProbe (XCUIDevice orientation, a session
+  printing its `tput` size and clearing with ED3, KBLog to a file). Three
+  defects: (1) the viewer-mode keyboard raised mid-rotation arrived unanimated
+  and SwiftUI never inset for it — the view stayed 766pt and the settle check
+  claimed 51x51 under the keyboard; now raised 0.5s after the turn, with the
+  churn window held so no keyboardless fit is declared (one claim per turn:
+  97x22 / 51x30). The pre-change build also ended at 51x33, 3 rows under the
+  key bar. (2) ED3 (clear scrollback; claude's resize redraw) shrinks the
+  buffer without the view hearing — live edge drawn ~11 rows low; feeds
+  containing ESC[3J and every resync now call SwiftTerm's public `scrolled`
+  (updateScroller). (3) the Live pill showed after ED3 emptied history; a
+  buffer that fits the view at yDisp 0 is at the live edge. Gotcha: the sim's
+  own "Sign in to Apple Account" prompt makes the app INACTIVE, and an
+  inactive app claims no size — the probe cancels it first.

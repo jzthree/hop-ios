@@ -2350,6 +2350,7 @@ struct TerminalScreen: UIViewRepresentable {
         // is where the keyboard belongs, so turning upright raises it.
         tv.viewerMode = landscape
         tv.keyboardBeforeViewer = true
+        tv.onKeyboardPending = { [weak c = context.coordinator] in c?.noteKeyboardChurn() }
         if !landscape { _ = tv.becomeFirstResponder() }
         return tv
     }
@@ -2876,6 +2877,13 @@ struct TerminalScreen: UIViewRepresentable {
                     }
                     tv.noteRemoteModes(in: data)
                     tv.feed(text: self.echo.reconcileOutput(data))
+                    // ED3 ("clear scrollback") shrinks the buffer without
+                    // telling the view, so the scroll area keeps the deleted
+                    // rows and "the bottom" lands below the live screen —
+                    // claude sends it on every resize redraw, which is why a
+                    // portrait⇄landscape turn left the page shifted down by
+                    // the reflowed scrollback (rows 12–30 and a blank band).
+                    if data.contains("\u{1b}[3J") { tv.resyncScrollArea() }
                     // After the feed's display pass: SwiftTerm re-pins the
                     // offset on output, which would undo a pan while the desk
                     // is typing — and yank a scrolled-up reader back to the
@@ -4238,7 +4246,11 @@ struct TerminalScreen: UIViewRepresentable {
             let hv = source as? HopTermView
             if hv?.selectionActive == true { hv?.selectMark("scrolled while selected pos=\(position) yDisp=\(t.buffer.yDisp)") }
             if t.buffer.yDisp > 0 { hv?.sawScrollback = true }
-            let hasHistory = t.buffer.yDisp > 0 || hv?.sawScrollback == true
+            // A clear-scrollback (ED3, claude's resize redraw) can empty the
+            // history again: once the content fits the view there is nothing
+            // above to be "in", whatever was seen before.
+            let fits = source.contentSize.height <= source.bounds.height + 1
+            let hasHistory = (t.buffer.yDisp > 0 || hv?.sawScrollback == true) && !(t.buffer.yDisp == 0 && fits)
             let inHistory = hasHistory && position < 0.999
             onScroll(inHistory)
             // Only USER scrolls may move the anchor. SwiftTerm's live-edge
@@ -5304,8 +5316,54 @@ final class HopTermView: TerminalView {
     /// offset, and in pan mode, where contentOffset IS the pan position.
     func resyncViewport() {
         guard !isTracking, !isDecelerating, !peerSizedGrid else { return }
+        resyncScrollArea()
         scrollTo(row: getTerminal().buffer.yDisp, notifyAccessibility: false)
     }
+
+    /// Recompute contentSize from the buffer's real line count (SwiftTerm's
+    /// updateScroller, reached through its public `scrolled` hook). The
+    /// buffer can SHRINK without the view hearing of it — ED3 trims the
+    /// scrollback and only new lines resize the scroll area — and a stale
+    /// contentSize puts the live edge past the last line.
+    func resyncScrollArea() {
+        guard !peerSizedGrid else { return }
+        let t = getTerminal()
+        scrolled(source: t, yDisp: t.buffer.yDisp)
+    }
+
+    /// iPhone landscape is for WATCHING: the keyboard would cover more than
+    /// half the screen (Jian: "autohide keyboard in landscape mode make it
+    /// mainly as a viewer mode … keyboard cover too much"). Turning sideways
+    /// drops it and nothing raises it on its own (sheet dismissals, attach);
+    /// a tap on the terminal still does. Turning upright restores it if it
+    /// was up before.
+    var viewerMode = false {
+        didSet {
+            guard viewerMode != oldValue, window != nil else { return }
+            if viewerMode {
+                keyboardBeforeViewer = isFirstResponder
+                if isFirstResponder { _ = resignFirstResponder() }
+            } else if keyboardBeforeViewer, !isFirstResponder {
+                // The keyboard is coming: fits until it lands describe a
+                // keyboardless view, so hold them (the churn window) —
+                // otherwise the PTY reflows to full height and back.
+                onKeyboardPending?()
+                // NOT during the rotation: a keyboard raised mid-transition
+                // arrives unanimated (dur=0) and SwiftUI never takes its
+                // height out of the layout — the terminal kept the full
+                // 766pt, fitted 51 rows, and the settle check claimed them,
+                // so the bottom of the session sat under the keyboard (Jian:
+                // "size is wrong after switching back and forth"). Raise it
+                // once the turn has landed, as an ordinary keyboard rise.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, !self.viewerMode, self.window != nil, !self.isFirstResponder else { return }
+                    _ = self.becomeFirstResponder()
+                }
+            }
+        }
+    }
+    var keyboardBeforeViewer = false
+    var onKeyboardPending: (() -> Void)?
 
     /// Centre a grid that cannot fill this screen.
     ///
@@ -5325,25 +5383,6 @@ final class HopTermView: TerminalView {
     /// How many points of this view's top the floating menu covers. Zero
     /// while the menu is hidden (auto-hide, landscape) — nothing is covering
     /// anything then, and the full height is honestly usable.
-    /// iPhone landscape is for WATCHING: the keyboard would cover more than
-    /// half the screen (Jian: "autohide keyboard in landscape mode make it
-    /// mainly as a viewer mode … keyboard cover too much"). Turning sideways
-    /// drops it and nothing raises it on its own (sheet dismissals, attach);
-    /// a tap on the terminal still does. Turning upright restores it if it
-    /// was up before.
-    var viewerMode = false {
-        didSet {
-            guard viewerMode != oldValue, window != nil else { return }
-            if viewerMode {
-                keyboardBeforeViewer = isFirstResponder
-                if isFirstResponder { _ = resignFirstResponder() }
-            } else if keyboardBeforeViewer, !isFirstResponder {
-                _ = becomeFirstResponder()
-            }
-        }
-    }
-    var keyboardBeforeViewer = false
-
     var chromeOverlap: CGFloat = 0 {
         didSet { if chromeOverlap != oldValue { applyLetterbox() } }
     }
