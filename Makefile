@@ -80,7 +80,7 @@ install-debug: build-debug
 
 test: gen
 	@TEST_RUNNER_HOP_DEV_TOKEN=$(TOKEN) xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
-	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -destination 'id=$(SIM)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO
 
 # Real gestures against the real app: the only automated way to catch the
@@ -94,7 +94,7 @@ uitest: gen
 	$(reset-sim-server)
 	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
-	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -destination 'id=$(SIM)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) > build-sim/uitest.log 2>&1; \
 	  status=$$?; \
 	  grep -E "Executed [0-9]+ tests" build-sim/uitest.log | tail -1; \
@@ -103,7 +103,7 @@ uitest: gen
 
 simbuild: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
-	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -destination 'id=$(SIM)' \
 	  -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO $(VERSION_FLAGS) build
 
 # Wi-Fi installs are flaky (DeviceLocked / immediate disconnect): retry, and
@@ -209,7 +209,7 @@ sim: simbuild
 strict:
 	@rm -rf build-strict build-strict.log
 	@xcodebuild -project $(PROJECT) -scheme HopSpike \
-	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -destination 'id=$(SIM)' \
 	  -derivedDataPath build-strict CODE_SIGNING_ALLOWED=NO \
 	  SWIFT_STRICT_CONCURRENCY=complete build > build-strict.log 2>&1; \
 	  status=$$?; \
@@ -226,7 +226,7 @@ strict:
 tsan: gen
 	@TEST_RUNNER_HOP_DEV_COOKIE=$(TOKEN) TEST_RUNNER_HOP_E2E_FIXTURE="$(FIXTURE)" TEST_RUNNER_HOP_E2E_FIXTURE_INTERNAL="$(FIXTURE_INTERNAL)" xcodebuild test \
 	  -project $(PROJECT) -scheme HopSpikeUI \
-	  -destination 'platform=iOS Simulator,name=$(SIMNAME)' \
+	  -destination 'id=$(SIM)' \
 	  -derivedDataPath build-tsan CODE_SIGNING_ALLOWED=NO -enableThreadSanitizer YES \
 	  -only-testing:HopSpikeUITests/ScrollUITests/testReconnectKeepsTheSessionUsable \
 	  -only-testing:HopSpikeUITests/ScrollUITests/testSwitchSessionFromTheTitleMenu \

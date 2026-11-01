@@ -2016,6 +2016,34 @@ final class TerminalReplyTests: XCTestCase {
     }
 
     /// Same answers as hop web's shortModelName — the chip says the model.
+    func testMathDetect() {
+        func tex(_ s: String) -> [String] { findMathSpans(s).map(\.tex) }
+        // Delimited forms (mirrors hop web's test/mathDetect.test.ts).
+        XCTAssertEqual(tex("so $e^{i\\pi} + 1 = 0$ holds"), ["e^{i\\pi} + 1 = 0"])
+        let d = findMathSpans("$$\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}$$")
+        XCTAssertEqual(d.count, 1); XCTAssertEqual(d.first?.display, true)
+        XCTAssertEqual(tex("value \\(a^2 + b^2 = c^2\\) here"), ["a^2 + b^2 = c^2"])
+        XCTAssertEqual(findMathSpans("\\[ x = \\frac{-b}{2a} \\]").first?.display, true)
+        XCTAssertEqual(tex("it costs $5 and $10 today"), [])
+        XCTAssertEqual(tex("between $3.50 and $4"), [])
+        let s = "see $x_i$ now", m = findMathSpans(s)[0]
+        XCTAssertEqual((s as NSString).substring(with: NSRange(location: m.start, length: m.end - m.start)), "$x_i$")
+        XCTAssertEqual(m.tex, "x_i")
+        // Bare LaTeX.
+        XCTAssertEqual(tex("the root is \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}, as expected."), ["\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}"])
+        XCTAssertEqual(tex("so x = \\alpha^2 + \\beta here"), ["x = \\alpha^2 + \\beta"])
+        XCTAssertEqual(tex("use \\sqrt{2} which is irrational"), ["\\sqrt{2}"])
+        XCTAssertEqual(tex("broken \\frac{a}{b and more"), [])
+        XCTAssertEqual(tex("path C:\\Users\\demo and \\n newlines"), [])
+        XCTAssertEqual(tex("first $a+b$ then \\gamma(t) and $$c$$"), ["a+b", "\\gamma(t)", "c"])
+        // Taps: a display block followed across rows; soft wraps joined; misses.
+        let rows = ["  $$", "  \\int_0^1 x\\,dx = \\tfrac12", "  $$", "plain text"]
+        XCTAssertEqual(mathHit(rows: rows, wrapped: [false, false, false, false], row: 1, col: 6)?.display, true)
+        XCTAssertNil(mathHit(rows: rows, wrapped: [false, false, false, false], row: 3, col: 2))
+        let wrap = ["energy is $E = mc", "^2$ ok"]
+        XCTAssertEqual(mathHit(rows: wrap, wrapped: [false, true], row: 1, col: 1)?.tex, "E = mc^2")
+    }
+
     func testShortModelName() {
         XCTAssertEqual(shortModelName("claude-opus-5-5"), "opus")
         XCTAssertEqual(shortModelName("claude-fable-5-1"), "fable")

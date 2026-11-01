@@ -14,6 +14,10 @@ targets:
     sources:
       - Sources/HopSpike
       - Sources/Shared
+      # KaTeX for tap-to-render math, as a FOLDER so fonts/ keeps the
+      # relative path katex.min.css asks for (a group would flatten it).
+      - path: Resources/KaTeX
+        type: folder
     dependencies:
       - package: SwiftTerm
       # - target: HopWidget   # RE-PARKED: empty Xcode account list, see below
