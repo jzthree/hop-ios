@@ -166,6 +166,9 @@ struct AllCheckbacksSheet: View {
     @State private var items: [Checkback]?
     @State private var failed = false
     @State private var busy: String?
+    /// Calendar (a week, hop web's 2026-11-01 redesign) or the old list by
+    /// session; remembered.
+    @AppStorage("scheduledMode") private var mode = "week"
 
     private var groups: [(session: String, name: String, items: [Checkback])] {
         let pending = (items ?? []).filter { $0.status == "pending" }
@@ -180,6 +183,36 @@ struct AllCheckbacksSheet: View {
 
     var body: some View {
         NavigationStack {
+            Group {
+                if mode == "week", let items, !failed {
+                    CheckbackWeekView(
+                        items: items,
+                        nameFor: { key in model.sessions.first(where: { $0.internalName == key })?.name ?? key },
+                        onOpen: { key in dismiss(); model.requestedSession = key },
+                        onCancel: { c in Task { await cancel(c) } })
+                } else {
+                    sessionList
+                }
+            }
+            .navigationTitle("Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("Show", selection: $mode) {
+                        Text("Week").tag("week")
+                        Text("By session").tag("list")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .task { await load() }
+            .refreshable { await load() }
+        }
+    }
+
+    private var sessionList: some View {
             List {
                 if items == nil {
                     ProgressView()
@@ -220,14 +253,6 @@ struct AllCheckbacksSheet: View {
                     }
                 }
             }
-            .navigationTitle("⏰ Scheduled")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-            .task { await load() }
-            .refreshable { await load() }
-        }
     }
 
     private func load() async {

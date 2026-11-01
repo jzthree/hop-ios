@@ -939,7 +939,7 @@ struct SessionsView: View {
                 }
                 // Every check-back hop will type, across the fleet.
                 Button { showAllCheckbacks = true } label: {
-                    Label("Scheduled", systemImage: "alarm")
+                    Label("Calendar", systemImage: "calendar")
                 }
                 if desktopReady {
                     Button { showDesktop = true } label: {

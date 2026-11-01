@@ -1651,6 +1651,13 @@ struct Checkback: Identifiable, Equatable {
     let fired: Bool
     let doneAt: Double          // delivered or cancelled, ms
     let sortKey: Double         // next fire time (ms) for ordering pending ones
+    /// The trigger's timing, for the calendar: "at" / "every" / "idle" /
+    /// "file" / "cmd", and its ms stamps (0 = absent).
+    let triggerKind: String
+    let at: Double
+    let next: Double
+    let everyMs: Double
+    let until: Double
 
     init?(json o: [String: Any]) {
         guard let id = o["id"] as? String, let session = o["session"] as? String,
@@ -1665,6 +1672,11 @@ struct Checkback: Identifiable, Equatable {
         doneAt = ((o["deliveredAt"] as? NSNumber) ?? (o["cancelledAt"] as? NSNumber) ?? (o["createdAt"] as? NSNumber))?.doubleValue ?? 0
         let t = (o["trigger"] as? [String: Any]) ?? [:]
         sortKey = ((t["at"] as? NSNumber) ?? (t["next"] as? NSNumber))?.doubleValue ?? .greatestFiniteMagnitude
+        triggerKind = (t["kind"] as? String) ?? ""
+        at = (t["at"] as? NSNumber)?.doubleValue ?? 0
+        next = (t["next"] as? NSNumber)?.doubleValue ?? 0
+        everyMs = (t["everyMs"] as? NSNumber)?.doubleValue ?? 0
+        until = (t["until"] as? NSNumber)?.doubleValue ?? 0
         whenText = Checkback.describe(trigger: t, now: Date().timeIntervalSince1970 * 1000)
     }
 

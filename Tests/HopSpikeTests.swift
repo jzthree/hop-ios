@@ -2037,6 +2037,26 @@ final class TerminalReplyTests: XCTestCase {
         XCTAssertEqual(newsCount(list, current: nil, scope: .user), 3)
     }
 
+    /// The calendar's arithmetic (hop web's calendar.test.ts): a repeat sits
+    /// on every occurrence in range, a frequent one is a band, `until` ends it.
+    func testCheckbackOccurrences() {
+        let h = 3_600_000.0
+        func cb(_ t: [String: Any]) -> Checkback {
+            Checkback(json: ["id": "x", "session": "s", "message": "m", "trigger": t])!
+        }
+        XCTAssertEqual(cb(["kind": "at", "at": 5 * h]).occurrences(from: 0, to: 24 * h).times, [5 * h])
+        XCTAssertEqual(cb(["kind": "at", "at": 30 * h]).occurrences(from: 0, to: 24 * h).times, [])
+        XCTAssertEqual(cb(["kind": "every", "everyMs": 6 * h, "next": 2 * h]).occurrences(from: 0, to: 24 * h).times,
+                       [2 * h, 8 * h, 14 * h, 20 * h])
+        XCTAssertEqual(cb(["kind": "every", "everyMs": 6 * h, "next": 2 * h]).occurrences(from: 10 * h, to: 24 * h).times,
+                       [14 * h, 20 * h])
+        XCTAssertEqual(cb(["kind": "every", "everyMs": 6 * h, "next": 2 * h, "until": 9 * h]).occurrences(from: 0, to: 24 * h).times,
+                       [2 * h, 8 * h])
+        let band = cb(["kind": "every", "everyMs": 0.5 * h, "next": 1 * h]).occurrences(from: 0, to: 24 * h)
+        XCTAssertEqual(band.times, []); XCTAssertEqual(band.band, 0.5 * h)
+        XCTAssertNil(cb(["kind": "idle"]).occurrences(from: 0, to: 24 * h).band)
+    }
+
     func testMathDetect() {
         func tex(_ s: String) -> [String] { findMathSpans(s).map(\.tex) }
         // Delimited forms (mirrors hop web's test/mathDetect.test.ts).
