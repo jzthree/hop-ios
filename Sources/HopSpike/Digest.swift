@@ -25,7 +25,7 @@ struct DigestItem: Identifiable, Equatable {
         switch urgency {
         case "needs-you": return .hopAttention
         case "blocked": return .orange
-        case "finished": return .hopLive
+        case "finished": return .hopFresh
         default: return .secondary
         }
     }
@@ -418,8 +418,8 @@ struct DigestCard: View {
         Text(slot.uppercased())
             .font(.system(size: 10, weight: .bold, design: .monospaced))
             .tracking(1)
-            .foregroundStyle(slot == "decide" ? Color.hopAttention : slot == "watch" ? Color.orange
-                             : slot == "done" ? Color.hopLive : Color.secondary)
+            .foregroundStyle(slot == "decide" ? Color.hopAttention : slot == "watch" ? Color.hopWorking
+                             : slot == "done" ? Color.hopFresh : Color.secondary)
             .padding(.top, 4)
     }
 

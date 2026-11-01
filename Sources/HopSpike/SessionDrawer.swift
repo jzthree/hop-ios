@@ -279,8 +279,8 @@ struct SessionDrawer: View {
                     Text("\(wanting)")
                         .font(.caption2.weight(.bold))
                         .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Color.hopAttention, in: Capsule())
-                        .foregroundStyle(.black)
+                        .background(Color.hopSpark, in: Capsule())
+                        .foregroundStyle(.white)
                 } else {
                     Text("\(rows.count)").font(.caption2).foregroundStyle(.tertiary)
                 }
@@ -311,9 +311,19 @@ struct SessionDrawer: View {
             : (phaseTint(s.phase) ?? (s.live ? Color.hopLive.opacity(0.7) : Color.secondary.opacity(0.35)))
         return Button { if !justSwiped { onPick(s.internalName) } } label: {
             HStack(spacing: 9) {
-                Circle().fill(dot).frame(width: 8, height: 8)
+                // News is a spark: a question glows, an unread turn wears
+                // the gradient; the rest keep their state colour.
+                Group {
+                    if s.attention || s.phase == .doneUnread {
+                        Circle().fill(Color.hopSpark)
+                            .shadow(color: Color.hopAttention.opacity(s.attention ? 0.8 : 0), radius: 3)
+                    } else {
+                        Circle().fill(dot)
+                    }
+                }
+                .frame(width: 8, height: 8)
                 Text(s.name)
-                    .font(.system(.subheadline, design: .monospaced).weight(s.attention || current ? .semibold : .regular))
+                    .font(.system(.subheadline, design: .monospaced).weight(s.newsRank > 0 || current ? .semibold : .regular))
                     .foregroundStyle(s.live ? Color.primary : Color.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 4)

@@ -334,12 +334,13 @@ func highlightMatches(in snippet: String, query: String) -> AttributedString {
 /// reports milliseconds; tolerate seconds too rather than trusting a unit
 /// across a protocol boundary.
 /// The colour an agent session's dot and ring wear for its phase — the same
-/// three the web wall uses: working blue, finished-unread green, read quiet.
+/// three the web wall uses: working indigo, finished-unread the spark's cyan,
+/// read quiet.
 /// nil = not an agent session in a known phase (liveness colours apply).
 func phaseTint(_ phase: HopSession.Phase?) -> Color? {
     switch phase {
     case .working: return .hopWorking
-    case .doneUnread: return .hopLive
+    case .doneUnread: return .hopFresh
     case .doneRead: return Color.secondary.opacity(0.45)
     case nil: return nil
     }

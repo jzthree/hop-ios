@@ -14,21 +14,21 @@ struct SessionTile: View {
     let session: HopSession
     let screen: ScreenPreview?
 
-    // Attention (a question) first; then the agent's phase — working blue,
-    // finished-and-unread green, read quiet; then plain liveness.
+    // Attention (a question) first; then the agent's phase — working indigo,
+    // finished-and-unread cyan, read quiet; then plain liveness.
     private var dotColor: Color {
         if session.attention { return .hopAttention }
         if let tint = phaseTint(session.phase) { return tint }
         return session.live ? .hopLive : .hopDead
     }
-    /// The ring's colour when the card has something to say: amber for a
-    /// question, blue for work in flight, green for a finished turn nobody
+    /// The ring's colour when the card has something to say: violet for a
+    /// question, indigo for work in flight, cyan for a finished turn nobody
     /// has read. A read session and a plain shell keep the hairline.
     private var ringColor: Color? {
         if session.attention { return .hopAttention }
         switch session.phase {
         case .working: return .hopWorking
-        case .doneUnread: return .hopLive
+        case .doneUnread: return .hopFresh
         default: return nil
         }
     }
@@ -36,6 +36,10 @@ struct SessionTile: View {
     /// The ring: the state colour fading downward, or the plain hairline.
     private var ringGradient: LinearGradient {
         guard let ring = ringColor else { return Color.hopHairline }
+        // News wears the spark's edge — a question and an unread turn alike
+        // (the question also glows, via the shadow below); work in flight
+        // keeps a plain tint, as on the web wall.
+        if session.attention || session.phase == .doneUnread { return Color.hopSpark }
         return LinearGradient(colors: [ring.opacity(0.85), ring.opacity(0.4)],
                               startPoint: .top, endPoint: .bottom)
     }

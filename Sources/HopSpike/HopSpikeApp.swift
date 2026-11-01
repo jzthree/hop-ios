@@ -47,16 +47,20 @@ extension UIColor {
     static let hopWell = hop(dark: 0x090b10, light: 0xeceef2)
     /// Tile ink — what colourless preview text renders as.
     static let hopInk = hop(dark: 0xe6edf3, light: 0x1f2328)
-    /// Attention. Amber rather than red: red in a list of agent sessions
-    /// reads as "something failed", and a session wanting you usually
-    /// hasn't. Each state tone is a shade deeper on white, where the
-    /// dark-tuned values wash out.
-    static let hopAttention = hop(dark: 0xf0a53a, light: 0xd4841a)
+    /// Attention. News, not a warning (hop web's redesign, 2026-10-30):
+    /// the spark's violet rather than amber or red — a session wanting you
+    /// usually hasn't failed. Where there is room for a gradient, views use
+    /// `Color.hopSpark` instead. Each state tone is a shade deeper on white,
+    /// where the dark-tuned values wash out.
+    static let hopAttention = hop(dark: 0xa78bfa, light: 0x7c3aed)
+    /// A finished turn you have not read: the spark's cyan end (it was
+    /// green, which also meant "connected").
+    static let hopFresh = hop(dark: 0x22d3ee, light: 0x0891b2)
     static let hopLive = hop(dark: 0x35d47a, light: 0x1f9e5b)
     static let hopDead = hop(dark: 0xd95a6b, light: 0xc9414f)
-    /// An agent mid-turn. Blue: green is "finished, waiting for you" and
-    /// amber is "asking you", so work-in-progress needs a hue of its own.
-    static let hopWorking = hop(dark: 0x5aa7e0, light: 0x2b7bc4)
+    /// An agent mid-turn: indigo, between the spark's violet ("asking
+    /// you") and its cyan ("finished, unread") — the web's working tint.
+    static let hopWorking = hop(dark: 0x818cf8, light: 0x4f46e5)
     /// One card shadow: heavy in the dark (lift is the only cue), a
     /// whisper in the light (paper barely floats).
     static let hopShadow = hop(dark: 0x000000, light: 0x000000,
@@ -88,6 +92,7 @@ extension Color {
     static let hopKey = Color(uiColor: .hopKey)
     static let hopKeyArmed = Color(uiColor: .hopKeyArmed)
     static let hopAttention = Color(uiColor: .hopAttention)
+    static let hopFresh = Color(uiColor: .hopFresh)
     static let hopLive = Color(uiColor: .hopLive)
     static let hopDead = Color(uiColor: .hopDead)
     static let hopWorking = Color(uiColor: .hopWorking)
@@ -103,6 +108,12 @@ extension Color {
     /// `Color.hopLine(x)` the chrome had became this — white on white
     /// is no line at all.
     static func hopLine(_ alpha: Double) -> Color { Color.primary.opacity(alpha) }
+
+    /// News: hop's spectral spark, violet into cyan (the web's --hop-spark).
+    static var hopSpark: LinearGradient {
+        LinearGradient(colors: [Color(hex: 0x8b5cf6), Color(hex: 0x6366f1), Color(hex: 0x06b6d4)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
 
     static var hopCard: LinearGradient {
         LinearGradient(colors: [.hopCardTop, .hopCardBottom],

@@ -1342,6 +1342,29 @@ struct TerminalHostView: View {
     /// A single tap goes straight to the newest result rather than to a list
     /// of one — that IS the deliverable most of the time. Long-press when you
     /// want the whole list.
+    /// Catch up — hop web's ⌘G: how many other sessions have news for you,
+    /// and a tap opens the next (a question first, then the newest unread
+    /// turn). Taps in a row walk forward rather than bouncing between two.
+    @ViewBuilder private var catchUpChip: some View {
+        let n = newsCount(model.sessions, current: session.internalName, scope: model.swipeScope)
+        if n > 0 {
+            Button {
+                CatchUpRun.advance(model, from: session.internalName)
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "sparkle").font(.system(size: 11, weight: .bold))
+                    Text("\(n)").font(.caption2.weight(.bold).monospacedDigit())
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(Color.hopSpark, in: Capsule())
+            }
+            .accessibilityLabel("Catch up: \(n) session\(n == 1 ? "" : "s") with news. Opens the next.")
+            .accessibilityIdentifier("catch-up")
+            .transition(.scale.combined(with: .opacity))
+        }
+    }
+
     @ViewBuilder private var viewsChip: some View {
         if let v = liveSession.views {
             let _ = viewsSeenTick
@@ -1368,9 +1391,9 @@ struct TerminalHostView: View {
                         Text("\(v.count)").font(.caption2.weight(.semibold).monospacedDigit())
                     }
                 }
-                .foregroundStyle(unseen ? Color.hopPill : Color.primary)
+                .foregroundStyle(unseen ? Color.white : Color.primary)
                 .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(unseen ? Color.hopAttention : Color.hopLine(0.10),
+                .background(unseen ? AnyShapeStyle(Color.hopSpark) : AnyShapeStyle(Color.hopLine(0.10)),
                             in: Capsule())
                 .overlay(Capsule().strokeBorder(Color.hopLine(unseen ? 0 : 0.10),
                                                 lineWidth: 0.5))
@@ -1485,6 +1508,7 @@ struct TerminalHostView: View {
                     // vertical one lit nothing and commits nothing.
                     switchDragEnded(v.translation.width, released: true)
                 })
+            catchUpChip
             viewsChip
             actionsMenu
         }

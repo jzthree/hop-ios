@@ -864,14 +864,19 @@ struct SessionsView: View {
         // below said the useful thing over blank space. Tappable when a
         // session wants you — same contract the old footer row carried.
         ToolbarItem(placement: .principal) {
-            if wanting > 0 {
+            if newsCount(model.sessions, current: nil, scope: scope) > 0 {
                 Button { openWanting() } label: {
-                    summaryText
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(Color.hopAttention)
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkle").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.hopSpark)
+                        summaryText
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(wanting > 0 ? Color.hopAttention : Color.secondary)
+                    }
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens the session that wants you")
+                .accessibilityHint("Catch up: opens the next session with news")
+                .accessibilityIdentifier("catch-up")
             } else {
                 summaryText
                     .font(.caption.monospacedDigit())
@@ -1292,10 +1297,10 @@ struct SessionsView: View {
     /// The bell, answered from the summary line: open the first session that
     /// wants attention, fleet-wide — deliberately ignoring scope and filter,
     /// which are exactly what can be hiding it.
+    /// Catch up from the wall (hop web's ⌘G): a question first, fleet-wide,
+    /// then the newest finished turn you have not read.
     private func openWanting() {
-        let want = model.sessions.first { $0.attention && !$0.isPort && !$0.parked }
-        guard let want else { return }
-        path = [want.internalName]
+        CatchUpRun.advance(model, from: nil)   // lands via requestedSession
     }
 
     private func startRename(_ session: HopSession) {
