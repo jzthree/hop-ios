@@ -696,125 +696,214 @@ struct ArtifactsBrowser: View {
     @State private var items: [ArtifactItem] = []
     @State private var loaded = false
     @State private var viewing: ArtifactViewing?
+    @State private var query = ""
+    @State private var kind: ViewKind = .all
+    /// Cleared from inside: a session's own Views open filtered to it with
+    /// "all" one tap away (the web's session chip and its ×).
+    @State private var scoped: String?
+    @State private var scopeSet = false
+    @State private var seenTick = 0
     @Environment(\.dismiss) private var dismiss
 
+    // Results are mostly visual, and a list of filenames hid that (hop web's
+    // Views redesign, 2026-10-31): a gallery of cards by day, the way a lab
+    // notebook reads — figures as their own thumbnails, documents set like a
+    // manuscript's first page. A card opens the reader, which pages through
+    // what the filters show.
     var body: some View {
         NavigationStack {
             Group {
                 if !loaded {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if items.isEmpty {
+                } else if inScope.isEmpty {
                     ContentUnavailableView(
                         "Nothing published yet",
                         systemImage: "tray",
-                        description: Text("When an agent runs `hop view` on a plot, a report or a PDF, it lands here."))
+                        description: Text("When an agent runs `hop view` on a plot, a report or a PDF, it lands here, by day."))
                 } else {
-                    List {
-                        ForEach(grouped, id: \.session) { group in
-                            // Scoped to one session, the header would repeat
-                            // the title bar.
-                            Section(onlySession == nil ? nameFor(group.session) : "") {
-                                ForEach(group.rows) { item in
-                                    Button {
-                                        // Open ON this row with its neighbors,
-                                        // so the viewer can page the list.
-                                        if let i = items.firstIndex(where: { $0.id == item.id }) {
-                                            viewing = ArtifactViewing(items: items, index: i, serverURL: serverURL)
-                                        }
-                                    } label: {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: item.glyph)
-                                                .foregroundStyle(item.isServer
-                                                                 ? (item.serverLive ? Color.hopAttention : Color.secondary)
-                                                                 : Color.hopGlow)
-                                                .frame(width: 22)
-                                            VStack(alignment: .leading, spacing: 1) {
-                                                Text(item.label)
-                                                    .font(.subheadline)
-                                                    .foregroundStyle(.primary)
-                                                    .lineLimit(2)
-                                                // The filename earns its place
-                                                // only once a title is saying
-                                                // the useful thing.
-                                                // A server has no meaningful
-                                                // size or filename to show —
-                                                // it's a door, not a document.
-                                                Text(item.isServer
-                                                     ? (item.serverLive ? "live server · tap to open" : "server gone — no longer running")
-                                                     : (item.title.isEmpty ? Self.stamp(item)
-                                                        : "\(item.name.removingPercentEncoding ?? item.name) · \(Self.stamp(item))"))
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                        .contentShape(Rectangle())
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            filterBar
+                            if shown.isEmpty {
+                                Text(query.isEmpty ? "Nothing of this kind." : "Nothing here matches “\(query)”.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity).padding(.top, 40)
+                            }
+                            ForEach(days, id: \.day) { d in
+                                Section {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 16) {
+                                        ForEach(d.rows) { card($0) }
                                     }
-                                    .buttonStyle(.plain)
-                                    // Swipe-to-delete, the platform's own
-                                    // gesture (Jian: "we should be able to
-                                    // swipe to do something to the views").
-                                    // Servers are doors, not files — nothing
-                                    // to delete, so no action to offer.
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        if !item.isServer {
-                                            Button(role: .destructive) {
-                                                Task { await remove(item) }
-                                            } label: { Label("Delete", systemImage: "trash") }
-                                        }
+                                } header: {
+                                    HStack(spacing: 6) {
+                                        Text(d.day.uppercased())
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .tracking(0.8)
+                                        Text("\(d.rows.count)")
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
                                     }
-                                    // Retraction, from the reading side. The
-                                    // publisher has --rm; the human staring
-                                    // at a stale or mistaken result had no
-                                    // way to clear it. Servers are excluded —
-                                    // their row dies with the server.
-                                    .swipeActions(edge: .trailing) {
-                                        if !item.isServer {
-                                            Button(role: .destructive) {
-                                                Task { await remove(item) }
-                                            } label: { Label("Delete", systemImage: "trash") }
-                                        }
-                                    }
-                                    .contextMenu {
-                                        if !item.isServer {
-                                            Button(role: .destructive) {
-                                                Task { await remove(item) }
-                                            } label: { Label("Delete view", systemImage: "trash") }
-                                        }
-                                    }
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 6)
                                 }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
                     }
-                    .listStyle(.insetGrouped)
+                    .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),
+                                prompt: "Title, file or session")
                 }
             }
-            .navigationTitle(onlySession.map { "Views · \(nameFor($0))" } ?? "Views")
+            .background(Color.hopSurface)
+            .navigationTitle(scoped.map { "Views · \(nameFor($0))" } ?? "Views")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-            .fullScreenCover(item: $viewing) { v in ArtifactSheet(viewing: v) }
-            .task { await load() }
+            .fullScreenCover(item: $viewing, onDismiss: { seenTick += 1 }) { v in ArtifactSheet(viewing: v) }
+            .task {
+                if !scopeSet { scoped = onlySession; scopeSet = true }
+                await load()
+            }
             .refreshable { await load() }
         }
     }
 
-    private var grouped: [(session: String, rows: [ArtifactItem])] {
-        // Newest-first sessions, newest-first rows — the manifest is already
-        // time-sorted, so group order falls out of first appearance.
+    // MARK: gallery
+
+    private var inScope: [ArtifactItem] {
+        guard let scoped else { return items }
+        return items.filter { $0.session == scoped }
+    }
+
+    /// What the kind filter and the search let through, in manifest order
+    /// (newest first) — also what the reader pages through.
+    private var shown: [ArtifactItem] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return inScope.filter { i in
+            (kind == .all || ViewKind.of(i) == kind)
+                && (q.isEmpty || i.label.lowercased().contains(q) || i.name.lowercased().contains(q)
+                    || nameFor(i.session).lowercased().contains(q))
+        }
+    }
+
+    private var days: [(day: String, rows: [ArtifactItem])] {
         var order: [String] = []
         var buckets: [String: [ArtifactItem]] = [:]
-        for i in items {
-            if buckets[i.session] == nil { order.append(i.session) }
-            buckets[i.session, default: []].append(i)
+        let now = Date()
+        for i in shown {
+            let d = viewDayLabel(i.mtime, now: now)
+            if buckets[d] == nil { order.append(d) }
+            buckets[d, default: []].append(i)
         }
         return order.map { ($0, buckets[$0] ?? []) }
+    }
+
+    private var filterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let s = scoped {
+                    Button { withAnimation { scoped = nil } } label: {
+                        HStack(spacing: 4) {
+                            Text(nameFor(s)).lineLimit(1)
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.hopPurple.opacity(0.85), in: Capsule())
+                        .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Only \(nameFor(s)). Tap for every session.")
+                }
+                ForEach(ViewKind.allCases, id: \.self) { k in
+                    let n = k == .all ? inScope.count : inScope.filter { ViewKind.of($0) == k }.count
+                    if k == .all || n > 0 {
+                        Button { withAnimation(.easeOut(duration: 0.15)) { kind = k } } label: {
+                            HStack(spacing: 4) {
+                                Text(k.label)
+                                Text("\(n)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            .font(.footnote.weight(kind == k ? .semibold : .regular))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(kind == k ? Color.hopLine(0.12) : Color.hopLine(0.04), in: Capsule())
+                            .foregroundStyle(kind == k ? Color.primary : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(kind == k ? [.isSelected] : [])
+                    }
+                }
+            }
+        }
+    }
+
+    private func card(_ item: ArtifactItem) -> some View {
+        let _ = seenTick
+        let fresh = !item.isServer && ViewSeen.itemState(item) != .seen
+        return Button {
+            let list = shown
+            if let i = list.firstIndex(where: { $0.id == item.id }) {
+                viewing = ArtifactViewing(items: list, index: i, serverURL: serverURL)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    thumb(item)
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(4 / 3, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.hopLine(0.10), lineWidth: 0.5))
+                        .shadow(color: Color.hopShadow.opacity(0.5), radius: 4, y: 2)
+                    if fresh {
+                        Circle().fill(Color.hopSpark)
+                            .frame(width: 9, height: 9)
+                            .overlay(Circle().strokeBorder(Color.white, lineWidth: 1.5))
+                            .padding(7)
+                            .accessibilityLabel("New")
+                    }
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.label)
+                        .font(.footnote.weight(fresh ? .bold : .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(meta(item))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 2)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !item.isServer {
+                Button(role: .destructive) {
+                    Task { await remove(item) }
+                } label: { Label("Delete view", systemImage: "trash") }
+            }
+        }
+    }
+
+    private func meta(_ item: ArtifactItem) -> String {
+        if item.isServer { return item.serverLive ? "live server" : "server gone" }
+        let time = Date(timeIntervalSince1970: item.mtime).formatted(.relative(presentation: .named))
+        return scoped == nil ? "\(nameFor(item.session)) · \(time)" : time
+    }
+
+    @ViewBuilder private func thumb(_ item: ArtifactItem) -> some View {
+        if !item.isServer, ViewKind.isImage(item.name),
+           let url = URL(string: serverURL + item.path.replacingOccurrences(
+                of: "/inline", with: "", options: [.anchored, .backwards]) + "/thumb") {
+            ViewThumb(url: url)
+        } else {
+            DocCard(item: item)
+        }
     }
 
     private static func stamp(_ item: ArtifactItem) -> String {
@@ -897,4 +986,133 @@ func isOwnServerLink(_ link: String, serverURL: String) -> Bool {
 /// `.sheet(item:)` needs Identifiable; a URL is its own identity.
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+// MARK: - Views gallery pieces (hop web's ViewsPanel)
+
+/// The gallery's kind filters, as the web names them.
+enum ViewKind: CaseIterable {
+    case all, figures, docs, pages, live
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .figures: return "Figures"
+        case .docs: return "Docs"
+        case .pages: return "Pages"
+        case .live: return "Live"
+        }
+    }
+    private static func ext(_ name: String) -> String { (name as NSString).pathExtension.lowercased() }
+    static func isImage(_ name: String) -> Bool { ["png", "jpg", "jpeg", "gif", "webp", "svg"].contains(ext(name)) }
+    static func of(_ i: ArtifactItem) -> ViewKind {
+        if i.isServer { return .live }
+        let e = ext(i.name)
+        if isImage(i.name) || ["mp4", "mov", "webm", "m4v", "mp3", "m4a", "wav", "flac", "aac", "ogg", "opus"].contains(e) {
+            return .figures
+        }
+        if e == "html" || e == "htm" { return .pages }
+        return .docs
+    }
+    /// A short type tag, set in mono like the web's (emoji glyphs differ too
+    /// much to carry meaning).
+    static func tag(_ i: ArtifactItem) -> String {
+        if i.isServer { return "LIVE" }
+        let e = ext(i.name)
+        switch e {
+        case "csv", "tsv": return "TBL"
+        case "pdf": return "PDF"
+        case "md", "markdown": return "MD"
+        case "html", "htm": return "WEB"
+        case "txt", "log", "json": return "TXT"
+        case "mp4", "mov", "webm", "m4v": return "VID"
+        case "mp3", "m4a", "wav", "flac", "aac", "ogg", "opus": return "AUD"
+        default: return isImage(i.name) ? "IMG" : "FILE"
+        }
+    }
+}
+
+/// The day a result belongs to, as a notebook would head it.
+func viewDayLabel(_ mtime: Double, now: Date = Date()) -> String {
+    let cal = Calendar.current
+    let d = Date(timeIntervalSince1970: mtime)
+    let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: now)).day ?? 0
+    if days <= 0 { return "Today" }
+    if days == 1 { return "Yesterday" }
+    if days < 7 { return d.formatted(.dateTime.weekday(.wide)) }
+    let sameYear = cal.component(.year, from: d) == cal.component(.year, from: now)
+    return sameYear ? d.formatted(.dateTime.month(.wide).day()) : d.formatted(.dateTime.month(.wide).day().year())
+}
+
+/// A figure's card: the host's small JPEG (`/view/…/thumb`), never the
+/// full image — a gallery of plots must not pull megabytes through the
+/// tunnel. Cached for the app's life.
+struct ViewThumb: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var failed = false
+    private static let cache = NSCache<NSURL, UIImage>()
+
+    var body: some View {
+        ZStack {
+            Color.white
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+            } else if failed {
+                Image(systemName: "photo").foregroundStyle(.gray)
+            }
+        }
+        .task(id: url) {
+            if let hit = Self.cache.object(forKey: url as NSURL) { image = hit; return }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 15
+            req.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+            if let (data, resp) = try? await URLSession.shared.data(for: req),
+               (resp as? HTTPURLResponse)?.statusCode == 200, let img = UIImage(data: data) {
+                Self.cache.setObject(img, forKey: url as NSURL)
+                image = img
+            } else {
+                failed = true
+            }
+        }
+    }
+}
+
+/// A document's card, set like a manuscript's first page: its kind tag, the
+/// title in a serif on ruled paper, an edge in its kind's colour (docs
+/// violet, pages cyan, live servers green).
+struct DocCard: View {
+    let item: ArtifactItem
+    @Environment(\.colorScheme) private var scheme
+
+    private var edge: Color {
+        switch ViewKind.of(item) {
+        case .pages: return Color(hex: 0x06b6d4)
+        case .live: return item.serverLive ? .hopLive : .secondary
+        default: return Color(hex: 0x7c3aed)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            edge.opacity(0.75).frame(width: 3)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(ViewKind.tag(item))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .tracking(0.6)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Color.hopLine(0.06), in: RoundedRectangle(cornerRadius: 3))
+                    .foregroundStyle(.secondary)
+                Text(item.label)
+                    .font(.system(size: 14, weight: .semibold, design: .serif))
+                    .foregroundStyle(Color.hopInk)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Capsule().fill(Color.hopLine(0.12)).frame(width: 46, height: 2)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(scheme == .dark ? Color.hopRaised : Color(hex: 0xfdfcf8))
+    }
 }
