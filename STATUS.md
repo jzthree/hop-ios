@@ -5390,3 +5390,10 @@ LESSON: test against a REAL session with history, not a fresh probe.
   hop2 main.tsx) in a web view, closing through a `hop` message handler. Not
   ported: /api/diag (web keyboard telemetry) and /api/local-link (browser
   fast path). Sim-checked: + sheet, desktop sign-in, wall; menus by build.
+- **2026-10-31 · iPhone landscape is a viewer.** Jian: "autohide keyboard in
+  landscape mode make it mainly as a viewer mode … for the iphone because
+  keyboard cover too much." HopTermView.viewerMode follows landscapePhone
+  (vertical size class compact = iPhone sideways): entering it resigns first
+  responder, the attach and sheet-dismiss refocus paths skip it, a tap on the
+  terminal still raises the keyboard, and turning upright restores it if it
+  was up. Sim-checked with HOP_DEV_COMPACT=1 (no keyboard on attach).
