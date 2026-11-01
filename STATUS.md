@@ -5413,3 +5413,19 @@ LESSON: test against a REAL session with history, not a fresh probe.
   buffer that fits the view at yDisp 0 is at the live edge. Gotcha: the sim's
   own "Sign in to Apple Account" prompt makes the app INACTIVE, and an
   inactive app claims no size — the probe cancels it first.
+
+### 2026-11-01 — adopting hop web's redesign
+- **Catch up** (web ⌘G): ✦n chip in the terminal bar + the wall's summary
+  line open the next session with news — a question first (fleet-wide), then
+  the newest unread finished turn (in scope); taps walk forward. `CatchUp.swift`.
+- **News is a spark**: attention violet, unread-turn cyan (`hopFresh`), working
+  indigo; spark gradient edge on tiles with news, drawer dots, views chip.
+- **Views gallery**: cards by day, thumbnails via `/view/…/thumb`, kind filters
+  with counts, search, session chip ×; reader pages the filtered set.
+- **Calendar**: Scheduled → week strip + picked-day agenda, bands for repeats
+  under 3 h, sent items on their day, condition triggers below. `CheckbackCalendar.swift`.
+- **Tiles: title first** (Jian): the name takes every line it needs at full
+  width; facts moved to the footer; the card has the fixed shape (0.68), the
+  terminal miniature gets what's left.
+- Not adopted: per-session tabs (Terminal/Views/Calendar) — the phone's
+  terminal bar has no room; Views and check-backs stay in the ⋯ menu/chip.

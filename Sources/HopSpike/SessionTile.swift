@@ -46,12 +46,19 @@ struct SessionTile: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The title before the content (Jian: "more important for me to
+            // see title then content"): the name takes every line it needs,
+            // and the terminal miniature below gets whatever is left. The
+            // CARD has the fixed shape, so tiles in a row stay one height.
             header
+                .layoutPriority(1)
             hairline
             screenBody
             hairline
             footer
+                .layoutPriority(1)
         }
+        .aspectRatio(0.68, contentMode: .fit)
         .background(Color.hopCard)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
@@ -79,7 +86,10 @@ struct SessionTile: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
+        // The name owns the header, full width (hop web's card: "the facts
+        // move to the card's footer and the name takes the header") — with
+        // chips beside it, a long name wrapped in a sliver, mid-word.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Circle()
                 .fill(dotColor)
                 .frame(width: 6, height: 6)
@@ -90,43 +100,16 @@ struct SessionTile: View {
                 .sonar(when: !session.attention && session.live
                             && (session.phase == .working || (session.phase == nil && session.busy)),
                        color: session.phase == .working ? .hopWorking : .hopLive)
-            // Up to TWO lines, at Jian's word: the title is what you read a
-            // tile for, more than its screen, so a long name wraps and the
-            // terminal below gives up the line. Short names stay one line.
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+            // Every line it needs, at Jian's word: the title is what you
+            // read a tile for, more than its screen, so a long name wraps
+            // and the terminal below gives up the lines.
             Text(session.name)
                 .font(.system(size: 12, design: .monospaced).weight(.semibold))
-                .lineLimit(2)
+                .lineLimit(nil)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
-            // Someone is ON this session right now — the desk browser, the
-            // CLI, another phone. The eye is presence at wall distance.
-            if session.attached {
-                Image(systemName: "eye.fill").font(.system(size: 7))
-                    .foregroundStyle(.secondary)
-            }
-            // Same agent glyphs the rows carry: created-by-agent quiet,
-            // agent-permitted in glow.
-            if session.createdBy == "agent" {
-                Image(systemName: "cpu").font(.system(size: 8)).foregroundStyle(.secondary)
-            } else if session.agentPermitted {
-                Image(systemName: "cpu").font(.system(size: 8))
-                    .foregroundStyle(Color.hopGlow.opacity(0.8))
-            }
-            Spacer(minLength: 4)
-            if session.checkbacks > 0 {
-                Text("⏰\(session.checkbacks)")
-                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            if !session.appChip.isEmpty {
-                let tint = appTint(session.agentApp)
-                Text(session.appChip)
-                    .font(.system(size: 9, weight: .semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 1.5)
-                    .background(tint.opacity(0.16), in: Capsule())
-                    .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
-                    .foregroundStyle(tint)
-            }
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
@@ -165,7 +148,44 @@ struct SessionTile: View {
                     .padding(8)
             }
         }
-        .aspectRatio(0.95, contentMode: .fit)
+        // Fills what the title and footer leave (the card holds the shape).
+        .frame(maxWidth: .infinity, minHeight: 24, maxHeight: .infinity)
+    }
+
+    /// The facts, quiet in the footer: who is on it, the agent glyphs, the
+    /// check-backs and the model chip.
+    private var facts: some View {
+        HStack(spacing: 5) {
+            // Someone is ON this session right now — the desk browser, the
+            // CLI, another phone. The eye is presence at wall distance.
+            if session.attached {
+                Image(systemName: "eye.fill").font(.system(size: 7))
+                    .foregroundStyle(.secondary)
+            }
+            // Same agent glyphs the rows carry: created-by-agent quiet,
+            // agent-permitted in glow.
+            if session.createdBy == "agent" {
+                Image(systemName: "cpu").font(.system(size: 8)).foregroundStyle(.secondary)
+            } else if session.agentPermitted {
+                Image(systemName: "cpu").font(.system(size: 8))
+                    .foregroundStyle(Color.hopGlow.opacity(0.8))
+            }
+            if session.checkbacks > 0 {
+                Text("⏰\(session.checkbacks)")
+                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if !session.appChip.isEmpty {
+                let tint = appTint(session.agentApp)
+                Text(session.appChip)
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 1.5)
+                    .background(tint.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
+                    .foregroundStyle(tint)
+            }
+        }
+        .fixedSize()
     }
 
     /// The tagline is what the session is FOR — the one line Jian reached for
@@ -188,10 +208,13 @@ struct SessionTile: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            // How stale is this screen — the same clock the rows show.
-            Text(session.relativeTime)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
+            VStack(alignment: .trailing, spacing: 3) {
+                // How stale is this screen — the same clock the rows show.
+                Text(session.relativeTime)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                facts
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 9)
