@@ -83,6 +83,8 @@ struct TerminalHostView: View {
     @State private var killConfirmShown = false
     @State private var codexHandOffShown = false
     @State private var claudeHandOffShown = false
+    @State private var codexTakeShown = false
+    @State private var accountSwitch: AgentHome?
     /// The pill's live travel during a fleet-switch swipe. The web switcher
     /// has no equivalent of this: the pill follows the finger and names the
     /// session you would land on, so the swipe is never blind.
@@ -101,6 +103,7 @@ struct TerminalHostView: View {
     /// An artifact link (hop view) being shown in-app.
     @State private var artifactViewing: ArtifactViewing?
     @State private var artifactURL: URL?
+    @State private var mathShown: MathShown?
     /// What the ⋯ menu READS, frozen. Its rows show live session state (the
     /// Views count, the notify flag, who's here), and every session poll or
     /// presence blip re-rendered the open menu — SwiftUI's Menu re-lays out
@@ -433,6 +436,7 @@ struct TerminalHostView: View {
                        // style); the ‹ button in the bar is the way back.
                        onBackSwipe: { openDrawer() },
                        onOpenLink: { link in openLinkSmart(link) },
+                       onOpenMath: { mathShown = MathShown(span: $0) },
                        onFitRefresh: { fitTick += 1 },
                        onSizeState: { peerSize = $0 },
                        onRetryState: { at, attempt in
@@ -586,6 +590,24 @@ struct TerminalHostView: View {
             } message: {
                 Text("Opens on the Mac and continues there. It's parked here; opening it in hop again picks it back up.")
             }
+            .confirmationDialog("Take \(session.name) back from the Codex app?", isPresented: $codexTakeShown,
+                                titleVisibility: .visible) {
+                Button("Quit Codex app & resume here") {
+                    toast = "Taking \(liveSession.name) back from the Codex app…"
+                    Task { toast = await model.takeFromCodexApp(liveSession) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Quits the Codex app on the Mac (all its windows; it reopens normally) and pauses any app automation in this conversation, then resumes it here.")
+            }
+            .confirmationDialog("The \(accountSwitch?.label ?? "") account is logged out",
+                                isPresented: Binding(get: { accountSwitch != nil }, set: { if !$0 { accountSwitch = nil } }),
+                                titleVisibility: .visible) {
+                Button("Switch anyway") { if let h = accountSwitch { switchAccount(to: h) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You will need to run /login in the session.")
+            }
             .confirmationDialog("Links on screen", isPresented: $showLinks, titleVisibility: .visible) {
                 // Newest first, and capped: a build log can put dozens on
                 // screen and an endless action sheet is unusable.
@@ -603,6 +625,11 @@ struct TerminalHostView: View {
                 NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
             }) { v in
                 ArtifactSheet(viewing: v)
+            }
+            .sheet(item: $mathShown, onDismiss: {
+                NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
+            }) { m in
+                MathSheet(span: m.span, light: lightTheme)
             }
             .fullScreenCover(item: $artifactURL, onDismiss: {
                 NotificationCenter.default.post(name: .hopRefocusTerminal, object: nil)
@@ -1734,7 +1761,9 @@ struct TerminalHostView: View {
               iHoldControl: iHoldControl,
               folders: model.folders,
               folderId: liveSession.folderId,
-              createdBy: liveSession.createdBy)
+              createdBy: liveSession.createdBy,
+              agentHomes: model.homes(for: liveSession),
+              agentHomeDir: liveSession.agentHomeDir)
     }
 
     /// Everything a menu row DOES, in one place. Reads go through
@@ -1810,7 +1839,16 @@ struct TerminalHostView: View {
             codexHandOffShown = true
         case .claudeApp:
             claudeHandOffShown = true
+        case .takeFromCodexApp:
+            codexTakeShown = true
+        case .switchAccount(let home):
+            if home.loggedIn == false { accountSwitch = home } else { switchAccount(to: home) }
         }
+    }
+
+    private func switchAccount(to home: AgentHome) {
+        toast = "Moving \(liveSession.name) to the \(home.label) account…"
+        Task { toast = await model.switchAgentHome(liveSession, to: home) }
     }
 
     /// `.equatable()` is the fix, not decoration — see `TerminalActionsMenu`.
@@ -1852,6 +1890,8 @@ struct TerminalActionsMenu: View, Equatable {
         var folders: [HopFolder]
         var folderId: String?
         var createdBy: String
+        var agentHomes: [AgentHome] = []
+        var agentHomeDir: String?
     }
     enum Action {
         case reconnect, views, toggleNotify, checkbacks
@@ -1862,6 +1902,8 @@ struct TerminalActionsMenu: View, Equatable {
         case rename, tagline, moveToFolder(String?), toggleOrigin, park, kill
         case codexApp
         case claudeApp
+        case takeFromCodexApp
+        case switchAccount(AgentHome)
     }
 
     let inputs: Inputs
@@ -1920,6 +1962,14 @@ struct TerminalActionsMenu: View, Equatable {
                 Label("Hand off to Claude app…", systemImage: "macwindow")
             }
         }
+        // The reverse, `hop recover --take`: the Codex app keeps a thread for
+        // hours after its window closes, and while it does the CLI here can
+        // only fork it. Quitting the app makes it let go.
+        if i.runningApp == "codex" {
+            Button { act(.takeFromCodexApp) } label: {
+                Label("Take back from Codex app…", systemImage: "arrow.uturn.backward.circle")
+            }
+        }
         // Both, always: into the SAME tool it is a fresh session that reads
         // the condensed trajectory instead of the full, context-heavy
         // history (Jian: useful to "continue in claude from claude").
@@ -1953,6 +2003,20 @@ struct TerminalActionsMenu: View, Equatable {
         Button { act(.toggleOrigin) } label: {
             Label(i.createdBy == "agent" ? "Move to You" : "Move to Agents",
                   systemImage: "arrow.left.arrow.right")
+        }
+        // Which login the agent runs as — only where the host has a choice.
+        if i.agentHomes.count > 1 {
+            Menu {
+                ForEach(i.agentHomes) { h in
+                    Button { act(.switchAccount(h)) } label: {
+                        if h.dir == i.agentHomeDir { Label(h.described, systemImage: "checkmark") }
+                        else { Text(h.described) }
+                    }
+                }
+            } label: {
+                Label("Account: \(i.agentHomes.first { $0.dir == i.agentHomeDir }?.label ?? "default")",
+                      systemImage: "person.crop.circle")
+            }
         }
         Button { act(.park) } label: { Label("Park", systemImage: "moon.zzz") }
         Button(role: .destructive) { act(.kill) } label: {
@@ -2213,6 +2277,7 @@ struct TerminalScreen: UIViewRepresentable {
     var onBodyTap: () -> Void = {}
     var onBackSwipe: () -> Void = {}
     var onOpenLink: (String) -> Void = { _ in }
+    var onOpenMath: (MathSpan) -> Void = { _ in }
     var onFitRefresh: () -> Void = {}
     /// "76×24" while a peer/default size holds the grid, nil when the grid
     /// is ours — the size chip's feed. PLAN.md item 1: the re-entry size
@@ -2258,9 +2323,15 @@ struct TerminalScreen: UIViewRepresentable {
         }
         tv.onChromeTap = onChromeTap
         tv.onOpenLink = onOpenLink
+        tv.onOpenMath = onOpenMath
         #if DEBUG
         if let scan = ProcessInfo.processInfo.environment["HOP_LINK_SCAN"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak tv] in tv?.debugScanLinks(to: scan) }
+        }
+        // HOP_DEV_SHEET=math: "tap" the first formula on screen, through the
+        // same cell → span lookup a finger uses.
+        if ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "math" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak tv] in tv?.debugTapFirstMath() }
         }
         #endif
         tv.onBackSwipe = onBackSwipe
@@ -2275,7 +2346,11 @@ struct TerminalScreen: UIViewRepresentable {
         context.coordinator.themeIsLight = lightTheme
         tv.onSessionSwipe = onSessionSwipe
         context.coordinator.attach(view: tv)
-        _ = tv.becomeFirstResponder()
+        // Opened sideways on an iPhone: watch first, type on a tap. Portrait
+        // is where the keyboard belongs, so turning upright raises it.
+        tv.viewerMode = landscape
+        tv.keyboardBeforeViewer = true
+        if !landscape { _ = tv.becomeFirstResponder() }
         return tv
     }
 
@@ -2357,6 +2432,7 @@ struct TerminalScreen: UIViewRepresentable {
         // What the menu is covering, in the terminal's own coordinates: the
         // strip it occupies, less the padding the terminal already starts
         // below. Zero whenever the menu isn't there to cover anything.
+        uiView.viewerMode = landscape
         uiView.chromeOverlap = (chromeAutoHide || landscape)
             ? 0 : max(0, HopTermView.chromeStrip - 40)
         uiView.chromeHeightNow = chromeHeightNow
@@ -3546,7 +3622,7 @@ struct TerminalScreen: UIViewRepresentable {
 
         @objc private func refocusTerminal() {
 
-            guard let v = view, v.window != nil, !v.isFirstResponder else { return }
+            guard let v = view, v.window != nil, !v.isFirstResponder, !v.viewerMode else { return }
 
             _ = v.becomeFirstResponder()
 
@@ -4348,6 +4424,7 @@ final class HopTermView: TerminalView {
 
     /// A link was tapped directly on the grid.
     var onOpenLink: ((String) -> Void)?
+    var onOpenMath: ((MathSpan) -> Void)?
 
     /// The URL under a tap, or nil. Rows are padded to the grid width and
     /// joined without separators, so wrapped URLs connect and the offset
@@ -4401,6 +4478,29 @@ final class HopTermView: TerminalView {
         return linkAt(row: cell.row, col: cell.col)
     }
 
+    /// The LaTeX under a tap — the touch twin of the desktop's hover (hop
+    /// web's math link provider). SwiftTerm keeps its wrap flag private, so a
+    /// row counts as soft-wrapped when the one above runs to the grid edge.
+    func mathUnderTap(_ locInView: CGPoint) -> MathSpan? {
+        guard onOpenMath != nil, let cell = cellAt(locInView) else { return nil }
+        return mathAt(row: cell.row, col: cell.col)
+    }
+
+    func mathAt(row: Int, col: Int) -> MathSpan? {
+        let t = getTerminal()
+        var rows: [String] = []
+        rows.reserveCapacity(t.rows)
+        for r in 0..<t.rows {
+            let line = t.getLine(row: r)?.translateToString(trimRight: true) ?? ""
+            rows.append(line.count > t.cols ? String(line.prefix(t.cols)) : line)
+        }
+        let wrapped = rows.indices.map { $0 > 0 && rows[$0 - 1].count >= t.cols }
+        let padded = rows.enumerated().map { r, line in
+            r + 1 < rows.count && wrapped[r + 1] ? line.padding(toLength: t.cols, withPad: " ", startingAt: 0) : line
+        }
+        return mathHit(rows: padded, wrapped: wrapped, row: row, col: col)
+    }
+
     #if DEBUG
     /// HOP_LINK_SCAN=<file>: what a tap on each cell would open, one line per
     /// distinct link — the real lookup, without having to aim a finger.
@@ -4413,6 +4513,17 @@ final class HopTermView: TerminalView {
             }
         }
         try? (seen.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    #endif
+
+    #if DEBUG
+    func debugTapFirstMath() {
+        let t = getTerminal()
+        for r in 0..<t.rows {
+            for c in 0..<t.cols {
+                if let m = mathAt(row: r, col: c) { onOpenMath?(m); return }
+            }
+        }
     }
     #endif
 
@@ -4468,6 +4579,10 @@ final class HopTermView: TerminalView {
             open(link)
             return
         }
+        if let math = mathUnderTap(g.location(in: self)), let open = onOpenMath {
+            open(math)
+            return
+        }
         onChromeTap?()
     }
 
@@ -4513,6 +4628,10 @@ final class HopTermView: TerminalView {
         // click at a URL instead of opening it helps nobody.
         if let link = linkUnderTap(g.location(in: self)), let open = onOpenLink {
             open(link)
+            return
+        }
+        if let math = mathUnderTap(g.location(in: self)), let open = onOpenMath {
+            open(math)
             return
         }
         // Same drawn-geometry mapping as the link test above; SGR mouse
@@ -5206,6 +5325,25 @@ final class HopTermView: TerminalView {
     /// How many points of this view's top the floating menu covers. Zero
     /// while the menu is hidden (auto-hide, landscape) — nothing is covering
     /// anything then, and the full height is honestly usable.
+    /// iPhone landscape is for WATCHING: the keyboard would cover more than
+    /// half the screen (Jian: "autohide keyboard in landscape mode make it
+    /// mainly as a viewer mode … keyboard cover too much"). Turning sideways
+    /// drops it and nothing raises it on its own (sheet dismissals, attach);
+    /// a tap on the terminal still does. Turning upright restores it if it
+    /// was up before.
+    var viewerMode = false {
+        didSet {
+            guard viewerMode != oldValue, window != nil else { return }
+            if viewerMode {
+                keyboardBeforeViewer = isFirstResponder
+                if isFirstResponder { _ = resignFirstResponder() }
+            } else if keyboardBeforeViewer, !isFirstResponder {
+                _ = becomeFirstResponder()
+            }
+        }
+    }
+    var keyboardBeforeViewer = false
+
     var chromeOverlap: CGFloat = 0 {
         didSet { if chromeOverlap != oldValue { applyLetterbox() } }
     }
@@ -6321,6 +6459,7 @@ extension HopTermView: UIGestureRecognizerDelegate {
                 if let c = cellAt(tap.location(in: self)),
                    arrowWalk(toRow: c.row, col: c.col) != nil { return true }
                 return linkUnderTap(tap.location(in: self)) != nil
+                    || mathUnderTap(tap.location(in: self)) != nil
             }
             if inStrip { return false }   // reaching for controls ≠ asking to type
         }

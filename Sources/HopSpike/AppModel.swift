@@ -27,6 +27,9 @@ final class AppModel: ObservableObject {
     /// the next poll — under five seconds on wifi — so the user saw a dialog
     /// close and, quite often, nothing else at all.
     @Published var actionError: String?
+    /// The agents' accounts on the host ("claude"/"codex" → roots); the
+    /// session menu offers a switch only where there is a choice.
+    @Published var agentHomes: [String: [AgentHome]] = [:]
     /// Set when a cookie we HAD was rejected — i.e. the 7-day session ran out,
     /// as opposed to never having signed in. The difference is the difference
     /// between "did something break?" and "ah, it's been a week".
@@ -760,9 +763,14 @@ final class AppModel: ObservableObject {
     /// cwd is optional and verified live: the daemon honours it (probed with
     /// a scratch session that landed in the requested directory), and omitting
     /// it keeps the daemon's default — the two cases the sheet offers.
-    func createSession(name: String, cwd: String? = nil) async -> Bool {
+    /// `startup` boots it straight into an agent ("claude" / "codex"; nil =
+    /// a plain shell) and `agentHome` picks that agent's account — the web
+    /// create form's type and account pickers, same API fields.
+    func createSession(name: String, cwd: String? = nil, startup: String? = nil, agentHome: String? = nil) async -> Bool {
         var body: [String: Any] = ["name": name, "type": "terminal"]
         if let cwd { body["cwd"] = cwd }
+        if let startup { body["startup"] = startup }
+        if let agentHome { body["agentHome"] = agentHome }
         return await post("api/sessions", body)
     }
     func renameSession(_ s: HopSession, to newName: String) async -> Bool {
@@ -995,7 +1003,7 @@ final class AppModel: ObservableObject {
         return obj != nil
     }
 
-    private func postReturning(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
+    func postReturning(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
         guard let url = baseURL?.appendingPathComponent(path) else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -1498,6 +1506,10 @@ struct HopSession: Identifiable {
     let agent: String?
     /// The model the agent runs, from its transcript ("claude-opus-5-5").
     let agentModel: String?
+    /// The agent's login root on the host (~/.claude, ~/.claude_fable…) and
+    /// its short label — which account the conversation runs as.
+    let agentHomeDir: String?
+    let agentHomeLabel: String?
     /// ms stamp of the last turn end (null when none) — the key the local
     /// read override is checked against, so it never outlives the turn.
     let turnAt: Double?
@@ -1557,6 +1569,9 @@ struct HopSession: Identifiable {
         agentPhase = json["agentPhase"] as? String
         agent = json["agent"] as? String
         agentModel = json["agentModel"] as? String
+        let home = json["agentHome"] as? [String: Any]
+        agentHomeDir = home?["dir"] as? String
+        agentHomeLabel = home?["label"] as? String
         turnAt = (json["turnAt"] as? NSNumber)?.doubleValue
         // Opening a session IS reading it: the daemon's witness agrees on
         // its next answer, but the tile should not wait for the poll. A

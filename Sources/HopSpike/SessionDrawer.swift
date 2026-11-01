@@ -13,6 +13,9 @@ struct SessionDrawer: View {
 
     @EnvironmentObject var model: AppModel
     @State private var filter = ""
+    @State private var folderRenaming: HopFolder?
+    @State private var folderRenameText = ""
+    @State private var folderDeleting: HopFolder?
     @State private var scope: SessionScope = .user
     /// Folder ids the reader has folded ("" = Unfiled), persisted.
     @AppStorage("drawerCollapsed") private var collapsedRaw = ""
@@ -107,6 +110,32 @@ struct SessionDrawer: View {
             }
         }
         .onAppear { scope = model.swipeScope }
+        .alert("Rename folder", isPresented: Binding(get: { folderRenaming != nil },
+                                                     set: { if !$0 { folderRenaming = nil } })) {
+            TextField("Folder name", text: $folderRenameText)
+            Button("Cancel", role: .cancel) { folderRenaming = nil }
+            Button("Rename") {
+                let name = folderRenameText.trimmingCharacters(in: .whitespaces)
+                if let f = folderRenaming, !name.isEmpty, name != f.name {
+                    Task { _ = await model.renameFolder(id: f.id, to: name) }
+                }
+                folderRenaming = nil
+            }
+        }
+        .confirmationDialog("Delete \(folderDeleting?.name ?? "")?",
+                            isPresented: Binding(get: { folderDeleting != nil },
+                                                 set: { if !$0 { folderDeleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete folder", role: .destructive) {
+                if let f = folderDeleting {
+                    Task { if await model.deleteFolder(id: f.id) { await model.refreshSessions(silent: true) } }
+                }
+                folderDeleting = nil
+            }
+            Button("Cancel", role: .cancel) { folderDeleting = nil }
+        } message: {
+            Text("Its sessions stay; they move to Unfiled.")
+        }
     }
 
     /// Leftward drag that follows the finger and closes past 30% (or a
@@ -262,6 +291,18 @@ struct SessionDrawer: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title), \(rows.count) sessions\(wanting > 0 ? ", \(wanting) want you" : "")")
+        // Long-press a real folder (not Unfiled/Parked) to rename or remove
+        // it, as the web wall's folder header does.
+        .contextMenu {
+            if let f = model.folders.first(where: { $0.id == id }) {
+                Button { folderRenameText = f.name; folderRenaming = f } label: {
+                    Label("Rename folder", systemImage: "pencil")
+                }
+                Button(role: .destructive) { folderDeleting = f } label: {
+                    Label("Delete folder", systemImage: "folder.badge.minus")
+                }
+            }
+        }
     }
 
     private func row(_ s: HopSession) -> some View {

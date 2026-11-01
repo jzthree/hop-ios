@@ -23,6 +23,13 @@ struct SessionsView: View {
     @State private var parkedOpen = false
     /// The session whose check-backs sheet is open.
     @State private var checkbackTarget: HopSession?
+    @State private var wallConfirm: WallConfirm?
+    @State private var desktopReady = false
+    @State private var showDesktop = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "desktop"
+    @State private var updateInfo: HopUpdateInfo?
+    @AppStorage("hopUpdateDismissed") private var updateDismissed = ""
+    /// The outcome of a wall verb that reports back (take, account switch).
+    @State private var wallNotice: String?
     @State private var scope: SessionScope = {
         switch ProcessInfo.processInfo.environment["HOP_DEV_SCOPE"] {
         case "all": return .all
@@ -30,7 +37,7 @@ struct SessionsView: View {
         default: return .user
         }
     }()
-    @State private var creating = false
+    @State private var creating = ProcessInfo.processInfo.environment["HOP_DEV_SHEET"] == "new"
     @State private var newName = ""
     @State private var renaming: HopSession?
     @State private var renameText = ""
@@ -242,6 +249,52 @@ struct SessionsView: View {
                       systemImage: "arrow.right.doc.on.clipboard")
             }
         }
+        // To and from the agent's desktop app on the Mac, as in the session.
+        if session.agentApp == "codex" || session.agentApp == "claude" {
+            Button { wallConfirm = .handOff(session.agentApp, session) } label: {
+                Label("Hand off to \(session.agentApp == "codex" ? "Codex" : "Claude") app…", systemImage: "macwindow")
+            }
+        }
+        if session.agentApp == "codex" {
+            Button { wallConfirm = .take(session) } label: {
+                Label("Take back from Codex app…", systemImage: "arrow.uturn.backward.circle")
+            }
+        }
+        let homes = model.homes(for: session)
+        if homes.count > 1 {
+            Menu {
+                ForEach(homes, id: \.dir) { (h: AgentHome) in
+                    Button {
+                        if h.loggedIn == false { wallConfirm = .account(session, h) }
+                        else { run(.account(session, h)) }
+                    } label: {
+                        if h.dir == session.agentHomeDir { Label(h.described, systemImage: "checkmark") }
+                        else { Text(h.described) }
+                    }
+                }
+            } label: {
+                Label("Account: \(homes.first { $0.dir == session.agentHomeDir }?.label ?? "default")",
+                      systemImage: "person.crop.circle")
+            }
+        }
+    }
+
+    private func run(_ c: WallConfirm) {
+        wallConfirm = nil
+        switch c {
+        case .handOff(let app, let s):
+            Task {
+                if await model.openInDesktopApp(app, internalName: s.internalName, handOff: true) {
+                    wallNotice = "\(s.name) handed to the \(app == "codex" ? "Codex" : "Claude") app"
+                }
+            }
+        case .take(let s):
+            wallNotice = "Taking \(s.name) back from the Codex app…"
+            Task { wallNotice = await model.takeFromCodexApp(s) }
+        case .account(let s, let h):
+            wallNotice = "Moving \(s.name) to the \(h.label) account…"
+            Task { wallNotice = await model.switchAgentHome(s, to: h) }
+        }
     }
 
     /// "Move to ▸": Jian's folders, Unfiled, New folder…. The daemon owns
@@ -429,6 +482,44 @@ struct SessionsView: View {
             // The verdict on something the user just did. It stays until they
             // dismiss it or try again — a poll succeeding says nothing about a
             // rename the daemon refused.
+            // A newer hop for the host — notify-only, as on the web: the
+            // update runs on the Mac. Dismissed per release.
+            if let u = updateInfo, updateDismissed != u.latest {
+                Section {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label("hop \(u.latest) is out (the host runs \(u.current)). Run `\(u.command)` on the Mac.",
+                              systemImage: "arrow.down.circle")
+                            .font(.footnote)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button { UIPasteboard.general.string = u.command } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Copy \(u.command)")
+                        Button { updateDismissed = u.latest } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Dismiss")
+                    }
+                }
+            }
+            if let note = wallNotice {
+                Section {
+                    Button { wallNotice = nil } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label(note, systemImage: "info.circle")
+                                .font(.footnote)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Dismiss")
+                        }
+                    }
+                }
+            }
             if let err = model.actionError {
                 Section {
                     Button { model.actionError = nil } label: {
@@ -845,6 +936,11 @@ struct SessionsView: View {
                 Button { showAllCheckbacks = true } label: {
                     Label("Scheduled", systemImage: "alarm")
                 }
+                if desktopReady {
+                    Button { showDesktop = true } label: {
+                        Label("Desktop", systemImage: "desktopcomputer")
+                    }
+                }
                 // The Codex desktop app's threads on the Mac, continued here.
                 Button { showCodexApp = true } label: {
                     Label("Codex app threads", systemImage: "macwindow")
@@ -1048,6 +1144,14 @@ struct SessionsView: View {
                     taglineTarget: $taglineTarget, taglineText: $taglineText,
                     killTarget: $killTarget, path: $path
                 ))
+                .confirmationDialog(wallConfirm?.title ?? "", isPresented: Binding(get: { wallConfirm != nil },
+                                                                                  set: { if !$0 { wallConfirm = nil } }),
+                                    titleVisibility: .visible, presenting: wallConfirm) { c in
+                    Button(c.action) { run(c) }
+                    Button("Cancel", role: .cancel) {}
+                } message: { c in
+                    Text(c.message)
+                }
                 .alert("New folder",
                        isPresented: Binding(get: { newFolderFor != nil },
                                             set: { if !$0 { newFolderFor = nil } })) {
@@ -1117,6 +1221,12 @@ struct SessionsView: View {
                     model.reconcileSwipeOrder(fullResort: true)
                 }
                 .task { await openPendingSession() }
+                .task {
+                    await model.loadAgentHomes()
+                    desktopReady = await model.desktopAvailable()
+                    updateInfo = await model.fetchUpdateInfo()
+                }
+                .fullScreenCover(isPresented: $showDesktop) { DesktopSheet() }
                 .task {
                     // Once the list is up, not at launch: asking before there's
                     // anything on screen is asking about nothing. Waits for
@@ -1299,8 +1409,12 @@ private struct SessionDialogs: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $creating) {
-                NewSessionSheet(name: $newName) { name, cwd in
-                    Task { if await model.createSession(name: name, cwd: cwd) { path = [name] } }
+                NewSessionSheet(name: $newName) { r in
+                    Task {
+                        if await model.createSession(name: r.name, cwd: r.cwd, startup: r.startup, agentHome: r.agentHome) {
+                            path = [r.name]
+                        }
+                    }
                 }
             }
             .alert("Rename session",
@@ -1342,6 +1456,33 @@ private struct SessionDialogs: ViewModifier {
             } message: {
                 Text("\(killTarget?.name ?? "") and its running process end for everyone.")
             }
+    }
+}
+
+/// A wall verb that asks first — the ones that quit an app on the Mac or
+/// move a conversation somewhere else.
+enum WallConfirm {
+    case handOff(String, HopSession), take(HopSession), account(HopSession, AgentHome)
+    var title: String {
+        switch self {
+        case .handOff(let app, let s): return "Hand \(s.name) to the \(app == "codex" ? "Codex" : "Claude") app?"
+        case .take(let s): return "Take \(s.name) back from the Codex app?"
+        case .account(_, let h): return "The \(h.label) account is logged out"
+        }
+    }
+    var action: String {
+        switch self {
+        case .handOff(let app, _): return "Stop here & open in \(app == "codex" ? "Codex" : "Claude") app"
+        case .take: return "Quit Codex app & resume here"
+        case .account: return "Switch anyway"
+        }
+    }
+    var message: String {
+        switch self {
+        case .handOff: return "Opens on the Mac and continues there. It's parked here; opening it in hop again picks it back up."
+        case .take: return "Quits the Codex app on the Mac (all its windows; it reopens normally) and pauses any app automation in this conversation, then resumes it here."
+        case .account: return "You will need to run /login in the session."
+        }
     }
 }
 

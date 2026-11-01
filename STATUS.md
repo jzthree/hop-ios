@@ -5351,3 +5351,42 @@ LESSON: test against a REAL session with history, not a fresh probe.
   URLSession's 60s. Sim-verified through a freezable loopback proxy: freeze →
   "Reconnecting…" within ~30s; thaw → green on its own within ~25s; a quiet
   live session stays green (no false alarms).
+- **2026-10-25 · device build 393 — tap a formula, see it typeset.** Jian: "hop
+  desktop now has math equation display when hovering but not ios app." A
+  touch screen has no hover, so a TAP on LaTeX in the terminal opens a sheet
+  with it rendered by KaTeX 0.16.22 (vendored in Resources/KaTeX as a folder
+  reference so fonts/ resolves; offline, nothing from the host), the source
+  selectable below, and Copy LaTeX. MathDetect.swift ports hop web's
+  utils/mathDetect.ts (same rules: $…$, $$…$$, \(…\), \[…\], bare \frac runs;
+  prices left alone) with its tests mirrored in testMathDetect. A tap on a
+  URL still opens the URL first. Rows count as soft-wrapped when the row above
+  fills the grid (SwiftTerm's wrap flag is private). Sim-verified with
+  HOP_DEV_SHEET=math on a session printing a wrapped bare formula. Makefile's
+  sim/test targets now use the simulator id (the name lookup had stopped
+  resolving).
+- **2026-10-28 · views no longer sit on the spinner.** Jian: "hop view html
+  still broken often stuck with the spinning animation." Not reproducible in
+  the sim (a 56 KB report and the 47 MB music page both render), so the four
+  ways ArtifactWebView could leave the spinner up for good are closed:
+  (1) the load waited on httpCookieStore.setCookie's completion, which WebKit
+  sometimes never calls — now it loads on completion OR after 1.5s, and the
+  cookie also rides on the request; (2) the spinner cleared on didFinish
+  (every subresource, e.g. Google Fonts over a phone link) — now on didCommit;
+  (3) a WebContent crash on a heavy page left it spinning over blank — now one
+  reload, then stop; (4) after 12s a "Still loading… Retry" appears, and a
+  failed load shows "Couldn't load this view" with Retry instead of blank.
+- **2026-10-30 · build 2610301514 — web parity pass.** Jian: "add hop recover
+  --take to the menu also add any other functionality available in the web
+  version but missing in the ios app." Method: every /api/ path the web client
+  calls minus every one the app calls. New: **Take back from Codex app…**
+  (/api/codex/take, confirm first — it quits the Codex app) and **Hand off to
+  Codex/Claude app…** on the wall's long-press too; **Account ▸** switch for
+  agents with more than one login root (/api/agent-homes,
+  /api/sessions/agent-home; logged-out roots confirm); the + sheet gains
+  Shell/Claude/Codex, the account, and any host directory with completion
+  (/api/fs/complete); folder Rename/Delete by long-pressing a folder in the
+  drawer; the "hop X is out" notice (/api/update, dismissed per release);
+  **Desktop** in the wall's ⋯ menu — hop web's `?desktop=only` page (new in
+  hop2 main.tsx) in a web view, closing through a `hop` message handler. Not
+  ported: /api/diag (web keyboard telemetry) and /api/local-link (browser
+  fast path). Sim-checked: + sheet, desktop sign-in, wall; menus by build.
