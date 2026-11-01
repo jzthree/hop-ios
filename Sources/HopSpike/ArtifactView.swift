@@ -54,6 +54,9 @@ struct ArtifactSheet: View {
     /// tap brings it back — the way every reader app treats its chrome.
     @State private var chromeHidden = false
     @State private var loading = true
+    @State private var slowLoad = false
+    @State private var loadFailure: String?
+    @State private var retryToken = 0
     /// A fetched copy of the published FILE, waiting for the Files exporter.
     @State private var exporting: ExportFile?
     @State private var exportError: String?
@@ -120,7 +123,9 @@ struct ArtifactSheet: View {
                         ArtifactImageView(url: url, loading: $loading)
                     } else {
                         ArtifactWebView(url: url, loading: $loading,
-                                        topInset: chromeHidden ? 0 : barHeight)
+                                        topInset: chromeHidden ? 0 : barHeight,
+                                        retry: retryToken,
+                                        onFailure: { loadFailure = $0 })
                     }
                 } else {
                     ContentUnavailableView("Can't open this view", systemImage: "questionmark.folder")
@@ -176,9 +181,31 @@ struct ArtifactSheet: View {
                 .transition(.opacity)
             }
             if loading && !isNativeMedia {
-                ProgressView().tint(.hopGlow)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(false)
+                VStack(spacing: 14) {
+                    ProgressView().tint(.hopGlow)
+                    // A load that has not arrived in 12s is not going to on
+                    // its own often enough to just keep spinning at you.
+                    if slowLoad {
+                        Text("Still loading…").font(.footnote).foregroundStyle(.secondary)
+                        Button("Retry") { retry() }.buttonStyle(.bordered)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(slowLoad)
+                .task(id: "\(retryToken)|\(viewing.index)") {
+                    slowLoad = false
+                    try? await Task.sleep(for: .seconds(12))
+                    if !Task.isCancelled, loading { withAnimation { slowLoad = true } }
+                }
+            } else if let loadFailure, !isNativeMedia {
+                ContentUnavailableView {
+                    Label("Couldn't load this view", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(loadFailure)
+                } actions: {
+                    Button("Retry") { retry() }.buttonStyle(.bordered)
+                }
+                .background(Color.hopSurface)
             }
         }
         .statusBarHidden(chromeHidden)
@@ -305,10 +332,18 @@ struct ArtifactSheet: View {
         .padding(.horizontal, 5)
     }
 
+    private func retry() {
+        loadFailure = nil
+        slowLoad = false
+        loading = true
+        retryToken += 1
+    }
+
     private func page(_ step: Int) {
         let next = viewing.index + step
         guard viewing.items.indices.contains(next) else { return }
         loading = true
+        loadFailure = nil
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         withAnimation(.easeInOut(duration: 0.15)) {
             viewing = ArtifactViewing(items: viewing.items, index: next, serverURL: viewing.serverURL)
@@ -443,8 +478,15 @@ struct ArtifactWebView: UIViewRepresentable {
     /// SwiftUI's allowsHitTesting and stole the card's drag on device
     /// (Jian: "the scrolling gesture conflicts with dragging").
     var interactive = true
+    /// Bumped by the viewer's Retry button.
+    var retry = 0
+    var onFailure: ((String) -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator { Coordinator(loading: $loading) }
+    func makeCoordinator() -> Coordinator {
+        let c = Coordinator(loading: $loading)
+        c.onFailure = onFailure
+        return c
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -464,17 +506,36 @@ struct ArtifactWebView: UIViewRepresentable {
         // else, and a cookieless load would render the login page instead of
         // the file. setCookie is async; loading first was a race the login
         // page won (same lesson as the digest's SPA-fallback surprise).
-        let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+        Self.load(url, into: web)
+        return web
+    }
+
+    /// Load `url` once the session cookie is in the web view's store — but
+    /// never wait on the store forever. setCookie's completion sometimes
+    /// never fires (a WebKit quirk with a fresh data store), and the viewer
+    /// then sat on its spinner with nothing requested at all (Jian: "hop view
+    /// html still broken often stuck with the spinning animation"). The
+    /// cookie also rides on the request itself, so the document is
+    /// authenticated even when the store loses the race.
+    static func load(_ url: URL, into web: WKWebView) {
+        let cookies = (HTTPCookieStorage.shared.cookies(for: url) ?? []).filter { $0.name == "tunnel_session" }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 30
+        HTTPCookie.requestHeaderFields(with: cookies).forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        var fired = false
+        let go = { [weak web] in
+            guard !fired else { return }
+            fired = true
+            web?.load(req)
+        }
         let store = web.configuration.websiteDataStore.httpCookieStore
         let group = DispatchGroup()
-        for c in cookies where c.name == "tunnel_session" {
+        for c in cookies {
             group.enter()
             store.setCookie(c) { group.leave() }
         }
-        group.notify(queue: .main) { [weak web] in
-            web?.load(URLRequest(url: url))
-        }
-        return web
+        group.notify(queue: .main, execute: go)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: go)
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
@@ -491,25 +552,42 @@ struct ArtifactWebView: UIViewRepresentable {
         // Paging swaps the URL under the same view; reload only when it
         // actually changed, or every SwiftUI pass would restart the load.
         if uiView.url != url, !(uiView.isLoading && uiView.url == nil) {
-            let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
-            let store = uiView.configuration.websiteDataStore.httpCookieStore
-            let group = DispatchGroup()
-            for c in cookies where c.name == "tunnel_session" {
-                group.enter(); store.setCookie(c) { group.leave() }
-            }
-            group.notify(queue: .main) { [weak uiView] in
-                if uiView?.url != url { uiView?.load(URLRequest(url: url)) }
-            }
+            Self.load(url, into: uiView)
+        } else if context.coordinator.retries != retry {
+            // Retry from the viewer's "Still loading" — same URL, fresh fetch.
+            Self.load(url, into: uiView)
         }
+        context.coordinator.retries = retry
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         @Binding var loading: Bool
+        var onFailure: ((String) -> Void)?
+        var retries = 0
+        private var crashReloads = 0
         init(loading: Binding<Bool>) { _loading = loading }
         func webView(_ w: WKWebView, didStartProvisionalNavigation n: WKNavigation!) { loading = true }
-        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { loading = false }
-        func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { loading = false }
-        func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { loading = false }
+        // The spinner goes when the page starts ARRIVING, not when every
+        // subresource has: a report pulling Google Fonts or a CDN script
+        // over a phone link held didFinish back long after it was readable.
+        func webView(_ w: WKWebView, didCommit n: WKNavigation!) { loading = false }
+        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { loading = false; crashReloads = 0 }
+        // A heavy page (some views are tens of MB) can take WebKit's content
+        // process down; no navigation callback follows, so the spinner was
+        // left up over a blank page. Reload once, then stop pretending.
+        func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
+            KBLog.record("viewer content process terminated (reloads=\(crashReloads))")
+            if crashReloads < 1, w.url != nil { crashReloads += 1; w.reload() } else { loading = false }
+        }
+        func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { failed(e) }
+        func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { failed(e) }
+        private func failed(_ e: Error) {
+            loading = false
+            // A superseded load (paging, Retry) reports "cancelled"; not a failure.
+            if (e as NSError).code == NSURLErrorCancelled { return }
+            KBLog.record("viewer load failed: \((e as NSError).code) \(e.localizedDescription)")
+            onFailure?(e.localizedDescription)
+        }
     }
 }
 
