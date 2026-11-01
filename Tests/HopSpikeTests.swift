@@ -2057,6 +2057,23 @@ final class TerminalReplyTests: XCTestCase {
         XCTAssertNil(cb(["kind": "idle"]).occurrences(from: 0, to: 24 * h).band)
     }
 
+    /// "I still have trouble opening html in hop view": links copied out of
+    /// markdown kept "**" / ")." and the host served its SPA instead of the
+    /// file; a loopback view link went to Safari, which cannot reach the Mac.
+    func testOwnViewLinks() {
+        let server = "https://hop.zhoulab.io"
+        XCTAssertEqual(extractLinks(from: "see **https://hop.zhoulab.io/view/o/g.md/inline**"),
+                       ["https://hop.zhoulab.io/view/o/g.md/inline"])
+        XCTAssertEqual(ownServerURL("https://hop.zhoulab.io/view/m/a.html/inline).", serverURL: server)?.absoluteString,
+                       "https://hop.zhoulab.io/view/m/a.html/inline")
+        XCTAssertEqual(ownServerURL("http://127.0.0.1:7681/view/m/a.html/inline", serverURL: server)?.absoluteString,
+                       "https://hop.zhoulab.io/view/m/a.html/inline")
+        XCTAssertEqual(ownServerURL("https://hop.zhoulab.io/view/a/b(1).png/inline", serverURL: server)?.absoluteString,
+                       "https://hop.zhoulab.io/view/a/b(1).png/inline")
+        XCTAssertNil(ownServerURL("http://127.0.0.1:5173/", serverURL: server), "a dev server is not a view")
+        XCTAssertNil(ownServerURL("https://github.com/x/view/y", serverURL: server))
+    }
+
     func testMathDetect() {
         func tex(_ s: String) -> [String] { findMathSpans(s).map(\.tex) }
         // Delimited forms (mirrors hop web's test/mathDetect.test.ts).

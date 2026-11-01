@@ -97,6 +97,9 @@ struct ArtifactSheet: View {
         ["png", "jpg", "jpeg", "gif", "webp", "heic", "svg"].contains(ext)
     }
     private var canPage: Bool { viewing.items.count > 1 }
+    /// Images and media leave the viewer its tap and swipe; a web page keeps
+    /// every touch for itself.
+    private var ownsGestures: Bool { isImage || isNativeMedia || (item.isServer && !item.serverLive) || url == nil }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -133,16 +136,19 @@ struct ArtifactSheet: View {
             }
             .ignoresSafeArea(edges: .bottom)
             .contentShape(Rectangle())
-            .onTapGesture {
+            // Tap to hide the bar, and a horizontal swipe to page between
+            // results — but only over images and media. Over a web page both
+            // sat ON TOP of the page: a sideways pan across a wide diagram or
+            // table paged to the next result instead, and taps on the page's
+            // own controls toggled the bar (probe, 2026-11-01). There the ▲▼
+            // buttons page and the bar's ︿ hides it.
+            .gesture(TapGesture().onEnded {
                 withAnimation(.easeInOut(duration: 0.18)) { chromeHidden.toggle() }
-            }
-            // Page between a session's results with a horizontal swipe on
-            // the content — the same gesture the terminal uses to switch
-            // sessions, so it is already in the thumb.
+            }, including: ownsGestures ? .all : .subviews)
             .gesture(DragGesture(minimumDistance: 40).onEnded { v in
                 guard canPage, abs(v.translation.width) > abs(v.translation.height) * 1.5 else { return }
                 page(v.translation.width < 0 ? 1 : -1)
-            })
+            }, including: ownsGestures ? .all : .subviews)
 
             if !chromeHidden {
                 bar
@@ -976,10 +982,32 @@ func deleteArtifact(serverURL: String, urlSession: URLSession,
 /// Does this link point at the user's own hop server? Those open in-app —
 /// Safari has no session and would show the login page.
 func isOwnServerLink(_ link: String, serverURL: String) -> Bool {
-    guard let u = URL(string: link), let host = u.host?.lowercased(),
-          let server = URL(string: serverURL), let own = server.host?.lowercased()
-    else { return false }
-    return host == own
+    ownServerURL(link, serverURL: serverURL) != nil
+}
+
+private let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
+
+/// The link as this hop serves it, or nil when it is someone else's. A
+/// `hop view` link on the daemon's loopback address (the CLI prints that
+/// when no tunnel is up) is this hop's too — hop web's parseViewLink rule —
+/// and is rewritten onto the server the phone reaches; Safari on the phone
+/// cannot reach the Mac's 127.0.0.1. Punctuation dragged in from markdown
+/// after the view path ("…/inline**", "…/inline).") is dropped: the host
+/// served its SPA for those, so the reader showed hop instead of the file.
+func ownServerURL(_ link: String, serverURL: String) -> URL? {
+    guard var comps = URLComponents(string: link), let host = comps.host?.lowercased(),
+          let server = URL(string: serverURL), let own = server.host?.lowercased() else { return nil }
+    let isView = comps.path.hasPrefix("/view/")
+    guard host == own || (isView && loopbackHosts.contains(host)) else { return nil }
+    if host != own {
+        comps.scheme = server.scheme
+        comps.host = server.host
+        comps.port = server.port
+    }
+    if isView {
+        comps.path = trimTrailingPunctuation(comps.path)   // keeps a balanced "(1)"
+    }
+    return comps.url
 }
 
 

@@ -1690,8 +1690,8 @@ struct TerminalHostView: View {
     /// everything else goes to Safari.
     private func openLinkSmart(_ link: String) {
         guard let url = URL(string: link) else { return }
-        if isOwnServerLink(link, serverURL: model.normalizedServerURL) {
-            artifactURL = url
+        if let own = ownServerURL(link, serverURL: model.normalizedServerURL) {
+            artifactURL = own
         } else {
             UIApplication.shared.open(url)
         }

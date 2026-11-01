@@ -44,10 +44,12 @@ func screenText(rows: [(text: String, wrapped: Bool)]) -> String {
 /// Sentence punctuation and brackets sit next to URLs in prose ("see
 /// https://x/y."), and closing brackets belong to the URL only if it opened
 /// one ("…/foo(bar)" is real, "(https://x)" is not).
-private func trimTrailingPunctuation(_ s: String) -> String {
+func trimTrailingPunctuation(_ s: String) -> String {
     var out = s
     while let last = out.last {
-        if ".,;:!?'\"".contains(last) {
+        // `*` too: agents bold their links ("**https://…/inline**"), and a
+        // kept "**" asked hop for a file that does not exist.
+        if ".,;:!?'\"*".contains(last) {
             out.removeLast()
         } else if ")]}>".contains(last) {
             let opens: Character = last == ")" ? "(" : last == "]" ? "[" : last == "}" ? "{" : "<"
