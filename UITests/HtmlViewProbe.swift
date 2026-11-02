@@ -4,11 +4,14 @@ import XCTest
 final class HtmlViewProbe: XCTestCase {
     func testOpenHtmlView() throws {
         let cookie = ProcessInfo.processInfo.environment["HOP_DEV_COOKIE"] ?? ""
+        // A real phone has its own sign-in; only the simulator needs a cookie.
+        #if targetEnvironment(simulator)
         try XCTSkipUnless(!cookie.isEmpty)
+        #endif
         let out = ProcessInfo.processInfo.environment["HOP_ROTATE_OUT"] ?? NSTemporaryDirectory()
         let title = ProcessInfo.processInfo.environment["HOP_PROBE_TITLE"] ?? "V2 model architecture"
         let app = XCUIApplication()
-        app.launchEnvironment["HOP_DEV_COOKIE"] = cookie
+        if !cookie.isEmpty { app.launchEnvironment["HOP_DEV_COOKIE"] = cookie }
         app.launchEnvironment["HOP_DEV_SHEET"] = "views"
         app.launch()
         sleep(6)
@@ -19,7 +22,14 @@ final class HtmlViewProbe: XCTestCase {
             c.tap(); sleep(1)
         }
         func shot(_ n: String) {
-            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: out + "/html-\(n).png"))
+            let shot = XCUIScreen.main.screenshot()
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: out + "/html-\(n).png"))
+            let a = XCTAttachment(screenshot: shot); a.name = "html-\(n)"; a.lifetime = .keepAlways; add(a)
+        }
+        // Older results are far down a lazy grid: search for the title.
+        let field = app.searchFields.firstMatch
+        if ProcessInfo.processInfo.environment["HOP_PROBE_TITLE"] != nil, field.waitForExistence(timeout: 6) {
+            field.tap(); field.typeText(title); sleep(1)
         }
         let card = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 10))

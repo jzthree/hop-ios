@@ -2074,6 +2074,17 @@ final class TerminalReplyTests: XCTestCase {
         XCTAssertNil(ownServerURL("https://github.com/x/view/y", serverURL: server))
     }
 
+    /// HTML and rendered documents are fetched by the app; PDFs, media and
+    /// live servers stay WebKit's.
+    func testViewerFetchesDocumentsNatively() {
+        func native(_ p: String) -> Bool { ArtifactWebView.fetchesNatively(URL(string: "https://h" + p)!) }
+        XCTAssertTrue(native("/view/s/a.html/inline"))
+        XCTAssertTrue(native("/view/s/a.HTM"))
+        XCTAssertTrue(native("/view/s/a.md/inline?theme=dark"))
+        XCTAssertFalse(native("/view/s/a.pdf/inline"))
+        XCTAssertFalse(native("/s/room-x/index.html"))
+    }
+
     func testMathDetect() {
         func tex(_ s: String) -> [String] { findMathSpans(s).map(\.tex) }
         // Delimited forms (mirrors hop web's test/mathDetect.test.ts).
