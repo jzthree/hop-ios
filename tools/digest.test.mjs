@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { engagementFrom, engagementScore, normalizeSlots, budgetViolations, enforceBudgets, applyTightened, trimWords, wordCount, BUDGET } from "./digest.mjs";
+import { currentNames, renameText, renameInProse, engagementFrom, engagementScore, normalizeSlots, budgetViolations, enforceBudgets, applyTightened, trimWords, wordCount, BUDGET } from "./digest.mjs";
 
 const H = 3600 * 1000;
 
@@ -64,4 +64,26 @@ test("trimWords keeps a whole sentence when one fits, else cuts with an ellipsis
   assert.equal(trimWords("The run finished. It beat the baseline by a hair and the rest is noise", 8), "The run finished.");
   assert.equal(trimWords("one two three four five", 3), "one two three…");
   assert.equal(trimWords("short", 3), "short");
+});
+
+test("the prose uses the reader's names: ids and born-with names become current names", () => {
+  const names = currentNames([
+    { internalName: "Meridian", name: "Meridian", displayName: "nebula" },
+    { internalName: "s_e15f120ce7", name: "s_e15f120ce7", displayName: "hop" },
+    { internalName: "room", name: "room", displayName: "room" },
+    // An old name that is now ANOTHER session's name is not rewritten.
+    { internalName: "writer", name: "writer", displayName: "Draco" },
+    { internalName: "s_aaaaaaaaaa", name: "s_aaaaaaaaaa", displayName: "writer" }
+  ]);
+  assert.equal(names.get("Meridian"), "nebula");
+  assert.equal(names.get("s_e15f120ce7"), "hop");
+  assert.equal(names.has("room"), false);
+  assert.equal(names.has("writer"), false);
+  assert.equal(renameText("Meridian revert due; s_e15f120ce7 waits on Meridian-2 and room.", names),
+    "nebula revert due; hop waits on Meridian-2 and room.");
+  const d = renameInProse({ summary: "Meridian first.", items: [
+    { session: "Meridian", headline: "Meridian ships", why: "Ask s_e15f120ce7.", recommendation: "Tell Meridian", replies: ["Meridian ok"] }
+  ] }, names);
+  assert.equal(d.summary, "nebula first.");
+  assert.deepEqual(d.items[0], { session: "Meridian", headline: "nebula ships", why: "Ask hop.", recommendation: "Tell nebula", replies: ["Meridian ok"] });
 });

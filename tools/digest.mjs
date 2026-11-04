@@ -329,6 +329,42 @@ export const enforceBudgets = (digest) => {
 };
 
 /** Turns and opens over a window, from cumulative samples [{t, turns, seenAt}]. */
+// A session's id is a key, not a name: it is the name the session was born
+// with (or a random s_… id), and the reader renamed many since. The model
+// writes ids into its prose anyway (they key every item, and old editions
+// and screens carry them), so the prose is put right after it answers.
+// Old name → current name, for every session whose id or original name
+// differs from what the reader now calls it. A word that is ALSO some
+// session's current name is left alone (that would rename a live session).
+export const currentNames = (sessions) => {
+  const shown = new Set(sessions.map((s) => s.displayName || s.name).filter(Boolean));
+  const map = new Map();
+  for (const s of sessions) {
+    const now = s.displayName || s.name;
+    if (!now) continue;
+    for (const old of [s.internalName, s.name]) {
+      if (old && old !== now && !shown.has(old)) map.set(old, now);
+    }
+  }
+  return map;
+};
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const renameText = (text, names) => {
+  if (!text || !names.size) return text;
+  const olds = [...names.keys()].sort((a, b) => b.length - a.length).map(escapeRe);
+  const re = new RegExp(`(?<![\\w-])(${olds.join("|")})(?![\\w-])`, "g");
+  return String(text).replace(re, (m) => names.get(m) ?? m);
+};
+/** The reader's names in the edition's prose (never in `session`, the key, or replies, typed verbatim). */
+export const renameInProse = (digest, names) => {
+  if (!names.size) return digest;
+  digest.summary = renameText(digest.summary, names);
+  for (const it of digest.items || []) {
+    for (const k of ["headline", "why", "recommendation"]) if (it[k]) it[k] = renameText(it[k], names);
+  }
+  return digest;
+};
+
 export const engagementFrom = (samples, now, windowMs) => {
   const inWindow = samples.filter((x) => now - x.t <= windowMs);
   if (inWindow.length === 0) return { turns: 0, opens: 0 };
@@ -738,7 +774,9 @@ BUDGETS — hard, enforced in code after you answer, so write to them:
 - why: decide and watch ≤30 words; done ≤15 words; also: none at all.
 - recommendation: ≤12 words. replies: 2–3 items of ≤4 words each.
 Every item names exactly one session, because each becomes a button that
-opens it. Never fold one session's update into another's story. Translate
+opens it. In every sentence call a session by its \`name\` — what the reader
+calls it — never by its \`session\` id: that is only a key, often the name
+it was born with before the reader renamed it, or a random s_… id. Never fold one session's update into another's story. Translate
 agent-invented handles (experiment IDs, issue numbers, file and branch
 names) into what they refer to, or drop them; keep identifiers the reader
 uses themselves. Numbers that carry meaning stay.
@@ -841,6 +879,7 @@ Unchanged since the previous edition: ${unchanged.join(", ") || "(none)"}`;
     } catch (e) { console.error("tighten pass failed: " + String(e)); }
     enforceBudgets(digest);
   }
+  renameInProse(digest, currentNames(list.sessions || list));
   // OUR clock, always: the model fabricates plausible timestamps (measured:
   // an edition stamped noon that ran at 15:42), and the archive and the
   // read-ledgers key on this value.
