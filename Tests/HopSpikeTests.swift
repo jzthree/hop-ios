@@ -2060,6 +2060,20 @@ final class TerminalReplyTests: XCTestCase {
     /// "I still have trouble opening html in hop view": links copied out of
     /// markdown kept "**" / ")." and the host served its SPA instead of the
     /// file; a loopback view link went to Safari, which cannot reach the Mac.
+    func testNebulaRelay() {
+        let srv = "https://hop.example.io"
+        XCTAssertEqual(nebulaRelayURL("http://localhost:3000/?file=%2Fa%2Fb.ipynb", serverURL: srv)?.absoluteString,
+                       "https://hop.example.io/nebula/3000/?file=%2Fa%2Fb.ipynb")
+        XCTAssertNil(nebulaRelayURL("https://nebula.example.org/x", serverURL: srv))
+        XCTAssertEqual(loopbackOnServer(URL(string: "http://127.0.0.1:8088/view/s/a.html/inline")!, serverURL: srv)?.absoluteString,
+                       "https://hop.example.io/view/s/a.html/inline")
+        XCTAssertNil(loopbackOnServer(URL(string: "https://hop.example.io/view/s/a.html")!, serverURL: srv))
+        let nb = ArtifactItem(session: "s", name: "demo.ipynb.nebula.html", title: "",
+                              path: "/view/s/demo.ipynb.nebula.html/inline", isServer: false, bytes: 0, mtime: 0)
+        XCTAssertTrue(nb.isNebula)
+        XCTAssertEqual(nb.notebookPath, "/view/s/demo.ipynb.nebula.html/notebook")
+    }
+
     func testOwnViewLinks() {
         let server = "https://hop.zhoulab.io"
         XCTAssertEqual(extractLinks(from: "see **https://hop.zhoulab.io/view/o/g.md/inline**"),

@@ -61,6 +61,12 @@ struct ArtifactSheet: View {
     /// A fetched copy of the published FILE, waiting for the Files exporter.
     @State private var exporting: ExportFile?
     @State private var exportError: String?
+    /// A Nebula notebook reads as hop's read-only copy; Run swaps in the
+    /// live one through the relay (hop web's "Open in Nebula").
+    @State private var nebulaLive = false
+    /// The live notebook's address, from the item or (a bare-URL open from a
+    /// terminal link carries none) looked up in the manifest.
+    @State private var nebulaTarget = ""
 
     init(url: URL) { _viewing = State(initialValue: .single(url: url)) }
     init(viewing: ArtifactViewing) { _viewing = State(initialValue: viewing) }
@@ -75,6 +81,10 @@ struct ArtifactSheet: View {
         // component, missed the proxy route, and hit the SPA fallback — the
         // viewer opened the hop WALL instead of the server. The manifest
         // paths are already URL paths; use them as such.
+        if item.isNebula {
+            if nebulaLive, let live = nebulaRelayURL(nebulaTarget, serverURL: viewing.serverURL) { return live }
+            return URL(string: viewing.serverURL + item.notebookPath)
+        }
         let base: URL?
         if viewing.serverURL.isEmpty { base = URL(string: item.path) }
         else { base = URL(string: viewing.serverURL + item.path) }
@@ -152,6 +162,24 @@ struct ArtifactSheet: View {
                 page(v.translation.width < 0 ? 1 : -1)
             }, including: ownsGestures ? .all : .subviews)
 
+            // Under the bar, never over it: drawn last, the failure covered
+            // the whole screen, Back included, and Retry was the only way
+            // out (Jian, on a Nebula notebook). Close is here too.
+            if let loadFailure, !isNativeMedia, !loading {
+                ContentUnavailableView {
+                    Label("Couldn't load this view", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(loadFailure)
+                } actions: {
+                    HStack(spacing: 12) {
+                        Button("Close") { dismiss() }.buttonStyle(.bordered)
+                        Button("Retry") { retry() }.buttonStyle(.borderedProminent)
+                    }
+                }
+                .background(Color.hopSurface)
+                .onAppear { withAnimation { chromeHidden = false } }
+            }
+
             if !chromeHidden {
                 bar
                     .background(GeometryReader { g in
@@ -208,15 +236,6 @@ struct ArtifactSheet: View {
                     try? await Task.sleep(for: .seconds(12))
                     if !Task.isCancelled, loading { withAnimation { slowLoad = true } }
                 }
-            } else if let loadFailure, !isNativeMedia {
-                ContentUnavailableView {
-                    Label("Couldn't load this view", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(loadFailure)
-                } actions: {
-                    Button("Retry") { retry() }.buttonStyle(.bordered)
-                }
-                .background(Color.hopSurface)
             }
         }
         .statusBarHidden(chromeHidden)
@@ -232,7 +251,8 @@ struct ArtifactSheet: View {
         // unread accent clears — on open and on every page (a no-op for a bare
         // single-URL open, which carries no session/name to key on).
         .onAppear { ViewSeen.markItemSeen(item) }
-        .onChange(of: viewing.index) { _, _ in ViewSeen.markItemSeen(item) }
+        .onChange(of: viewing.index) { _, _ in ViewSeen.markItemSeen(item); nebulaLive = false }
+        .task(id: item.path) { await findNebulaTarget() }
     }
 
     /// The pill bar — the terminal's chrome, reused verbatim in shape: black,
@@ -273,6 +293,19 @@ struct ArtifactSheet: View {
                 }
                 .disabled(viewing.index == viewing.items.count - 1)
                 .accessibilityLabel("Next view")
+            }
+            if item.isNebula, nebulaRelayURL(nebulaTarget, serverURL: viewing.serverURL) != nil {
+                Button {
+                    nebulaLive.toggle()
+                    loading = true
+                    loadFailure = nil
+                } label: {
+                    Text(nebulaLive ? "Read-only" : "Run")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).frame(height: 30)
+                        .background(Color.hopLine(0.1), in: Capsule())
+                }
+                .accessibilityLabel(nebulaLive ? "Back to the read-only copy" : "Run it in Nebula")
             }
             // An explicit way to hide the bar. Tapping the content does it
             // for pages and images, but a video's native player takes every
@@ -341,6 +374,22 @@ struct ArtifactSheet: View {
                 .strokeBorder(Color.hopLine(0.06), lineWidth: 0.5)
         )
         .padding(.horizontal, 5)
+    }
+
+    private func findNebulaTarget() async {
+        nebulaTarget = item.linkTarget
+        guard item.isNebula, nebulaTarget.isEmpty,
+              let url = URL(string: viewing.serverURL + "/api/views") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["items"] as? [[String: Any]] else { return }
+        let name = item.name.removingPercentEncoding ?? item.name
+        if let row = raw.first(where: { ($0["name"] as? String) == name
+                                         && (item.session.isEmpty || ($0["session"] as? String) == item.session) }) {
+            nebulaTarget = (row["target"] as? String) ?? ""
+        }
     }
 
     private func retry() {
@@ -597,7 +646,8 @@ struct ArtifactWebView: UIViewRepresentable {
         let c = context.coordinator
         c.onFailure = onFailure
         c.onStage = onStage
-        if c.requested != url || c.retries != retry {
+        if c.asked != url || c.retries != retry {
+            c.asked = url
             c.retries = retry
             c.start(url, in: uiView)
         }
@@ -609,6 +659,9 @@ struct ArtifactWebView: UIViewRepresentable {
         var onFailure: ((String) -> Void)?
         var onStage: ((String) -> Void)?
         var retries = 0
+        /// What the view was given; `requested` can differ when a load was
+        /// rerouted off localhost.
+        var asked: URL?
         private(set) var requested: URL?
         private var fetch: Task<Void, Never>?
         private var watchdog: Task<Void, Never>?
@@ -697,6 +750,22 @@ struct ArtifactWebView: UIViewRepresentable {
                 guard !Task.isCancelled, let self else { return }
                 self.fail("WebKit never started showing the page (stuck at: \(at)).")
             }
+        }
+
+        /// A page that sends the phone to the Mac's localhost (a Nebula
+        /// link's redirect page, a link inside a report) goes to the same
+        /// page through the server instead — on the phone, localhost is
+        /// the phone, and the load died with "Could not connect".
+        func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction,
+                     decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+            guard let to = action.request.url, let requested,
+                  let server = requested.host.map({ "\(requested.scheme ?? "https")://\($0)" + (requested.port.map { ":\($0)" } ?? "") }),
+                  !loopbackHosts.contains(requested.host?.lowercased() ?? ""),
+                  let onServer = loopbackOnServer(to, serverURL: server) else {
+                decisionHandler(.allow); return
+            }
+            decisionHandler(.cancel)
+            if action.targetFrame?.isMainFrame ?? true { start(onServer, in: w) }
         }
 
         func webView(_ w: WKWebView, didStartProvisionalNavigation n: WKNavigation!) { loading = true }
@@ -820,7 +889,21 @@ struct ArtifactItem: Identifiable, Equatable {
     var serverLive: Bool = true
     let bytes: Int
     let mtime: Double
+    /// For a Nebula notebook link (`hop view --nebula`): the live notebook
+    /// on the Mac, e.g. http://localhost:3000/?file=… — the phone reaches it
+    /// only through hop's relay (nebulaRelayURL).
+    var linkTarget: String = ""
     var id: String { path }
+
+    /// A Nebula link. Its /inline is a redirect page to the Mac's localhost,
+    /// which the phone cannot reach ("Could not connect to the server").
+    var isNebula: Bool { name.hasSuffix(".nebula.html") }
+    /// hop's read-only copy of the notebook, drawn by Nebula's own viewer.
+    var notebookPath: String {
+        var p = path
+        if p.hasSuffix("/inline") { p.removeLast("/inline".count) }
+        return p.hasSuffix("/notebook") ? p : p + "/notebook"
+    }
 
     /// Lead with the title: "ROC curve, new model vs baseline" is the reason
     /// to open this; "roc_curve.png" makes you open it to find out.
@@ -1100,18 +1183,7 @@ struct ArtifactsBrowser: View {
             guard let s = o["session"] as? String, let n = o["name"] as? String,
                   let p = o["path"] as? String else { return nil }
             if let only = onlySession, s != only { return nil }
-            let server = (o["kind"] as? String) == "server"
-            // Straight to the proxy for a server: the scan found a redirect
-            // page, and bouncing the reader through it is a visible flash and
-            // a wasted round trip on a phone link.
-            let target = (o["target"] as? String) ?? ""
-            return ArtifactItem(session: s, name: n,
-                                title: (o["title"] as? String) ?? "",
-                                path: server && !target.isEmpty ? target : p,
-                                isServer: server,
-                                serverLive: (o["live"] as? Bool) ?? true,
-                                bytes: (o["bytes"] as? Int) ?? 0,
-                                mtime: (o["mtime"] as? Double) ?? 0)
+            return ArtifactItem(manifest: o, session: s, name: n, path: p)
         }
     }
 }
@@ -1140,7 +1212,47 @@ func isOwnServerLink(_ link: String, serverURL: String) -> Bool {
     ownServerURL(link, serverURL: serverURL) != nil
 }
 
-private let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
+extension ArtifactItem {
+    /// One row of /api/views.
+    init(manifest o: [String: Any], session s: String, name n: String, path p: String) {
+        let server = (o["kind"] as? String) == "server"
+        let link = (o["kind"] as? String) == "link"
+        // Straight to the proxy for a server: the scan found a redirect
+        // page, and bouncing the reader through it is a visible flash and
+        // a wasted round trip on a phone link.
+        let target = (o["target"] as? String) ?? ""
+        self.init(session: s, name: n, title: (o["title"] as? String) ?? "",
+                  path: server && !target.isEmpty ? target : p,
+                  isServer: server,
+                  serverLive: (o["live"] as? Bool) ?? true,
+                  bytes: (o["bytes"] as? Int) ?? 0,
+                  mtime: (o["mtime"] as? Double) ?? 0,
+                  linkTarget: link ? target : "")
+    }
+}
+
+/// A page on the Mac's own localhost, as the phone reaches it: a `/view/`
+/// link onto the server (ownServerURL), anything else through hop's Nebula
+/// relay, /nebula/<port>/… — hop web's nebulaRelayUrl. The host refuses
+/// ports no Nebula link names, with a sentence saying so.
+func loopbackOnServer(_ link: URL, serverURL: String) -> URL? {
+    guard let host = link.host?.lowercased(), loopbackHosts.contains(host),
+          link.scheme == "http" else { return nil }
+    if link.path.hasPrefix("/view/") { return ownServerURL(link.absoluteString, serverURL: serverURL) }
+    return nebulaRelayURL(link.absoluteString, serverURL: serverURL)
+}
+
+func nebulaRelayURL(_ target: String, serverURL: String) -> URL? {
+    guard let t = URLComponents(string: target), t.scheme == "http",
+          let host = t.host?.lowercased(), loopbackHosts.contains(host),
+          var out = URLComponents(string: serverURL) else { return nil }
+    out.path = "/nebula/\(t.port ?? 80)" + (t.path.isEmpty ? "/" : t.path)
+    out.percentEncodedQuery = t.percentEncodedQuery
+    out.percentEncodedFragment = t.percentEncodedFragment
+    return out.url
+}
+
+let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
 
 /// The link as this hop serves it, or nil when it is someone else's. A
 /// `hop view` link on the daemon's loopback address (the CLI prints that

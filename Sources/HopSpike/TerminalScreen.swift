@@ -1320,14 +1320,7 @@ struct TerminalHostView: View {
         sessionViews = raw.compactMap { o in
             guard let s = o["session"] as? String, s == session.internalName,
                   let n = o["name"] as? String, let p = o["path"] as? String else { return nil }
-            let server = (o["kind"] as? String) == "server"
-            let target = (o["target"] as? String) ?? ""
-            return ArtifactItem(session: s, name: n, title: (o["title"] as? String) ?? "",
-                                path: server && !target.isEmpty ? target : p,
-                                isServer: server,
-                                serverLive: (o["live"] as? Bool) ?? true,
-                                bytes: (o["bytes"] as? Int) ?? 0,
-                                mtime: (o["mtime"] as? Double) ?? 0)
+            return ArtifactItem(manifest: o, session: s, name: n, path: p)
         }
         openViewerIfRequested()
     }
