@@ -2139,4 +2139,49 @@ final class TerminalReplyTests: XCTestCase {
         XCTAssertNil(shortModelName(nil))
         XCTAssertNil(shortModelName(""))
     }
+
+    // ── Typing over a selection in the agent's input box (InputBox) ──
+    // Claude's box: "❯" and a no-break space, continuation rows indented two
+    // spaces, between rules; Codex's: "›", ended by a blank row.
+    private let rule = String(repeating: "─", count: 40)
+    private func lines(_ rows: [String]) -> (Int) -> String? { { r in r >= 0 && r < rows.count ? rows[r] : nil } }
+
+    func testInputBoxIsFoundAroundTheCursorOnly() {
+        let l = lines(["● Done.", "", rule, "❯\u{00a0}hello world from hop and a long", "  second line of the draft", rule, "  ⏵⏵ auto mode on"])
+        XCTAssertEqual(InputBox.rows(line: l, cursorRow: 3), BoxRows(start: 3, end: 4))
+        XCTAssertEqual(InputBox.rows(line: l, cursorRow: 4), BoxRows(start: 3, end: 4))
+        XCTAssertNil(InputBox.rows(line: l, cursorRow: 0))
+        XCTAssertNil(InputBox.rows(line: l, cursorRow: 6))
+        let codex = lines(["• Ran tests", "", "› send the report", "", "  model · ~"])
+        XCTAssertEqual(InputBox.rows(line: codex, cursorRow: 2), BoxRows(start: 2, end: 2))
+    }
+
+    func testSelectedCharactersSkipThePromptAndCountARowBreakAsOne() {
+        let l = lines(["", "", "", "❯\u{00a0}hello world from hop and a long", "  second line of the draft"])
+        let box = BoxRows(start: 3, end: 4)
+        XCTAssertEqual(InputBox.selectedCharCount(line: l, sel: BoxSelection(startRow: 3, startCol: 8, endRow: 3, endCol: 13), box: box, cols: 80), 5, "world")
+        XCTAssertEqual(InputBox.selectedCharCount(line: l, sel: BoxSelection(startRow: 3, startCol: 0, endRow: 3, endCol: 7), box: box, cols: 80), 5, "the glyph and its space are not text")
+        XCTAssertEqual(InputBox.selectedCharCount(line: l, sel: BoxSelection(startRow: 3, startCol: 29, endRow: 4, endCol: 8), box: box, cols: 80), 11, "long + break + second")
+        let full = lines(["❯ " + String(repeating: "x", count: 38), "  yy"])
+        XCTAssertEqual(InputBox.selectedCharCount(line: full, sel: BoxSelection(startRow: 0, startCol: 38, endRow: 1, endCol: 4), box: BoxRows(start: 0, end: 1), cols: 40), 4, "a row cut at the edge has no character at the break")
+        let t = InputBox.targetAfter(line: l, sel: BoxSelection(startRow: 3, startCol: 8, endRow: 3, endCol: 13), box: box)
+        XCTAssertEqual(t.row, 3); XCTAssertEqual(t.col, 13)
+        XCTAssertFalse(InputBox.selectionInBox(BoxSelection(startRow: 0, startCol: 0, endRow: 3, endCol: 7), box))
+        XCTAssertTrue(InputBox.hasWideChars("改成中文"))
+        XCTAssertTrue(InputBox.hasWideChars("ship it 🚀"))
+        XCTAssertFalse(InputBox.hasWideChars("café — ok"))
+    }
+
+    /// SwiftTerm keeps the selection's position internal; hop reads it by
+    /// reflection. If SwiftTerm changes shape this fails here, not silently
+    /// on a phone.
+    @MainActor func testSelectionBoundsAreReadOffTheTerminalView() {
+        let view = TerminalView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        view.getTerminal().feed(text: "hello world from hop\r\n")
+        view.setSelectionRange(start: Position(col: 6, row: 0), end: Position(col: 11, row: 0))
+        let b = InputBox.selectionBounds(of: view)
+        XCTAssertNotNil(b)
+        XCTAssertEqual(b?.start, Position(col: 6, row: 0))
+        XCTAssertEqual(b?.end, Position(col: 11, row: 0))
+    }
 }

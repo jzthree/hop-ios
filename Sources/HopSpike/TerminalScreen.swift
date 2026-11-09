@@ -3828,7 +3828,75 @@ struct TerminalScreen: UIViewRepresentable {
             }
         }
 
+        // ── Typing over a selection made inside the agent's input box
+        // (InputBox): the keystroke replaces it, as in a text field. Keys
+        // typed while that is under way wait and follow it in order.
+        private var boxEditQueue: [String]?
+
+        /// True when this keystroke replaced a selection in the input box.
+        private func replaceBoxSelection(with raw: String) -> Bool {
+            guard let v = view, v.selectionActive, v.historyAnchor == nil else { return false }
+            let deleteOnly = raw == "\u{7f}" || raw == "\u{8}"
+            let isPaste = raw.hasPrefix("\u{1b}[200~")
+            // Arrows, returns and control keys are not text: they just act.
+            if !deleteOnly && !isPaste && raw.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) { return false }
+            guard let bounds = InputBox.selectionBounds(of: v) else { return false }
+            let t = v.getTerminal()
+            let line: (Int) -> String? = { r in t.getLine(row: r)?.translateToString(trimRight: true) }
+            // At the live edge the screen's first row is the scroll offset.
+            let cursorRow = t.buffer.yDisp + t.buffer.y
+            guard let box = InputBox.rows(line: line, cursorRow: cursorRow) else { return false }
+            let sel = BoxSelection(startRow: bounds.start.row, startCol: bounds.start.col,
+                                   endRow: bounds.end.row, endCol: bounds.end.col)
+            guard InputBox.selectionInBox(sel, box) else { return false }
+            for r in box.start...box.end where InputBox.hasWideChars(line(r) ?? "") { return false }
+            let n = InputBox.selectedCharCount(line: line, sel: sel, box: box, cols: t.cols)
+            guard n > 0 else { return false }
+            let target = InputBox.targetAfter(line: line, sel: sel, box: box)
+            let vrow = target.row - t.buffer.yDisp
+            guard vrow >= 0, vrow < t.rows else { return false }
+            // The cursor goes right after the selection: a click where the app
+            // reads the mouse (Claude and Codex move their cursor on one), else
+            // the arrow walk taps already use.
+            let move: String
+            if v.remoteTakesMouse {
+                move = clickSequence(col: target.col + 1, row: vrow + 1)
+            } else if let walk = cursorWalk(fromRow: t.buffer.y, fromCol: t.buffer.x, toRow: vrow, toCol: target.col,
+                                            targetLineLength: (line(target.row) ?? "").count) {
+                move = walk
+            } else {
+                return false
+            }
+            v.selectNone()
+            boxEditQueue = []
+            scrollInput(move)
+            let started = Date()
+            let finish: (Bool) -> Void = { [weak self] landed in
+                guard let self else { return }
+                let held = self.boxEditQueue ?? []
+                self.boxEditQueue = nil
+                if landed {
+                    self.deliver(String(repeating: "\u{7f}", count: n))
+                    if !deleteOnly { self.deliver(raw) }
+                } else {
+                    // Nothing is deleted unless the cursor is where it should be.
+                    self.onToast("Couldn't put the cursor at the selection, so nothing was replaced")
+                }
+                for h in held { self.typedText(h) }
+            }
+            func check() {
+                if t.buffer.yDisp + t.buffer.y == target.row && t.buffer.x == target.col { finish(true); return }
+                if Date().timeIntervalSince(started) > 2.5 { finish(false); return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { check() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { check() }
+            return true
+        }
+
         func typedText(_ raw: String) {
+            // A replace in the input box is under way: this follows it.
+            if boxEditQueue != nil { boxEditQueue?.append(raw); return }
+            if !shiftArmed && !ctrlArmed && !altArmed && !cmdArmed, replaceBoxSelection(with: raw) { return }
             // ⇧ + return: the Mac's newline-without-submit (the ⇧⏎ key is the
             // same thing in one tap).
             if shiftArmed, raw == "\r" || raw == "\n" {
