@@ -921,10 +921,12 @@ final class HopSpikeTests: XCTestCase {
         let fork = await model.forkSession(src.internalName)
         XCTAssertNotNil(fork, "fork refused: \(model.actionError ?? "no error")")
         guard let fork else { return }
-        XCTAssertTrue(fork.hasSuffix("-fork") || fork.contains("-fork"),
-                      "fork name unexpected: \(fork)")
+        // The daemon mints an opaque internal id for a fork (s_…); its
+        // DISPLAY name says what it is.
         let made = model.sessions.first { $0.internalName == fork }
         XCTAssertNotNil(made, "fork not in the refreshed list")
+        XCTAssertTrue(made?.name.contains("\(scratch)-fork") == true,
+                      "fork name unexpected: \(made?.name ?? fork)")
         XCTAssertEqual(made?.cwd, "/tmp", "fork must inherit the source cwd")
     }
 
@@ -2135,6 +2137,8 @@ final class TerminalReplyTests: XCTestCase {
         XCTAssertEqual(shortModelName("claude-opus-5-5[1m]"), "opus")
         XCTAssertEqual(shortModelName("gpt-6-astra"), "astra")
         XCTAssertEqual(shortModelName("gpt-6.1-sol"), "sol")
+        XCTAssertEqual(shortModelName("Gemini 4 Carbon (Medium)"), "carbon")
+        XCTAssertEqual(shortModelName("gemini-4-carbon"), "carbon")
         XCTAssertEqual(shortModelName("o3"), "o3")
         XCTAssertNil(shortModelName(nil))
         XCTAssertNil(shortModelName(""))

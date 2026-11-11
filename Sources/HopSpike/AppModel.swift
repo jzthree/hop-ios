@@ -1726,5 +1726,9 @@ func shortModelName(_ model: String?) -> String? {
        let dash = m.range(of: #"^gpt-[\d.]+-"#, options: .regularExpression) {
         return String(m[dash.upperBound...])
     }
+    // Antigravity's: "Gemini 4 Carbon (Medium)" (as agy names it) or gemini-4-carbon → "carbon".
+    if let r = m.range(of: #"^gemini[- ][\d.]+[- ][a-z]+"#, options: .regularExpression) {
+        return String(m[r]).components(separatedBy: CharacterSet(charactersIn: " -")).last
+    }
     return m.hasPrefix("claude-") ? String(m.dropFirst(7)) : m
 }

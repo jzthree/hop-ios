@@ -234,9 +234,9 @@ struct SessionsView: View {
                 }
             }
         } label: { Label("Fork session", systemImage: "arrow.triangle.branch") }
-        // Both, always — into the same tool it is a fresh session that reads
-        // the condensed trajectory (see AppModel.forkSession's condense).
-        ForEach(["codex", "claude"], id: \.self) { target in
+        // Every agent CLI, always — into the same tool it is a fresh session
+        // that reads the condensed trajectory (see AppModel.forkSession's condense).
+        ForEach(["claude", "codex", "antigravity"], id: \.self) { target in
             Button {
                 Task {
                     if let fork = await model.forkSession(session.internalName, target: target) {
@@ -244,7 +244,7 @@ struct SessionsView: View {
                     }
                 }
             } label: {
-                let tool = target == "codex" ? "Codex" : "Claude"
+                let tool = target == "codex" ? "Codex" : target == "antigravity" ? "Antigravity" : "Claude"
                 Label(session.agentApp == target ? "Continue in fresh \(tool)…" : "Continue in \(tool)…",
                       systemImage: "arrow.right.doc.on.clipboard")
             }
