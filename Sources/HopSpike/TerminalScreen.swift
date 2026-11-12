@@ -6280,6 +6280,28 @@ final class HopTermView: TerminalView {
         }
     }
 
+    /// SwiftUI places this view by setting `frame`, and UIKit reads a frame
+    /// set under a transform as the TRANSFORMED rectangle: it moves the
+    /// centre so that the shifted view lands there. The letterbox/chrome
+    /// shift is exactly such a transform. In the background iOS lays the
+    /// view out at full height (no keyboard), the short grid letterboxes
+    /// 150–180pt down, SwiftUI resizes the view for the keyboard on return
+    /// under that transform, and when the shift goes back to zero the view
+    /// sits that far ABOVE the screen — the top rows hidden, an empty band
+    /// over the keyboard (Jian, 2026-11-11: "incorrect session size after
+    /// returning from another app"; trace: shift 183 → topInWindow -121).
+    /// Lay the frame out untransformed, then put the shift back.
+    override var frame: CGRect {
+        get { super.frame }
+        set {
+            let shift = transform
+            guard shift != .identity else { super.frame = newValue; return }
+            super.transform = .identity
+            super.frame = newValue
+            super.transform = shift
+        }
+    }
+
     /// Never take the keyboard while the screen is still sliding. Since iOS
     /// 26 every push runs as an interruptible transition, and UIKit hands
     /// the incoming screen's first responder the keyboard INSIDE it; the
