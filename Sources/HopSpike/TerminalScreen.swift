@@ -6280,6 +6280,36 @@ final class HopTermView: TerminalView {
         }
     }
 
+    /// Never take the keyboard while the screen is still sliding. Since iOS
+    /// 26 every push runs as an interruptible transition, and UIKit hands
+    /// the incoming screen's first responder the keyboard INSIDE it; the
+    /// keyboard's animation then hid the navigation bar alongside the push
+    /// and UIKit trapped in layout — build 406 on iOS 27.2 crashed three
+    /// times running, opening a session from search with the keyboard up
+    /// (Jian, 2026-11-11). Wait for the transition, then take it.
+    private var focusAfterTransition = false
+    override func becomeFirstResponder() -> Bool {
+        if !isFirstResponder, let coordinator = owningController?.navigationController?.transitionCoordinator
+            ?? owningController?.transitionCoordinator {
+            if !focusAfterTransition {
+                focusAfterTransition = true
+                coordinator.animate(alongsideTransition: nil) { [weak self] ctx in
+                    guard let self else { return }
+                    self.focusAfterTransition = false
+                    if !ctx.isCancelled, self.window != nil { _ = self.becomeFirstResponder() }
+                }
+            }
+            return false
+        }
+        return super.becomeFirstResponder()
+    }
+
+    private var owningController: UIViewController? {
+        var r: UIResponder? = next
+        while let x = r { if let vc = x as? UIViewController { return vc }; r = x.next }
+        return nil
+    }
+
     deinit {
         // A UIView deinits on the main thread in practice; assumeIsolated
         // makes that a CHECKED fact instead of an unspoken one, and gives
