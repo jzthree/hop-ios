@@ -2018,27 +2018,6 @@ final class TerminalReplyTests: XCTestCase {
     }
 
     /// Same answers as hop web's shortModelName — the chip says the model.
-    /// hop web's catchUp tests: questions before unread turns, newest first,
-    /// never the one on screen, parked, a port or one already visited.
-    func testCatchUpOrder() {
-        let seen = ["ask": 1]
-        func session(_ j: [String: Any], seen: [String: Int] = [:]) -> HopSession { HopSession(json: j, seenBellSeq: seen)! }
-        let list = [
-            session(["name": "old-done", "agentPhase": "done", "turnSeen": false, "lastActivityAt": 100]),
-            session(["name": "new-done", "agentPhase": "done", "turnSeen": false, "lastActivityAt": 300]),
-            session(["name": "read", "agentPhase": "done", "turnSeen": true, "lastActivityAt": 900]),
-            session(["name": "ask", "bellSeq": 2, "lastActivityAt": 50], seen: seen),
-            session(["name": "parked", "agentPhase": "done", "turnSeen": false, "parked": true, "lastActivityAt": 999]),
-            session(["name": "agent", "agentPhase": "done", "turnSeen": false, "createdBy": "agent", "lastActivityAt": 950]),
-        ]
-        XCTAssertEqual(nextSessionWithNews(list, current: nil, scope: .user)?.name, "ask")
-        XCTAssertEqual(nextSessionWithNews(list, current: "ask", scope: .user)?.name, "new-done")
-        XCTAssertEqual(nextSessionWithNews(list, current: "ask", scope: .user, skip: ["new-done"])?.name, "old-done")
-        XCTAssertNil(nextSessionWithNews(list, current: "ask", scope: .user, skip: ["new-done", "old-done"]))
-        XCTAssertEqual(nextSessionWithNews(list, current: "ask", scope: .all)?.name, "agent")
-        XCTAssertEqual(newsCount(list, current: nil, scope: .user), 3)
-    }
-
     /// The calendar's arithmetic (hop web's calendar.test.ts): a repeat sits
     /// on every occurrence in range, a frequent one is a band, `until` ends it.
     func testCheckbackOccurrences() {

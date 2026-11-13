@@ -861,27 +861,13 @@ struct SessionsView: View {
                 .accessibilityHidden(true)          // decoration, not a control
         }
         // The summary IS the title: "hop" said nothing while a whole row
-        // below said the useful thing over blank space. Tappable when a
-        // session wants you — same contract the old footer row carried.
+        // below said the useful thing over blank space. Not a button: catch
+        // up (open the next session with news) went — with this many
+        // sessions, in an order you cannot steer, it was no help (Jian).
         ToolbarItem(placement: .principal) {
-            if newsCount(model.sessions, current: nil, scope: scope) > 0 {
-                Button { openWanting() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sparkle").font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color.hopSpark)
-                        summaryText
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(wanting > 0 ? Color.hopAttention : Color.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Catch up: opens the next session with news")
-                .accessibilityIdentifier("catch-up")
-            } else {
-                summaryText
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+            summaryText
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(wanting > 0 ? Color.hopAttention : Color.secondary)
         }
         // Scope as a dropdown, not a row: You/Agents/All spent a full row of
         // the screen on a choice made once in a while. A Picker inside a Menu
@@ -1292,15 +1278,6 @@ struct SessionsView: View {
         let found = await model.searchContent(query)
         guard !Task.isCancelled else { return }
         contentMatches = found
-    }
-
-    /// The bell, answered from the summary line: open the first session that
-    /// wants attention, fleet-wide — deliberately ignoring scope and filter,
-    /// which are exactly what can be hiding it.
-    /// Catch up from the wall (hop web's ⌘G): a question first, fleet-wide,
-    /// then the newest finished turn you have not read.
-    private func openWanting() {
-        CatchUpRun.advance(model, from: nil)   // lands via requestedSession
     }
 
     private func startRename(_ session: HopSession) {
