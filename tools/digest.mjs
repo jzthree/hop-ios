@@ -197,6 +197,19 @@ const transcriptPathFor = (internalName) => {
   } catch { return null; }
 };
 
+/// A fork is a new session: { from, atMs } when hop forked this one from
+/// another (a claude fork's transcript opens with a copy of its source's
+/// whole conversation, at the source's times — that is the source's story,
+/// not this session's), else null.
+export const forkOf = (internalName) => {
+  try {
+    const meta = JSON.parse(fs.readFileSync(
+      path.join(os.homedir(), ".hop2/claude-sessions", `${internalName}.meta`), "utf8"));
+    const atMs = Date.parse(meta?.forkedAt || "");
+    return meta?.forkedFrom && Number.isFinite(atMs) ? { from: String(meta.forkedFrom), atMs } : null;
+  } catch { return null; }
+};
+
 const textOf = (content) => {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -206,9 +219,15 @@ const textOf = (content) => {
   return "";
 };
 
+/// Where "what the reader has not seen" starts: their last look, at most a
+/// day back — and for a fork, never before the fork: the lines before it are
+/// its source's, told under the source.
+export const unseenSince = (lastSeenMs, forkedAtMs, now = Date.now()) =>
+  Math.max(lastSeenMs || 0, now - UNSEEN_MAX_WINDOW_MS, forkedAtMs || 0);
+
 /// The conversation since `sinceMs`, newest-biased, budgeted. Times are
 /// clock-only (HH:MM) — the reader knows what day it is.
-const unseenTranscript = (internalName, sinceMs, budget) => {
+export const unseenTranscript = (internalName, sinceMs, budget) => {
   const file = transcriptPathFor(internalName);
   if (!file) return null;
   let raw;
@@ -434,10 +453,15 @@ const main = async () => {
       screen = screen.replace(composer.suggestion,
         `«greyed-out autocomplete suggestion, NOT entered by anyone: ${composer.suggestion}»`);
     }
+    const fork = forkOf(s.internalName);
+    const source = fork && (sessions.find((x) => x.internalName === fork.from) || (list.sessions || list).find((x) => x.internalName === fork.from));
     seen.push({
       session: s.internalName,
       name: s.displayName || s.name,
       about: s.tagline || "",
+      ...(fork ? { new_session_forked_from: source?.displayName || source?.name || fork.from,
+                   forked_seconds_ago: Math.round((Date.now() - fork.atMs) / 1000) } : {}),
+      _forkedAtMs: fork?.atMs || 0,
       wants_you: !!s.attention,
       idle_seconds: s.lastActivityAt
         ? Math.round(Date.now() / 1000 - s.lastActivityAt) : null,
@@ -520,14 +544,14 @@ const main = async () => {
   for (const s of byRecency) {
     if (s.user_is_looking_now) continue;
     if (unseenBudget <= 0) { s.unseen_since_user_looked = "«omitted: unseen budget exhausted this edition»"; continue; }
-    const since = Math.max(s._lastSeenMs, Date.now() - UNSEEN_MAX_WINDOW_MS);
+    const since = unseenSince(s._lastSeenMs, s._forkedAtMs);
     const extract = unseenTranscript(s.session, since, Math.min(UNSEEN_PER_SESSION_BYTES, unseenBudget));
     if (extract) {
       s.unseen_since_user_looked = extract;
       unseenBudget -= extract.length;
     }
   }
-  for (const s of seen) { delete s._lastSeenMs; delete s._turnAtMs; delete s._askAtMs; delete s._viewAtMs; delete s._phase; }
+  for (const s of seen) { delete s._lastSeenMs; delete s._turnAtMs; delete s._askAtMs; delete s._viewAtMs; delete s._phase; delete s._forkedAtMs; }
   // Always, not only under DIGEST_DEBUG: "why did the briefing skip X" is
   // answered by this line, and a run that logs only its item count cannot.
   console.log(`[${new Date().toISOString().slice(0, 16)}] changed=${changed.map((s) => s.name).join(",") || "-"}`
@@ -700,6 +724,11 @@ opens a session, and each session below carries that state:
   else. Weight stories by what the reader has not seen, not by what is
   currently on glass — and if they have been away from a session for a day,
   assume they know nothing past their last look.
+- \`new_session_forked_from\` (with \`forked_seconds_ago\`): a NEW session,
+  forked or continued from that one. Its screen may still show the source's
+  conversation, which is the source's story and told under the source, never
+  again here. Report only what happened in it since the fork; with nothing
+  yet, it is at most a name in passing.
 
 WHAT THE READER IS WORKING ON. Each session also says how much of the
 reader's OWN effort has gone into it lately — the turns they typed

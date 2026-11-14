@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { currentNames, renameText, renameInProse, engagementFrom, engagementScore, normalizeSlots, budgetViolations, enforceBudgets, applyTightened, trimWords, wordCount, BUDGET } from "./digest.mjs";
+import { currentNames, renameText, renameInProse, engagementFrom, engagementScore, normalizeSlots, budgetViolations, enforceBudgets, applyTightened, trimWords, wordCount, BUDGET, forkOf, unseenSince, unseenTranscript } from "./digest.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const H = 3600 * 1000;
 
@@ -86,4 +89,44 @@ test("the prose uses the reader's names: ids and born-with names become current 
   ] }, names);
   assert.equal(d.summary, "nebula first.");
   assert.deepEqual(d.items[0], { session: "Meridian", headline: "nebula ships", why: "Ask hop.", recommendation: "Tell nebula", replies: ["Meridian ok"] });
+});
+
+test("a fork is a new session: what the briefing reads of it starts at the fork, not in its source's copied history", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "digest-fork-"));
+  const realHome = process.env.HOME;
+  process.env.HOME = home;   // os.homedir() reads it on every call
+  try {
+    const now = Date.now();
+    const forkedAt = now - 10 * 60 * 1000;
+    const cwd = path.join(home, "proj");
+    const sessions = path.join(home, ".hop2/claude-sessions");
+    const projects = path.join(home, ".claude/projects", cwd.replace(/[^A-Za-z0-9]/g, "-"));
+    fs.mkdirSync(sessions, { recursive: true });
+    fs.mkdirSync(projects, { recursive: true });
+    fs.writeFileSync(path.join(sessions, "s_fork.json"), JSON.stringify({ sessionId: "fork-id", cwd }));
+    fs.writeFileSync(path.join(sessions, "s_fork.meta"), JSON.stringify({ internalName: "s_fork", forkedFrom: "s_src", forkedAt: new Date(forkedAt).toISOString() }));
+    fs.writeFileSync(path.join(sessions, "s_plain.meta"), JSON.stringify({ internalName: "s_plain" }));
+    const line = (role, text, at) => JSON.stringify({ type: role, timestamp: new Date(at).toISOString(), message: { content: text } });
+    // What claude's --fork-session writes: the source's lines at the source's times, then its own.
+    fs.writeFileSync(path.join(projects, "fork-id.jsonl"), [
+      line("assistant", "the source finished the sweep", now - 2 * H),
+      line("user", "now try the smaller model", now - 5 * 60 * 1000),
+      line("assistant", "started the small-model run", now - 4 * 60 * 1000)
+    ].join("\n") + "\n");
+
+    assert.deepEqual(forkOf("s_fork"), { from: "s_src", atMs: forkedAt });
+    assert.equal(forkOf("s_plain"), null);
+    assert.equal(forkOf("s_missing"), null);
+    // Never seen: the last day — but not before the fork.
+    assert.equal(unseenSince(0, forkedAt, now), forkedAt);
+    assert.equal(unseenSince(0, 0, now), now - 24 * H);
+    assert.equal(unseenSince(now - 60 * 1000, forkedAt, now), now - 60 * 1000);
+    const text = unseenTranscript("s_fork", unseenSince(0, forkedAt, now), 8000);
+    assert.doesNotMatch(text, /source finished the sweep/);
+    assert.match(text, /user: now try the smaller model/);
+    assert.match(text, /agent: started the small-model run/);
+  } finally {
+    process.env.HOME = realHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
